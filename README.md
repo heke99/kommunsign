@@ -52,6 +52,18 @@ Migrationer och synkkommandon finns i:
 - `docs/operations/local-development.md`
 - `docs/operations/synchronization.md`
 
+## Publik webbplats och Vercel
+
+Den publika KommunSign-webbplatsen är Vercel-förberedd och ligger under `apps/public-website/public`.
+
+```bash
+npm run web:dev       # lokal utveckling på http://localhost:3000
+npm run web:build     # bygger till build/public-site
+npm run web:preview   # bygger och visar produktionsutdata lokalt
+```
+
+Deployinstruktioner finns i `docs/operations/vercel-deployment.md`. `vercel.json` deployar endast marknadswebbplatsen; API, portaler, workers och Java-tjänster ska ligga i separata driftprojekt.
+
 ## Repository
 
 - `apps/` – API, workers och portalgrund.

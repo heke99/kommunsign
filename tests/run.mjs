@@ -266,6 +266,17 @@ test('database hardening migration includes lease recovery and same-case guards'
   assert.match(immutability, /require_trusted_cryptographic_service/);
 });
 
+test('public website is Vercel-buildable and does not overstate production status', async () => {
+  const html = await readFile('apps/public-website/public/index.html', 'utf8');
+  const config = JSON.parse(await readFile('vercel.json', 'utf8'));
+  assert.match(html, /Pilotplattform under utveckling/);
+  assert.match(html, /KommunSign/);
+  assert.doesNotMatch(html, /\sstyle=/);
+  assert.equal(config.buildCommand, 'npm run web:build');
+  assert.equal(config.outputDirectory, 'build/public-site');
+  assert.ok(config.headers.some((entry) => entry.headers?.some((header) => header.key === 'Content-Security-Policy')));
+});
+
 test('provenance gate pins donors and reports zero unverified imports', async () => {
   const report = await verifyProvenance('.');
   assert.equal(report.sources.length, 8);

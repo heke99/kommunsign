@@ -9,7 +9,8 @@ const required = [
   'upstream/manifests/source-inventory.yaml','upstream/manifests/reuse-map.json',
   'upstream/permissions/PERMISSION_EVIDENCE_REQUIRED.md','docker-compose.yml','.github/workflows/ci.yml',
   'apps/api/server.mjs','infrastructure/docker/api.Dockerfile','SBOM.cdx.json','PROVENANCE_REPORT.txt',
-  'docs/operations/synchronization.md','docs/architecture/review-2026-08-02.md',
+  'docs/operations/synchronization.md','docs/operations/vercel-deployment.md','docs/architecture/review-2026-08-02.md',
+  'vercel.json','apps/public-website/public/index.html','apps/public-website/public/app.css','scripts/build-public-site.mjs',
 ];
 for (const path of required) await access(path);
 
@@ -55,4 +56,12 @@ if (!dockerfile.includes('npm ci --ignore-scripts') || !dockerfile.includes('app
 const kubernetes = await readFile('infrastructure/kubernetes/base/api-deployment.yaml', 'utf8');
 if (/:latest\b/.test(kubernetes)) throw new Error('Production manifests may not use latest tags');
 if (!kubernetes.includes('registry.invalid/')) throw new Error('Provider-neutral manifest must remain fail-closed until release digest injection');
+
+const vercelConfig = JSON.parse(await readFile('vercel.json', 'utf8'));
+if (vercelConfig.buildCommand !== 'npm run web:build') throw new Error('Vercel must use the isolated public website build');
+if (vercelConfig.outputDirectory !== 'build/public-site') throw new Error('Vercel output directory is incorrect');
+const website = await readFile('apps/public-website/public/index.html', 'utf8');
+if (!website.includes('Pilotplattform under utveckling')) throw new Error('Public website must not imply production readiness');
+if (/\sstyle=/.test(website) || /<script(?![^>]*\ssrc=)/.test(website)) throw new Error('Public website must remain compatible with strict CSP');
+
 console.log('repository verification: OK');

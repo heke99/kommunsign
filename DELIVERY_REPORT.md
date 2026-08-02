@@ -20,6 +20,7 @@ Statusdatum: 2026-08-02.
 - Java boundaries som vägrar påstå PAdES/validation utan riktig konfiguration.
 - Offline verifier-CLI, evidence manifest, CI, SBOM-generator, hemlighetsskanning och migrationskontroll.
 - Exakta pins för åtta donorprojekt och verklig 85-procents-/permission-evidence-grind.
+- Publik, responsiv och Vercel-förberedd KommunSign-webbplats med säkerhetsheaders, SEO-filer och separata informationssidor.
 
 ## VERIFIERAT LOKALT
 
@@ -27,7 +28,9 @@ Statusdatum: 2026-08-02.
 - Repository- och migrationsstruktur.
 - Proveniensgrind: 0 donor-LOC, åtta pins, 0 mapped imports.
 - Java 21-kompilering och Freja JWS self-test.
-- 18 kärntester för crypto, tenant, policy/evidence, TIC, API, audit, worker, databasregler och proveniens.
+- 19 kärntester för crypto, tenant, policy/evidence, TIC, API, audit, worker, databasregler, publik webb och proveniens.
+- Publik webbbuild: 6 HTML-sidor, intern länkkontroll och strikt CSP-kompatibilitet.
+- Lokal HTTP-kontroll av samtliga publika sidor, statiska resurser och 404.
 - API shell: liveness 200 och readiness 503 tills riktiga dependencies har konfigurerats.
 
 ## KRÄVER EXTERNT AVTAL
@@ -53,7 +56,7 @@ Statusdatum: 2026-08-02.
 - SQL-migrationerna kunde inte integrationstestas mot live PostgreSQL i denna körmiljö.
 - PAdES/DSS/Sweden Connect är ännu inte verkliga integrationer.
 - Bara create/list/get/send/cancel är runtimeimplementerade API-operationer.
-- Portalerna är grundskal, inte kompletta verksamhetsgränssnitt.
+- Marknadswebbplatsen är färdig för Vercel-preview, men portalerna är grundskal och inte kompletta verksamhetsgränssnitt.
 - Entra ID/SCIM, custom-domain-provisionering, notifieringar, e-arkiv och connectors återstår.
 - Penetrationstest, lasttest, återställningstest, WCAG-audit och DPIA krävs före pilot.
 

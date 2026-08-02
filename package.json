@@ -24,7 +24,11 @@
     "provenance:report": "node scripts/provenance-report.mjs",
     "verify:migrations": "node scripts/check-sql-migrations.mjs",
     "scan:secrets": "node scripts/scan-secrets.mjs",
-    "sbom": "node scripts/generate-sbom.mjs"
+    "sbom": "node scripts/generate-sbom.mjs",
+    "web:build": "node scripts/build-public-site.mjs",
+    "web:dev": "node scripts/serve-static.mjs apps/public-website/public 3000",
+    "web:preview": "npm run web:build && node scripts/serve-static.mjs build/public-site 3000",
+    "vercel-build": "npm run web:build"
   },
   "packageManager": "npm@10.9.2",
   "devDependencies": {

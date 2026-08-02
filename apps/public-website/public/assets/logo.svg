@@ -1,0 +1,8 @@
+<svg width="176" height="36" viewBox="0 0 176 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">KommunSign</title>
+  <desc id="desc">KommunSign logotyp</desc>
+  <rect width="36" height="36" rx="10" fill="#0B4D3C"/>
+  <path d="M10.5 9.5V26.5M10.5 18L18.2 10.3M10.5 18L18.2 25.7" stroke="white" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M20.2 12.4H25.7M20.2 18H25.7M20.2 23.6H25.7" stroke="#B9F6D0" stroke-width="2.2" stroke-linecap="round"/>
+  <text x="48" y="24" fill="#10231E" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="760" letter-spacing="-0.5">KommunSign</text>
+</svg>
