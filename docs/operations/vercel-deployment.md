@@ -53,7 +53,7 @@ vercel deploy --prod
 2. Skapa ett nytt Vercel-projekt och importera repositoryt.
 3. Låt **Root Directory** vara repositoryts rot.
 4. Vercel läser `vercel.json`; skriv inte över Build Command eller Output Directory i dashboarden.
-5. Deploya en preview och verifiera sidorna `/`, `/sakerhet/`, `/integritet/`, `/tillganglighet/` och `/kontakt/`.
+5. Deploya en preview och verifiera sidorna `/`, `/ansok/`, `/sakerhet/`, `/integritet/`, `/tillganglighet/` och `/kontakt/`.
 
 Varje push till en branch skapar därefter en preview. Produktion bör kopplas till `main`.
 
@@ -90,6 +90,7 @@ Kontrollera även i webbläsaren:
 
 Denna Vercel-deploy gäller endast marknadswebbplatsen. Följande ska ligga i separata driftprojekt:
 
+- onboardingportal (`apply.kommunsign.se`),
 - tenantportal,
 - signeringsportal,
 - plattformsadmin,

@@ -10,9 +10,10 @@ const required = [
   'upstream/permissions/PERMISSION_EVIDENCE_REQUIRED.md','docker-compose.yml','.github/workflows/ci.yml',
   'apps/api/server.mjs','infrastructure/docker/api.Dockerfile','SBOM.cdx.json','PROVENANCE_REPORT.txt',
   'docs/operations/synchronization.md','docs/operations/vercel-deployment.md','docs/architecture/review-2026-08-02.md',
-  'docs/architecture/current-state-verified.md','docs/architecture/remaining-implementation-plan.md','docs/verification/requirements-traceability.md',
+  'docs/architecture/current-state-verified.md','docs/architecture/target-architecture.md','docs/architecture/remaining-implementation-plan.md','docs/architecture/onboarding-architecture.md','docs/verification/requirements-traceability.md','docs/verification/production-readiness.md',
   'vercel.json','apps/public-website/public/index.html','apps/public-website/public/app.css','scripts/build-public-site.mjs','scripts/build-portals.mjs',
-  'apps/tenant-portal/public/app.js','apps/platform-admin/public/app.js','apps/signer-portal/public/app.js','apps/verification-portal/public/app.js',
+  'apps/onboarding-portal/public/index.html','apps/onboarding-portal/public/app.js','apps/tenant-portal/public/app.js','apps/platform-admin/public/app.js','apps/signer-portal/public/app.js','apps/verification-portal/public/app.js',
+  'migrations/control/0006_onboarding_and_activation.sql','tests/sql/onboarding-control.sql','apps/api/src/onboarding-router.ts','apps/api/src/production-runtime.ts','apps/workers/src/production-runner.ts','packages/onboarding/src/index.ts','packages/readiness/src/index.ts',
   'packages/auth/src/index.ts','packages/branding/src/index.ts','packages/custom-domains/src/index.ts','packages/invitations/src/index.ts','packages/uploads/src/index.ts',
   'sdks/typescript/src/client.ts','sdks/csharp/src/KommunSignClient.cs','sdks/java/src/main/java/se/kommunsign/sdk/KommunSignClient.java','scripts/verify-sdk-sync.mjs',
 ];
@@ -35,6 +36,10 @@ await walk('.');
 
 const rls = await readFile('migrations/data/0005_rls.sql', 'utf8');
 if (!rls.includes('FORCE ROW LEVEL SECURITY')) throw new Error('RLS migration must force row level security');
+const databaseWrapper = await readFile('packages/database/src/index.ts', 'utf8');
+for (const setting of ['app.tenant_id','app.actor_id','app.request_id','app.auth_method']) {
+  if (!databaseWrapper.includes(setting)) throw new Error(`Tenant transaction wrapper lacks ${setting}`);
+}
 const core = await readFile('migrations/data/0002_core_tables.sql', 'utf8');
 if (!core.includes('FOREIGN KEY (tenant_id,')) throw new Error('Composite tenant foreign keys missing');
 const hardening = await readFile('migrations/data/0009_integrity_and_worker_recovery.sql', 'utf8');
@@ -46,11 +51,32 @@ for (const marker of ['protect_document_version_binding','protect_case_policy_sn
   if (!immutability.includes(marker)) throw new Error(`Immutability migration lacks ${marker}`);
 }
 
+
+const onboardingMigration = await readFile('migrations/control/0006_onboarding_and_activation.sql', 'utf8');
+for (const marker of ['next_onboarding_application_reference','guard_onboarding_application_update','prevent_activation_self_approval','tenant_readiness_results','tenant_provisioning_steps']) {
+  if (!onboardingMigration.includes(marker)) throw new Error(`Onboarding migration lacks ${marker}`);
+}
+const onboardingRouter = await readFile('apps/api/src/onboarding-router.ts', 'utf8');
+for (const marker of ['/v1/onboarding/applications','/v1/platform/onboarding/applications','INVALID_APPLICATION_STATE_TRANSITION']) {
+  if (!onboardingRouter.includes(marker)) throw new Error(`Onboarding API lacks ${marker}`);
+}
+const productionRuntime = await readFile('apps/api/src/production-runtime.ts', 'utf8');
+if (!productionRuntime.includes('KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE') || !productionRuntime.includes('DEVELOPMENT_RUNTIME_FORBIDDEN_IN_PRODUCTION')) throw new Error('Production API bootstrap must fail closed without reviewed adapters');
+const productionWorker = await readFile('apps/workers/src/production-runner.ts', 'utf8');
+if (!productionWorker.includes('KOMMUNSIGN_WORKER_ADAPTER_MODULE') || !productionWorker.includes('DEVELOPMENT_WORKER_FORBIDDEN_IN_PRODUCTION')) throw new Error('Production worker must fail closed without reviewed adapters');
+const workerDockerfile = await readFile('infrastructure/docker/workers.Dockerfile', 'utf8');
+if (workerDockerfile.includes('dev-runner') || !workerDockerfile.includes('production-runner')) throw new Error('Production worker image may not start the development runner');
+const server = await readFile('apps/api/server.mjs', 'utf8');
+if (!server.includes('x-kommunsign-application-token') || !server.includes('PATCH')) throw new Error('API CORS contract must support onboarding auth and draft updates');
+
 const api = await readFile('docs/api/openapi.yaml', 'utf8');
 if (api.includes('tenantId:') && !api.includes('Tenant is derived')) throw new Error('OpenAPI may not accept arbitrary tenantId');
 if (!api.includes('additionalProperties: false')) throw new Error('Create payload must reject unknown fields');
 if ((api.match(/x-kommunsign-implementation-status: runtime/g) ?? []).length !== 16) throw new Error('OpenAPI must expose all sixteen required runtime operations');
 if (api.includes('x-kommunsign-implementation-status: contract-only')) throw new Error('Required OpenAPI operations may not remain contract-only');
+for (const operation of ['createOnboardingApplication','submitOnboardingApplication','approveOnboardingApplication','provisionApprovedApplication','approveTenantActivation']) {
+  if (!api.includes(`operationId: ${operation}`)) throw new Error(`OpenAPI onboarding operation missing: ${operation}`);
+}
 const router = await readFile('apps/api/src/router.ts', 'utf8');
 if (router.includes("cause instanceof Error ? cause.message")) throw new Error('API must not return internal exception messages');
 if (!router.includes("await dependencies.authorize")) throw new Error('API routes must pass through authorization');
@@ -69,6 +95,8 @@ if (vercelConfig.buildCommand !== 'npm run web:build') throw new Error('Vercel m
 if (vercelConfig.outputDirectory !== 'build/public-site') throw new Error('Vercel output directory is incorrect');
 const website = await readFile('apps/public-website/public/index.html', 'utf8');
 if (!website.includes('Pilotplattform under utveckling')) throw new Error('Public website must not imply production readiness');
+const applicationLanding = await readFile('apps/public-website/public/ansok/index.html', 'utf8');
+if (!applicationLanding.includes('apply.kommunsign.se')) throw new Error('Application landing page must route to the isolated onboarding portal');
 if (/\sstyle=/.test(website) || /<script(?![^>]*\ssrc=)/.test(website)) throw new Error('Public website must remain compatible with strict CSP');
 
 const packageConfig = JSON.parse(await readFile('package.json', 'utf8'));

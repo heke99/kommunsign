@@ -1,5 +1,5 @@
 import { cp, mkdir, readFile } from 'node:fs/promises';
-const portals = ['platform-admin','tenant-portal','signer-portal','verification-portal'];
+const portals = ['onboarding-portal','platform-admin','tenant-portal','signer-portal','verification-portal'];
 await mkdir('build/portals', { recursive: true });
 for (const portal of portals) {
   const root = `apps/${portal}/public`;

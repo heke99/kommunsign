@@ -1,51 +1,31 @@
 # Ändrade och tillagda filer – KommunSign 2026-08-02
 
-Jämförelsebas: `kommunsign-main(4).zip`. Genererade kataloger (`node_modules`, `dist`, `build`) och Git-metadata ingår inte.
+Jämförelsebas: `kommunsign-main (1).zip`.
+Genererade kataloger (`node_modules`, `dist`, `build`, `release`) och Git-metadata ingår inte.
 
 ## Sammanfattning
 
-- Tillagda filer: 36
-- Ändrade filer: 33
+- Tillagda filer: 15
+- Ändrade filer: 47
 - Raderade filer: 0
 
 ## Tillagda filer
 
-- `PRODUCTION_CHECKLIST.md`
-- `SECURITY_REPORT.md`
-- `apps/api/src/dev-runtime.ts`
-- `apps/platform-admin/public/app.js`
-- `apps/signer-portal/public/app.js`
-- `apps/tenant-portal/public/app.js`
-- `apps/verification-portal/public/app.js`
-- `apps/workers/src/dev-runner.ts`
-- `docs/architecture/current-state-verified.md`
-- `docs/architecture/remaining-implementation-plan.md`
-- `docs/verification/requirements-traceability.md`
-- `infrastructure/docker/identity-service.Dockerfile`
-- `infrastructure/docker/signservice.Dockerfile`
-- `infrastructure/docker/validation-service.Dockerfile`
-- `infrastructure/docker/workers.Dockerfile`
-- `migrations/control/0005_auth_domain_and_break_glass_runtime.sql`
-- `migrations/data/0011_upload_notification_and_invitation_runtime.sql`
-- `packages/auth/src/index.ts`
-- `packages/branding/src/index.ts`
-- `packages/custom-domains/src/index.ts`
-- `packages/invitations/src/index.ts`
-- `packages/uploads/src/index.ts`
-- `scripts/build-portals.mjs`
-- `scripts/db-migrate.sh`
-- `scripts/db-reset-test.sh`
-- `scripts/db-verify.sh`
-- `scripts/dev-all.mjs`
-- `scripts/test-category.mjs`
-- `scripts/verify-sdk-sync.mjs`
-- `sdks/README.md`
-- `sdks/csharp/src/KommunSignClient.cs`
-- `sdks/java/src/main/java/se/kommunsign/sdk/KommunSignClient.java`
-- `sdks/typescript/src/client.ts`
-- `tests/integration.mjs`
-- `tests/security.mjs`
-- `tests/sql/tenant-isolation.sql`
+- `apps/api/src/dev-onboarding.ts`
+- `apps/api/src/onboarding-router.ts`
+- `apps/api/src/production-runtime.ts`
+- `apps/onboarding-portal/public/app.css`
+- `apps/onboarding-portal/public/app.js`
+- `apps/onboarding-portal/public/index.html`
+- `apps/public-website/public/ansok/index.html`
+- `apps/workers/src/production-runner.ts`
+- `docs/architecture/onboarding-architecture.md`
+- `docs/architecture/target-architecture.md`
+- `docs/verification/production-readiness.md`
+- `migrations/control/0006_onboarding_and_activation.sql`
+- `packages/onboarding/src/index.ts`
+- `packages/readiness/src/index.ts`
+- `tests/sql/onboarding-control.sql`
 
 ## Ändrade filer
 
@@ -54,34 +34,48 @@ Jämförelsebas: `kommunsign-main(4).zip`. Genererade kataloger (`node_modules`,
 - `CHANGED_FILES.txt`
 - `DELIVERY_REPORT.md`
 - `FILE_MANIFEST.sha256`
+- `PRODUCTION_CHECKLIST.md`
 - `PROVENANCE_REPORT.txt`
 - `README.md`
 - `SBOM.cdx.json`
+- `SECURITY_REPORT.md`
 - `VERIFICATION_RESULTS.txt`
+- `WEBSITE_CHANGED_FILES.txt`
+- `WEBSITE_DELIVERY_REPORT.md`
 - `apps/api/server.mjs`
+- `apps/api/src/dev-runtime.ts`
 - `apps/api/src/ports.ts`
 - `apps/api/src/router.ts`
 - `apps/platform-admin/public/app.css`
+- `apps/platform-admin/public/app.js`
 - `apps/platform-admin/public/index.html`
-- `apps/signer-portal/public/app.css`
-- `apps/signer-portal/public/index.html`
-- `apps/tenant-portal/public/app.css`
-- `apps/tenant-portal/public/index.html`
-- `apps/verification-portal/public/app.css`
-- `apps/verification-portal/public/index.html`
+- `apps/workers/src/jobs.ts`
 - `docker-compose.yml`
 - `docs/api/openapi.yaml`
+- `docs/architecture/current-state-verified.md`
+- `docs/architecture/remaining-implementation-plan.md`
 - `docs/operations/local-development.md`
 - `docs/operations/synchronization.md`
-- `package-lock.json`
+- `docs/operations/vercel-deployment.md`
+- `docs/verification/requirements-traceability.md`
+- `infrastructure/docker/api.Dockerfile`
+- `infrastructure/docker/workers.Dockerfile`
 - `package.json`
 - `packages/authorization/src/index.ts`
-- `packages/crypto/src/base64.ts`
+- `packages/contracts/src/index.ts`
 - `packages/database/src/index.ts`
-- `packages/webhooks/src/index.ts`
-- `scripts/build-java.sh`
+- `packages/tenant-context/src/index.ts`
+- `scripts/build-portals.mjs`
+- `scripts/build-public-site.mjs`
+- `scripts/db-verify.sh`
+- `scripts/dev-all.mjs`
 - `scripts/verify-repository.mjs`
-- `tsconfig.json`
+- `sdks/README.md`
+- `sdks/csharp/src/KommunSignClient.cs`
+- `sdks/java/src/main/java/se/kommunsign/sdk/KommunSignClient.java`
+- `sdks/typescript/src/client.ts`
+- `tests/integration.mjs`
+- `tests/run.mjs`
 
 ## Raderade filer
 

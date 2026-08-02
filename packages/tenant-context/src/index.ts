@@ -1,4 +1,4 @@
-import type { TenantContext } from '../../contracts/src/index.js';
+import type { AuthMethod, TenantContext } from '../../contracts/src/index.js';
 
 export class TenantContextError extends Error {
   constructor(message: string) {
@@ -14,6 +14,7 @@ export interface VerifiedRequestIdentity {
   readonly apiClientTenantId?: string;
   readonly deploymentTenantId?: string;
   readonly subjectId: string;
+  readonly authMethod: AuthMethod;
 }
 
 export function resolveTenantContext(identity: VerifiedRequestIdentity): TenantContext {
@@ -29,7 +30,7 @@ export function resolveTenantContext(identity: VerifiedRequestIdentity): TenantC
   if (tenantIds.size !== 1) throw new TenantContextError('Conflicting tenant sources');
   const first = candidates[0];
   if (!first) throw new TenantContextError('No verified tenant source');
-  return { tenantId: first[1], source: first[0], subjectId: identity.subjectId, requestId: identity.requestId };
+  return { tenantId: first[1], source: first[0], subjectId: identity.subjectId, requestId: identity.requestId, authMethod: identity.authMethod };
 }
 
 export function assertTenantMatch(context: TenantContext, resourceTenantId: string): void {

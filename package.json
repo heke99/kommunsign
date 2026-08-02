@@ -40,7 +40,7 @@
     "dev:tenant": "node scripts/serve-static.mjs apps/tenant-portal/public 3002",
     "dev:signer": "node scripts/serve-static.mjs apps/signer-portal/public 3003",
     "dev:verify": "node scripts/serve-static.mjs apps/verification-portal/public 3004",
-    "dev:api": "npm run build && APP_ENV=development CORS_ALLOWED_ORIGINS=http://127.0.0.1:3002,http://localhost:3002 KOMMUNSIGN_API_BOOTSTRAP_MODULE=../../dist/apps/api/src/dev-runtime.js node apps/api/server.mjs",
+    "dev:api": "npm run build && APP_ENV=development PORT=8787 CORS_ALLOWED_ORIGINS=http://127.0.0.1:3001,http://localhost:3001,http://127.0.0.1:3002,http://localhost:3002,http://127.0.0.1:3005,http://localhost:3005 KOMMUNSIGN_API_BOOTSTRAP_MODULE=../../dist/apps/api/src/dev-runtime.js node apps/api/server.mjs",
     "dev:workers": "npm run build && node dist/apps/workers/src/dev-runner.js",
     "db:up": "docker compose up -d postgres-control postgres-data redis minio clamav gotenberg mailpit",
     "db:migrate": "bash scripts/db-migrate.sh",
@@ -51,7 +51,10 @@
     "web:preview": "npm run web:build && node scripts/serve-static.mjs build/public-site 3000",
     "vercel-build": "npm run web:build",
     "portal:build": "node scripts/build-portals.mjs",
-    "verify:sdk": "node scripts/verify-sdk-sync.mjs"
+    "verify:sdk": "node scripts/verify-sdk-sync.mjs",
+    "dev:onboarding": "node scripts/serve-static.mjs apps/onboarding-portal/public 3005",
+    "start:api": "APP_ENV=production KOMMUNSIGN_API_BOOTSTRAP_MODULE=../../dist/apps/api/src/production-runtime.js node apps/api/server.mjs",
+    "start:workers": "APP_ENV=production node dist/apps/workers/src/production-runner.js"
   },
   "packageManager": "npm@10.9.2",
   "devDependencies": {

@@ -48,7 +48,7 @@ services:
     environment:
       APP_ENV: development
       KOMMUNSIGN_API_BOOTSTRAP_MODULE: ../../dist/apps/api/src/dev-runtime.js
-      CORS_ALLOWED_ORIGINS: http://127.0.0.1:3002,http://localhost:3002
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:3001,http://localhost:3001,http://127.0.0.1:3002,http://localhost:3002,http://127.0.0.1:3005,http://localhost:3005
       PORT: "3001"
     ports: ["8787:3001"]
     depends_on:
@@ -60,6 +60,7 @@ services:
       context: .
       dockerfile: infrastructure/docker/workers.Dockerfile
     environment: { APP_ENV: development }
+    command: ["dist/apps/workers/src/dev-runner.js"]
     depends_on:
       postgres-data: { condition: service_healthy }
       redis: { condition: service_healthy }

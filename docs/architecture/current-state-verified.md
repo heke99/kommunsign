@@ -1,63 +1,80 @@
 # KommunSign – verifierat nuläge 2026-08-02
 
-## Metod
+## Verifieringsgräns
 
-Repositoryt har granskats fil för fil inom den levererade zip-arkivroten. Ingen Git-historik följde med arkivet, så remote, branch och working-tree-status kunde inte verifieras i sandlådan. Källkod, migrationer, byggskript, Java-källor, OpenAPI, portalytor, Docker, Kubernetes, Terraformgrund, tester och proveniensfiler har däremot inspekterats och byggts lokalt med Node 22.16.0, TypeScript 5.8.3 och Java 21.0.10.
+Den levererade zippen har granskats som en fristående källkodssnapshot. Arkivet innehöll ingen `.git`-katalog. Git-rot, remote, branch, tidigare commits och lokala hemligheter kunde därför inte verifieras eller ändras i sandlådan. Efter synk måste detta göras i `/Users/hekmath/Projects/kommunsign` innan commit.
+
+Källkod, migrationer, OpenAPI, portaler, Dockerfiler, CI, TypeScript och Java har inspekterats. Den tillgängliga npm-spegeln kunde inte hämta den redan låsta TypeScript 5.8.3-tarballen. Bygg och tester har därför körts med den globalt installerade, exakt matchande TypeScript 5.8.3 via en tillfällig lokal länk. Länken och `node_modules` ingår inte i leveransen.
 
 ## Verifierat implementerat i denna leverans
 
-- Gemensam strikt TypeScript-build och statisk portalbuild.
-- Rootkommandon för varje portal, API, workers, databas och testkategori.
-- Serverhärledd `TenantContext` och transaktionswrapper som sätter `tenant_id`, `actor_kind`, `actor_id` och `request_id`.
-- Sexton runtimeoperationer i OpenAPI och API-router: cases, dokument, signerare, send/cancel/remind, tre artefaktnedladdningar, uploads, webhook endpoints, events och templates.
-- Utvecklingsruntime för API med tenantisolerad in-memory-data, idempotens och explicit produktionsspärr.
-- Fail-closed resultat för signerad PDF, DSS-rapport och evidence package när externa tjänster saknas.
-- Säkerhetsmoduler för OIDC PKCE/state/nonce, branding/kontrast, custom-domainstatus, engångsinbjudningar, uploadmetadata/magic bytes och webhook-SSRF.
-- Additiva control-plane- och data-plane-migrationer för federation, SCIM, break-glass, domänjobb, upload grants, notifieringsretry och invitation consumption.
-- Funktionell tenantportal mot utvecklings-API samt operativa admin-, signer- och verifieringsytor som inte fabricerar positiv signeringsstatus.
-- Docker Compose med separata control/data PostgreSQL, Redis, MinIO, ClamAV, Gotenberg, Mailpit, API, workers och tre Java-tjänster.
-- Unit-, integrations- och säkerhetstester utan externa credentials.
-- TypeScript-, Java- och C#-SDK-källor versionsbundna till OpenAPI; TypeScript och Java kompileras i verifieringskedjan.
+### Ansökningsstyrd onboarding
 
-## Verifierat befintligt och bevarat
+- Separat `apps/onboarding-portal` samt publik landningssida `/ansok` som leder till `apply.kommunsign.se`.
+- Publika ansökningsendpoints, sökandeauktorisering, plattformsendpoints, provisioning-, readiness- och aktiveringsendpoints.
+- Särskilda säkerhetskontexter för sökande, plattform och tenant. Publik ansökan passerar inte tenantroutern och kan inte välja tenant.
+- Strikt servervaliderad ansökningsstatusmaskin och `409 INVALID_APPLICATION_STATE_TRANSITION`.
+- 256-bitars e-post- och åtkomsttokenkärna, hashning, normalisering och replay-/expiry-fält i datamodellen.
+- Atomiskt mänskligt ansökningsnummer `ONB-ÅÅÅÅ-NNNNNN` genom PostgreSQL-sekvens.
+- Immutable ansökningsversioner, externa meddelanden, interna anteckningar, kompletteringskrav och svar.
+- Kommersiell, juridisk, säkerhetsmässig och teknisk reviewmodell.
+- Additiv control-plane-migration `0006_onboarding_and_activation.sql` med onboarding-, provisioning-, readiness- och aktiveringstabeller.
+- Databasguard som blockerar samma person från att initiera och godkänna en aktivering.
+- Idempotent utvecklingssaga som skapar tenant först efter beslut och lämnar den i `onboarding`, aldrig `active`.
+- Central readinessmotor som returnerar blockerande, varnande och genomförda kontroller och stoppar aktivering fail-closed.
+- Platform admin-kö och ärendedetalj för review, komplettering, beslut, provisioning och audit.
+- OpenAPI 3.1-kontrakt och synkroniserad SDK-version `2026-08-02.3`.
 
-- Publik Vercelwebb under `apps/public-website` och isolerad `web:build` till `build/public-site`.
-- RLS med `FORCE ROW LEVEL SECURITY`, composite tenant-FK och databasguards.
-- Audit-hashkedja, durable-job leases, digital approval evidence och completion guards.
-- TIC BankID start/poll/collect/cancel-adapter, webhook-HMAC och canonical evidence payload.
-- Freja JWS-kryptografisk verifieringskärna i Java.
-- Evidence manifest och offlineverifierings-CLI.
-- Proveniensgrind med noll importerade donor-rader.
+### Produktionsgränser
+
+- `apps/api/src/production-runtime.ts` kräver riktiga control/data-databasadaptrar, objektlagring, kö och plattforms-/tenantauth. Den faller aldrig tillbaka till in-memory.
+- `apps/workers/src/production-runner.ts` kräver en durable produktionsadapter och kan inte starta utvecklingsrunnern i produktion.
+- API- och worker-Dockerbilder startar produktionsentrypoints. Docker Compose överskriver workerkommandot explicit endast i lokal utvecklingsprofil.
+- CORS stöder `PATCH`, applicant bearer-token och separata plattformshuvuden för de lokala portalflödena.
+
+### Bevarad bas
+
+- Strict TypeScript, Node 22 och Java 21.
+- Separata control- och data-plane-migrationer.
+- `TenantContext`, transaktionswrapper, RLS, composite tenant-FK och audit-hashkedja.
+- Sexton befintliga signerings-API-operationer, idempotens, upload-/webhookskydd och fail-closed artefaktnedladdningar.
+- TIC-adaptergrund, Freja JWS-kärna, evidence manifest och offlineverifierings-CLI.
+- Publik Vercelwebb och statiska portalbyggen.
+
+## Verifierat med automatiserade kommandon
+
+- `npm run build`
+- `node tests/run.mjs`
+- `node tests/integration.mjs`
+- `node tests/security.mjs`
+- `npm run verify:sdk`
+
+Den fulla `npm run verify` och databasverifieringen ska köras igen efter dokument- och paketeringssteget. Resultatet dokumenteras i `VERIFICATION_RESULTS.txt`.
 
 ## Delvis implementerat
 
-- Portalytorna är nu exekverbara, men full auth, all konfiguration och samtliga verksamhetsvyer kräver fortsatt backendarbete.
-- API-kontrakt och lokal runtime finns för alla sexton kärnoperationer; produktionsadapter mot PostgreSQL/objektlagring är inte färdigkopplad.
-- Dokumentpipeline har datamodell, upload grants och klientflöde, men saknar produktionsadapter för presigned upload, ClamAV, Gotenberg och PDF-sandbox.
-- Custom-domainmodell och durable jobs finns, men ingen DNS/TLS-provideradapter är inkopplad.
-- Notification- och webhookmodeller finns, men produktionsworkers saknar provideradapters och nätverksresolver med rebindingkontroll.
+- Onboarding fungerar end-to-end i utvecklingsruntime och har produktionsschema/kontrakt, men riktig PostgreSQLrepository, objektlagring, e-postleverans och sessionscookie-adapter saknas.
+- Sökandeportalen använder ett utvecklingsflöde med bearer-token i `sessionStorage`; produktion ska använda kortlivad HttpOnly-cookie/session och riktig magic-linkleverans.
+- Provisioningdomänen och stegtabellerna finns, men verklig resursprovisionering av databas, storage, queue, KMS, domän och initial admin kräver produktionsadaptrar.
+- Readinessmotorn och fail-closed aktiveringsgrind finns, men aktiva kontrolladaptrar för DNS/TLS/provider/e-arkiv/e-post saknas.
+- Signerings-, dokument-, identity-, archive- och notificationdelarna är fortfarande delvis implementerade enligt kravspårningen.
+
+## Inte verifierat eller inte färdigt
+
+- Live PostgreSQL-körning av migration `0006` i denna sandlåda, om lokal Docker/PostgreSQL inte är tillgänglig.
+- Produktions-OIDC/WebAuthn/SAML/SCIM.
+- Säkra presigned uploads, ClamAV- och Gotenbergworkers.
+- TIC live/test-E2E, BankID XML-DSig och OCSP.
+- Freja officiell klient och mTLS.
+- Sweden Connect SignService, PAdES B/T/LT/LTA, TSA, CA och HSM.
+- EU DSS, trusted lists och ETSI-rapporter.
+- E-arkiv/connectors, notifieringsprovider, retentionjobb och restore.
+- Full last-, penetration- och WCAG 2.2 AA-verifiering.
 
 ## Externa blockerare
 
-- TIC BankID-testtenant, API-nyckel och verkliga callbacks.
-- Freja RP-avtal, mTLS-certifikat, truststore och officiell klientartefakt.
-- Sweden Connect SignService/CA-konfiguration, HSM/PKCS#11 och signing credential.
-- RFC 3161 TSA och policy-OID.
-- EU DSS-dependencies, LOTL/TSL-konfiguration och testvektorer.
-- DNS/TLS-providerkonto.
-- E-postdomän med DKIM/SPF/DMARC.
-- E-arkivmål och leverantörsspecifika avtal.
+`TIC_TEST_CREDENTIALS_MISSING`, `FREJA_TEST_CERTIFICATE_MISSING`, `TSA_TEST_ACCOUNT_MISSING`, `HSM_NOT_AVAILABLE`, `TRUST_SERVICE_CONTRACT_MISSING`, `VERCEL_DOMAIN_PROVIDER_NOT_CONFIGURED`, `ARCHIVE_TEST_ENDPOINT_MISSING`, e-postdomän/provider och målmiljö för backup/restore.
 
-## Juridiska blockerare
+## Juridisk blockerare
 
-Filerna under `upstream/permissions/*` är endast placeholders. Ingen permission evidence som medger faktisk kodimport har verifierats. `reused_loc` ska därför förbli noll tills dokument, rättighetshavare, omfattning och SHA-256 är verifierade.
-
-## Kvarvarande högriskområden
-
-- Produktions-PostgreSQLrepository och OAuth2/JWK/mTLS-bootstrap.
-- Oberoende BankID XML-DSig/OCSP-verifiering.
-- Riktig PAdES B/T/LT/LTA och flera inkrementella signaturer.
-- DSS-validering och trust-list snapshots.
-- Säker dokumentprocessning av fientliga PDF-filer.
-- Backup/restore, pentest, lasttest och WCAG-audit i riktig miljö.
-- C#-SDK-kompilering i en .NET-miljö.
+Permissionfilerna under `upstream/permissions` är fortfarande placeholders. Ingen donor-kod har lagts till. Proveniensgrinden ska fortsätta kräva verifierad rättighetshavare, tillståndsomfattning och SHA-256 innan återanvänd kod förs in.

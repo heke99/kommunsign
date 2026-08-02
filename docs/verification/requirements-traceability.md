@@ -1,37 +1,42 @@
 # Kravspårning
 
-| requirement_id | status | implementation_files | test_files | external_dependency | remaining_work |
-|---|---|---|---|---|---|
-| A-REPOSITORY-INSPECTION | VERIFIED | `docs/architecture/current-state-verified.md` | `scripts/verify-repository.mjs` | none | Git metadata must be checked after sync |
-| A-DONOR-PERMISSIONS | LEGAL_BLOCKER | `upstream/manifests/*`, `upstream/permissions/*` | provenance gate | signed permission files | keep reused LOC at zero |
-| B-WORKSPACES-COMMANDS | IMPLEMENTED | `package.json`, `scripts/dev-all.mjs` | repository verification | none | add app-specific packages when framework dependencies are approved |
-| B-LOCAL-RUNTIME | PARTIAL | `docker-compose.yml`, `infrastructure/docker/*` | container execution external | Docker | production worker/database bootstrap |
-| B-POSTGRES-RLS | PARTIAL | `packages/database`, migrations | `tests/sql/tenant-isolation.sql` | live PostgreSQL | execute in CI/staging and retain logs |
-| C-OIDC-PKCE | IMPLEMENTED | `packages/auth` | `tests/security.mjs` | Entra tenant | discovery/JWK/token/session runtime |
-| C-SAML | NOT_IMPLEMENTED | control migration model | none | IdP metadata/certificates | protocol runtime and signature validation |
-| C-SCIM | PARTIAL | control migration `0005` | migration checks | Entra SCIM client | endpoints and data-plane provisioning |
-| C-BREAK-GLASS | PARTIAL | control migration `0005` | migration checks | operating policy | API/UI, notification and expiry worker |
-| D-PLATFORM-ADMIN | PARTIAL | `apps/platform-admin/public/*` | portal build | control API | tenant CRUD and provider configuration |
-| D-WHITE-LABEL | PARTIAL | `packages/branding` | `tests/security.mjs` | branding assets | persistence and portal application |
-| D-CUSTOM-DOMAIN | PARTIAL | `packages/custom-domains`, control migration | `tests/security.mjs` | DNS/TLS provider | provider adapter and retries |
-| E-TENANT-PORTAL | PARTIAL | `apps/tenant-portal/public/*` | integration flow | production API | remaining views and auth |
-| E-UPLOAD | PARTIAL | `packages/uploads`, API uploads, data migration | integration/security tests | object storage | PUT completion, checksum and quarantine worker |
-| E-DOCUMENT-SECURITY | NOT_IMPLEMENTED | schema and Compose services | none | ClamAV/Gotenberg runtime | adapters and hostile PDF tests |
-| E-DIGITAL-APPROVAL | IMPLEMENTED | migration `0009`, domain guards | unit tests | none | production repository/API workflow |
-| F-SIGNER-PORTAL | PARTIAL | `apps/signer-portal/public/*`, `packages/invitations` | security tests | signer session API | invitation endpoints and provider sessions |
-| G-TIC-BANKID | PARTIAL | `packages/provider-adapters/src/tic-bankid.ts` | unit tests | TIC testtenant/key | live E2E and XML-DSig/OCSP |
-| H-FREJA | PARTIAL | `FrejaJwsVerifier.java`, provider policy | Java self-test | Freja client/mTLS | official client and live E2E |
-| I-PADES | EXTERNAL_BLOCKER | fail-closed signservice | Java build | Sweden Connect/CA/HSM/TSA | real integration and vectors |
-| J-DSS | EXTERNAL_BLOCKER | fail-closed validation service | Java build | EU DSS/trust lists | validation runtime and reports |
-| K-EVIDENCE-PACKAGE | PARTIAL | `packages/evidence`, CLI | unit tests | TSA/signing key optional | complete package contents and signed manifest |
-| L-COMPLETE-API | PARTIAL | `apps/api/src/router.ts`, `ports.ts`, OpenAPI | integration tests | production adapters | PostgreSQL/object/provider implementations |
-| L-IDEMPOTENCY | IMPLEMENTED | database package and dev runtime | unit/integration tests | none | persist all responses in production adapter |
-| M-WEBHOOKS | PARTIAL | webhooks security, endpoint API, schema | security tests | network resolver/secret manager | delivery worker and DNS rebinding checks |
-| M-NOTIFICATIONS | PARTIAL | schema and migration `0011` | migration checks | email provider/domain | worker, templates and delivery events |
-| N-EARCHIVE | NOT_IMPLEMENTED | archive schema | none | archive target | connector SDK and export worker |
-| O-RETENTION-LEGAL-HOLD | PARTIAL | existing schema/guards | migration/unit coverage | policy decisions | runtime jobs, dry-run and certificates |
-| P-SECURITY-HARDENING | PARTIAL | SSRF/upload/branding/auth guards | security tests | pentest environment | CSP headers, abuse tests, penetration test |
-| Q-OBSERVABILITY | PARTIAL | alerts baseline | repository checks | telemetry backend | OTel instrumentation and dashboards |
-| R-DEPLOYMENT | PARTIAL | Vercel, Docker, Kubernetes, Terraform baseline | repository checks | target cloud | reference deployment and secret bindings |
-| S-BACKUP-RESTORE | NOT_IMPLEMENTED | runbook baseline | none | staging infrastructure | automated restore evidence |
-| T-E2E-LOAD-WCAG | EXTERNAL_BLOCKER | category commands fail honestly | category scripts | credentials/browser/load environment | execute and archive reports |
+Status avser verifierat repositoryläge i denna leverans, inte önskad målbild.
+
+| requirement_id | title | status | implementation_files | migration_files | test_files | verification_command | external_dependency | remaining_work | risk |
+|---|---|---|---|---|---|---|---|---|---|
+| REP-001 | Rätt repository och Git | PARTIAL | `docs/architecture/current-state-verified.md` | – | – | `git rev-parse --show-toplevel && git remote -v && git status --short` efter synk | lokal `.git` | Zippen saknade Gitmetadata | MEDIUM |
+| REP-002 | Kravspårning och arkitekturdokument | VERIFIED | `docs/architecture/*`, `docs/verification/*` | – | `scripts/verify-repository.mjs` | `npm run verify:repository` | none | håll dokumenten synkade per fas | LOW |
+| ONB-001 | Separat ansökningsportal och publik ingång | IMPLEMENTED | `apps/onboarding-portal/public/*`, `apps/public-website/public/ansok/index.html` | – | portal/public build | `npm run build && npm run web:build` | deployment/domains | produktionsauth och faktisk routing | MEDIUM |
+| ONB-002 | Statusmaskin | VERIFIED | `packages/onboarding/src/index.ts`, `apps/api/src/onboarding-router.ts` | `migrations/control/0006_onboarding_and_activation.sql` | `tests/run.mjs`, `tests/integration.mjs` | `node tests/run.mjs && node tests/integration.mjs` | none | live PostgreSQL test via `tests/sql/onboarding-control.sql` | LOW |
+| ONB-003 | Atomiskt ansökningsnummer | IMPLEMENTED | `packages/onboarding/src/index.ts` | `0006_onboarding_and_activation.sql` | `tests/run.mjs`, `tests/sql/onboarding-control.sql`, integration reference assertion | `npm run verify:migrations && node tests/run.mjs` | live PostgreSQL for race test | kör parallellt DB-test | MEDIUM |
+| ONB-004 | E-postverifiering och applicant access | PARTIAL | `packages/onboarding`, `apps/api/src/onboarding-router.ts`, `apps/api/src/dev-onboarding.ts` | `0006` | unit/integration | `node tests/integration.mjs` | mail/session provider | HttpOnly session, CSRF, rate limit, delivery | HIGH |
+| ONB-005 | Utkast, versioner och optimistic concurrency | PARTIAL | onboarding router/repository contract | `0006` | integration PATCH/If-Match | `node tests/integration.mjs` | production repository | autosave/invite contact and DB conflict tests | MEDIUM |
+| ONB-006 | Säkra ansökningsbilagor | PARTIAL | document metadata route, upload validation | `0006` | security metadata tests | `node tests/security.mjs` | object storage, ClamAV, Gotenberg | presigned upload, scan, sandbox, canonicalisering | HIGH |
+| ONB-007 | Dubblett- och organisationsverifiering | PARTIAL | duplicate fields/signals in schema | `0006` | – | `npm run verify:migrations` | registry provider | provider abstraction runtime, merge/link UI | MEDIUM |
+| ONB-008 | Sökandeisolering från intern data | PARTIAL | applicant DTO/router split | `0006` | wrong-token integration test | `node tests/integration.mjs` | live PostgreSQL | application A/B DB tests och permission matrix | HIGH |
+| ONB-009 | Platform review och komplettering | VERIFIED | `apps/api/src/onboarding-router.ts`, `apps/platform-admin/public/*`, `apps/api/src/dev-onboarding.ts` | `0006` | integration flow | `node tests/integration.mjs` | none for dev flow | produktionsrepository/notifieringar | MEDIUM |
+| ONB-010 | Beslut och tvåpersonsprincip | PARTIAL | onboarding guards, authorization roles | `0006` | unit/integration | `node tests/run.mjs && node tests/integration.mjs` | production policy | DB-test för högriskbeslut; andra approverflöde i UI | HIGH |
+| ONB-011 | Idempotent provisioning saga | PARTIAL | dev saga, production worker boundary | `0006` | integration provision | `node tests/integration.mjs` | DB/storage/queue/KMS/domain adapters | durable stepimplementation och safe retry | HIGH |
+| ONB-012 | Onboardingchecklista | IMPLEMENTED | repository/domain contracts | `0006` | migration verification | `npm run verify:migrations` | production repository | tenant/admin UI och completion policies | MEDIUM |
+| ONB-013 | Readiness engine | VERIFIED | `packages/readiness/src/index.ts`, routes | `0006` | unit/integration | `node tests/run.mjs && node tests/integration.mjs` | active check adapters | DNS/TLS/storage/provider/archive live checks | HIGH |
+| ONB-014 | Tvåpersonsgodkänd aktivering | PARTIAL | activation routes/guard | `0006` | fail-closed integration | `node tests/integration.mjs` | production repository | full green readiness test och atomic approval count | HIGH |
+| API-001 | Separata applicant/platform/tenant route contexts | VERIFIED | `apps/api/src/router.ts`, `onboarding-router.ts`, `ports.ts` | – | integration unauthorized flow | `node tests/integration.mjs` | none | production identity adapters | LOW |
+| API-002 | Produktionsbootstrap utan in-memory fallback | IMPLEMENTED | `apps/api/src/production-runtime.ts`, API Dockerfile | – | repository verification | `npm run verify:repository` | production adapter module | implement reviewed adapter | HIGH |
+| WRK-001 | Produktionsworker utan dev entrypoint | IMPLEMENTED | `apps/workers/src/production-runner.ts`, workers Dockerfile | job schemas | repository/unit | `npm run verify:repository && node tests/run.mjs` | durable worker adapter | actual handlers/repository | HIGH |
+| DB-001 | Separat control/data plane | PARTIAL | database packages/runtime config | all control/data migrations | SQL tests | `bash scripts/db-migrate.sh && bash scripts/db-verify.sh` | PostgreSQL | execute and retain live logs | HIGH |
+| DB-002 | Tenantcontext, RLS och composite keys | PARTIAL | `packages/database`, tenant router | data migrations | `tests/sql/*` | `bash scripts/db-verify.sh` | PostgreSQL | non-superuser and multi-tenant CI evidence | HIGH |
+| ID-001 | Plattform OIDC/WebAuthn | PARTIAL | auth primitives/control schema | `0005` | security tests | `node tests/security.mjs` | platform IdP | full runtime/session/rotation | HIGH |
+| ID-002 | Tenant Entra OIDC/SAML/SCIM | PARTIAL | OIDC primitives and schema | `0005` | security/migration | `npm run verify` | tenant IdP metadata | SAML runtime and SCIM endpoints | HIGH |
+| DOC-001 | Produktionsobjektlagring och dokumentpipeline | NOT_IMPLEMENTED | upload contracts/Compose services only | data schema | – | – | storage/ClamAV/Gotenberg | complete durable pipeline | CRITICAL |
+| SIGN-001 | Signeringsärenden och digital approval | PARTIAL | API/domain guards | data migrations | unit/integration | `node tests/integration.mjs` | production repos | signer order/provider workflow | HIGH |
+| TIC-001 | TIC BankID live backend och independent validation | EXTERNAL_BLOCKER | TIC adapter/canonical evidence | – | unit only | `node tests/run.mjs` | TIC test credentials | live collect/webhook/XML-DSig/OCSP | CRITICAL |
+| FREJA-001 | Freja mTLS och JWS | EXTERNAL_BLOCKER | Java verifier core | – | Java self-test | `npm run verify:java` | Freja certificate/client | official client/live E2E | CRITICAL |
+| PADES-001 | Sweden Connect PAdES B/T/LT/LTA | EXTERNAL_BLOCKER | fail-closed service boundary | – | Java build only | `npm run verify:java` | SignService, CA, TSA, HSM | real implementation/vectors | CRITICAL |
+| DSS-001 | EU DSS validering | EXTERNAL_BLOCKER | fail-closed validation boundary | – | Java build only | `npm run verify:java` | DSS/trusted lists | reports, LT/LTA extension | CRITICAL |
+| EVID-001 | Evidence package/offline verifier | PARTIAL | `packages/evidence`, CLI | evidence schema | unit | `node tests/run.mjs` | TSA/signing credential | complete artifacts and signed manifest | HIGH |
+| WH-001 | Durable webhooks | PARTIAL | URL/HMAC primitives/schema | data migrations | security | `node tests/security.mjs` | resolver/queue/secret manager | delivery worker, DNS rebinding, DLQ | HIGH |
+| ARC-001 | Connectors och e-arkiv | NOT_IMPLEMENTED | schema/boundary only | – | – | – | archive endpoint/contracts | SDK, adapters, receipts/replay | HIGH |
+| GDPR-001 | Retention/legal hold/offboarding | PARTIAL | existing guards/schema | data migrations | unit/migration | `npm run verify` | approved retention policies | jobs, dry-run, certificate, export | HIGH |
+| OPS-001 | Observability, backup och restore | PARTIAL | infra baselines | – | repository only | `npm run verify:repository` | target platform | OTel and restore evidence | HIGH |
+| QA-001 | Full E2E, load, pentest och WCAG | EXTERNAL_BLOCKER | category commands | – | category scripts | `npm run test:e2e && npm run test:accessibility` | browsers, credentials, environment | execute independently and archive evidence | CRITICAL |
+| PROV-001 | Donor provenance/85% permission | LEGAL_BLOCKER | `upstream/manifests/*`, `upstream/permissions/*` | – | provenance gate | `npm run verify:provenance` | signed permission evidence | no donor code until verified | CRITICAL |

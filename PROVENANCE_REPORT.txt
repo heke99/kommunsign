@@ -1,3 +1,7 @@
+
+> kommunsign@0.2.0 provenance:report
+> node scripts/provenance-report.mjs
+
 Donor provenance report
 Maximum permitted reuse per donor: 85%
 documenso: 0/0 LOC (0.00%), pin 6ec67d1c4db67812c737a30e40f8e0bd6086f920, permission claimed_not_verified

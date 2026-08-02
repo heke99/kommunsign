@@ -13,4 +13,6 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/apps/api/server.mjs ./apps/api/server.mjs
 USER nonroot
 ENV PORT=3001
+ENV APP_ENV=production
+ENV KOMMUNSIGN_API_BOOTSTRAP_MODULE=../../dist/apps/api/src/production-runtime.js
 CMD ["apps/api/server.mjs"]

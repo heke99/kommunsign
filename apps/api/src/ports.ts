@@ -1,5 +1,7 @@
-import type { Permission } from '../../../packages/authorization/src/index.js';
-import type { DomainEvent, SignatureCaseStatus, TenantContext } from '../../../packages/contracts/src/index.js';
+import type { Permission, PlatformPermission } from '../../../packages/authorization/src/index.js';
+import type { ApplicantContext, DomainEvent, PlatformContext, SignatureCaseStatus, TenantContext } from '../../../packages/contracts/src/index.js';
+import type { ApplicationStatus, ProvisioningStatus } from '../../../packages/onboarding/src/index.js';
+import type { ReadinessResult } from '../../../packages/readiness/src/index.js';
 
 export interface CreateCaseInput {
   readonly externalReference?: string;
@@ -119,6 +121,151 @@ export interface TemplateRepository {
   list(context: TenantContext, page: PageInput): Promise<Page<TemplateView>>;
   create(context: TenantContext, input: TemplateInput, idempotencyKey: string, payloadHash: string): Promise<TemplateView>;
 }
+
+export type DeploymentMode = 'shared_saas' | 'dedicated_data_plane' | 'customer_hosted';
+export interface CreateApplicationInput {
+  readonly organizationName: string;
+  readonly organizationNumber: string;
+  readonly organizationType: 'municipality' | 'region' | 'municipal_federation' | 'municipal_company' | 'authority' | 'public_supplier' | 'other_public_body';
+  readonly primaryEmail: string;
+  readonly primaryContactName: string;
+  readonly primaryContactTitle: string;
+}
+export interface ApplicationProfile {
+  readonly website?: string;
+  readonly officialEmailDomain?: string;
+  readonly municipalityOrRegion?: string;
+  readonly postalAddress?: Readonly<Record<string, string>>;
+  readonly billing?: Readonly<Record<string, string>>;
+  readonly procurementReference?: string;
+  readonly technicalContact?: Readonly<Record<string, string>>;
+  readonly legalAndPrivacy?: Readonly<Record<string, string>>;
+  readonly plannedUse?: Readonly<Record<string, unknown>>;
+  readonly identityAndAccess?: Readonly<Record<string, unknown>>;
+  readonly deployment?: Readonly<{ mode: DeploymentMode; region?: string; customDomain?: string; estimatedStorageGb?: number; classification?: string }>;
+}
+export interface UpdateApplicationInput {
+  readonly organizationName?: string;
+  readonly primaryContactName?: string;
+  readonly primaryContactTitle?: string;
+  readonly profile?: ApplicationProfile;
+}
+export interface ApplicationView {
+  readonly id: string;
+  readonly applicationReference?: string;
+  readonly status: ApplicationStatus;
+  readonly statusVersion: number;
+  readonly organizationName: string;
+  readonly organizationNumber: string;
+  readonly organizationType: CreateApplicationInput['organizationType'];
+  readonly primaryEmail: string;
+  readonly primaryContactName: string;
+  readonly primaryContactTitle: string;
+  readonly profile: ApplicationProfile;
+  readonly emailVerifiedAt?: string;
+  readonly submittedAt?: string;
+  readonly decidedAt?: string;
+  readonly assignedTo?: string;
+  readonly tenantId?: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+export interface ApplicationCreatedView {
+  readonly application: ApplicationView;
+  readonly accessToken: string;
+  readonly verificationRequired: true;
+  readonly developmentVerificationToken?: string;
+}
+export interface ApplicationDocumentInput extends UploadGrantInput { readonly category: string; }
+export interface ApplicationDocumentView extends ApplicationDocumentInput {
+  readonly id: string;
+  readonly applicationId: string;
+  readonly status: 'quarantined' | 'scanning' | 'rejected' | 'ready';
+  readonly createdAt: string;
+}
+export interface ExternalMessageInput { readonly body: string; readonly attachmentIds?: readonly string[]; }
+export interface ExternalMessageView extends ExternalMessageInput {
+  readonly id: string;
+  readonly applicationId: string;
+  readonly direction: 'applicant_to_platform' | 'platform_to_applicant';
+  readonly createdAt: string;
+}
+export interface InformationRequestInput {
+  readonly category: 'commercial' | 'legal' | 'security' | 'technical' | 'organization' | 'other';
+  readonly question: string;
+  readonly dueAt?: string;
+  readonly attachmentRequired: boolean;
+}
+export interface InformationRequestView extends InformationRequestInput {
+  readonly id: string;
+  readonly applicationId: string;
+  readonly status: 'open' | 'answered' | 'accepted' | 'rejected' | 'cancelled';
+  readonly createdAt: string;
+}
+export interface InformationResponseInput { readonly answer: string; readonly attachmentIds?: readonly string[]; }
+export interface ReviewInput {
+  readonly reviewType: 'commercial' | 'legal' | 'security' | 'technical';
+  readonly result: 'pending' | 'passed' | 'failed' | 'requires_information';
+  readonly summary: string;
+  readonly riskLevel?: 'low' | 'medium' | 'high' | 'critical';
+}
+export interface DecisionInput {
+  readonly reason: string;
+  readonly internalReason?: string;
+  readonly conditions?: readonly string[];
+  readonly validUntil?: string;
+  readonly secondApproverId?: string;
+}
+export interface ProvisioningRequestView {
+  readonly id: string;
+  readonly applicationId: string;
+  readonly tenantId?: string;
+  readonly status: ProvisioningStatus;
+  readonly currentStep?: string;
+  readonly blockingCode?: string;
+  readonly attempts: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+export interface ActivationRequestView {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly requestedBy: string;
+  readonly status: 'requested' | 'pending_approval' | 'approved' | 'rejected' | 'activated' | 'cancelled';
+  readonly createdAt: string;
+  readonly decidedAt?: string;
+}
+export interface OnboardingRepository {
+  create(input: CreateApplicationInput, idempotencyKey: string, payloadHash: string): Promise<ApplicationCreatedView>;
+  resolveApplicant(applicationId: string, accessToken: string, requestId: string): Promise<ApplicantContext>;
+  get(context: ApplicantContext): Promise<ApplicationView>;
+  update(context: ApplicantContext, input: UpdateApplicationInput, expectedVersion: number | undefined, idempotencyKey: string, payloadHash: string): Promise<ApplicationView>;
+  verifyEmail(applicationId: string, token: string, idempotencyKey: string, payloadHash: string): Promise<ApplicationView>;
+  resendVerification(applicationId: string, idempotencyKey: string, payloadHash: string): Promise<{ readonly accepted: true; readonly developmentVerificationToken?: string }>;
+  addDocument(context: ApplicantContext, input: ApplicationDocumentInput, idempotencyKey: string, payloadHash: string): Promise<ApplicationDocumentView>;
+  submit(context: ApplicantContext, expectedVersion: number | undefined, idempotencyKey: string, payloadHash: string): Promise<ApplicationView>;
+  withdraw(context: ApplicantContext, expectedVersion: number | undefined, idempotencyKey: string, payloadHash: string): Promise<ApplicationView>;
+  listMessages(context: ApplicantContext): Promise<readonly ExternalMessageView[]>;
+  createMessage(context: ApplicantContext, input: ExternalMessageInput, idempotencyKey: string, payloadHash: string): Promise<ExternalMessageView>;
+  listInformationRequests(context: ApplicantContext): Promise<readonly InformationRequestView[]>;
+  respondToInformationRequest(context: ApplicantContext, requestId: string, input: InformationResponseInput, idempotencyKey: string, payloadHash: string): Promise<InformationRequestView>;
+  platformList(context: PlatformContext, page: PageInput, filters: Readonly<Record<string, string>>): Promise<Page<ApplicationView>>;
+  platformGet(context: PlatformContext, applicationId: string): Promise<ApplicationView | null>;
+  assign(context: PlatformContext, applicationId: string, assigneeId: string, idempotencyKey: string, payloadHash: string): Promise<ApplicationView>;
+  addReview(context: PlatformContext, applicationId: string, input: ReviewInput, idempotencyKey: string, payloadHash: string): Promise<ApplicationView>;
+  requestInformation(context: PlatformContext, applicationId: string, input: InformationRequestInput, idempotencyKey: string, payloadHash: string): Promise<InformationRequestView>;
+  approve(context: PlatformContext, applicationId: string, input: DecisionInput, idempotencyKey: string, payloadHash: string): Promise<ApplicationView>;
+  reject(context: PlatformContext, applicationId: string, input: DecisionInput, idempotencyKey: string, payloadHash: string): Promise<ApplicationView>;
+  provision(context: PlatformContext, applicationId: string, idempotencyKey: string, payloadHash: string): Promise<ProvisioningRequestView>;
+  audit(context: PlatformContext, applicationId: string): Promise<readonly Readonly<Record<string, unknown>>[]>;
+  getProvisioning(context: PlatformContext, requestId: string): Promise<ProvisioningRequestView | null>;
+  retryProvisioning(context: PlatformContext, requestId: string, idempotencyKey: string, payloadHash: string): Promise<ProvisioningRequestView>;
+  runReadiness(context: PlatformContext, tenantId: string, idempotencyKey: string, payloadHash: string): Promise<ReadinessResult>;
+  getReadiness(context: PlatformContext, tenantId: string): Promise<ReadinessResult | null>;
+  createActivationRequest(context: PlatformContext, tenantId: string, idempotencyKey: string, payloadHash: string): Promise<ActivationRequestView>;
+  decideActivation(context: PlatformContext, requestId: string, decision: 'approve' | 'reject', reason: string, idempotencyKey: string, payloadHash: string): Promise<ActivationRequestView>;
+}
+
 export interface ApiDependencies {
   readonly cases: CaseRepository;
   readonly uploads: UploadRepository;
@@ -127,5 +274,9 @@ export interface ApiDependencies {
   readonly templates: TemplateRepository;
   readonly resolveContext: (request: Request) => Promise<TenantContext>;
   readonly authorize: (context: TenantContext, permission: Permission) => Promise<void> | void;
+  readonly onboarding?: OnboardingRepository;
+  readonly resolvePlatformContext?: (request: Request) => Promise<PlatformContext>;
+  readonly authorizePlatform?: (context: PlatformContext, permission: PlatformPermission) => Promise<void> | void;
   readonly reportError?: (cause: unknown, requestId: string) => void;
 }
+

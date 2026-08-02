@@ -2,40 +2,48 @@
 
 ## Verifierade kontroller
 
-- Tenant hämtas från verifierad kontext och binds till alla utvecklingsruntimeposter.
-- Databastransaktioner sätter tenant, aktörstyp, aktör, request-ID och använder lokal transaktionsscope.
-- RLS-migrationer använder `FORCE ROW LEVEL SECURITY`; composite tenant-FK och immutable/completion-guards bevaras.
-- API:t auktoriserar operationer server-side, begränsar body size, validerar JSON och returnerar stabila fel utan interna exceptionmeddelanden.
-- Muterande caseoperationer använder tenantbunden idempotens och canonical payload hash.
-- Inbjudningstoken använder 256 bitars entropi, hashad lagring, expiry, revoke och single-use.
-- OIDC-transaktion använder PKCE S256, state, nonce, HTTPS-redirectkontroll och constant-time-jämförelse.
-- Webhook-endpoints blockeras vid loopback, privata, link-local och osäkra mål; DNS-adresser kan verifieras före leverans.
-- Uploadmetadata kontrollerar filnamn, MIME, storlek, SHA-256 och PDF magic bytes.
-- Branding saneras; script/HTML/javascript-URL blockeras och kontrast kontrolleras.
-- Dev API/workers kan inte startas med produktionsmiljö.
+- Applicant-, platform- och tenanttrafik klassificeras i separata routegrupper och använder olika kontexttyper.
+- Applicant kan inte välja tenant och fel applicanttoken ger 403.
+- Tenant hämtas från verifierad kontext; cross-tenant caseuppslag ger 404 i integrationstest.
+- Databastransaktioner sätter tenant, aktör och request-ID. RLS/composite tenant-FK/immutable guards är bevarade.
+- Onboardingstatus valideras i TypeScript och PostgreSQL. Otillåten direktövergång till `active` blockeras.
+- E-post-/access-/invitationstokens bygger på minst 256 bitars entropi och hashad lagringsmodell.
+- Ansökningsversioner är append-only och interna uppgifter har separata tabeller/permissionsmodell.
+- Databasen blockerar samma aktör från att initiera och godkänna en tenantaktivering.
+- Aktivering blockeras när readiness inte är grön.
+- API:t begränsar body size, validerar JSON/allowlists och returnerar stabila fel utan exceptionläckage.
+- Muterande operationer använder idempotency key, canonical payload hash och versionskontroll där relevant.
+- OIDC-kärnan använder PKCE S256, state, nonce, HTTPS-redirectkontroll och constant-time-jämförelse.
+- Webhookmål blockeras för loopback, privata och link-local mål; uploadmetadata/PDF magic bytes kontrolleras.
+- Branding saneras och kontrast kontrolleras.
+- Produktions-API och workers saknar devfallback och stoppar utan explicit produktionsadapter.
 - Signerad PDF, DSS-rapport och evidence package returneras inte utan verklig konfigurerad tjänst.
 - Secret scan och förbjudna certifikat-/nyckelfiltyper ingår i verifieringsgrinden.
 
 ## Testresultat
 
-- 19 kärntester: gröna.
-- Integrationstest för tenant A/B och API-flöde: grönt.
-- Säkerhetstest för XSS, SSRF, domain takeover-baskontroller, uploads, invitation replay och OIDC: grönt.
+- 22 core/unit tests: gröna.
+- Tenant- och onboardingintegration: gröna för den implementerade utvecklingsslicen.
+- Readiness/activation fail-closed: grönt.
+- Säkerhetstest för XSS, SSRF, domain guards, uploads, invitation replay och OIDC: grönt.
+- HTTP CORS/preflight för applicant/platform och PATCH: grönt.
 - Java Freja JWS self-test: grönt.
-- SQL tenant-escape-test finns men kunde inte köras lokalt utan PostgreSQL; det körs i CI med en NOBYPASSRLS-roll.
+- SQL tenant/application escape och race tests kunde inte köras lokalt utan PostgreSQL/Docker.
 
 ## Öppna säkerhetsrisker före pilot
 
-- Ingen live OAuth2/JWK/mTLS- eller Entra/SAML/SCIM-verifiering.
-- Ingen komplett PDF-sandbox, antivirus- eller bombtestning.
+- Applicantportalen använder dev bearer-token i `sessionStorage`; produktion kräver HttpOnly-cookie, CSRF, rate limit och riktig magic link.
+- Produktionsrepositories och DB-behörigheter är inte implementerade eller liveverifierade.
+- Ingen komplett bilage-/PDF-sandbox, antivirus- eller bombtestning.
+- Ingen live OAuth2/JWK/mTLS eller Entra/SAML/SCIM.
 - Ingen oberoende BankID XML-DSig/OCSP-kedjeverifiering.
 - Ingen riktig PAdES/DSS/TSA/CA/HSM-runtime.
-- Webhook delivery-worker, faktisk DNS-rebindingkontroll per retry och secret rotation återstår.
-- Penetrationstest, SAST/dependency/container scan i full leveranskedja, lasttest och restore-test återstår.
-- Produktions-CSP, CSRF/sessioncookies och WAF måste verifieras på de verkliga dynamiska portalerna.
+- Durable webhook/notifierings/archive workers och DNS-rebindingkontroll per retry återstår.
+- Penetrationstest, full SAST/dependency/container scan, lasttest och restore-test återstår.
+- WCAG 2.2 AA måste verifieras med riktiga browser- och hjälpmedelstester.
 
 ## Beslut
 
-**NO-GO för produktionssignering.**
+**NO-GO för skarp ansökningshantering med personuppgifter och NO-GO för produktionssignering.**
 
-**GO som utvecklingsbas/lokal demo** under förutsättning att inga riktiga personuppgifter eller skarpa eID-credentials används.
+**GO som lokal utvecklingsbas** under förutsättning att endast syntetiska testuppgifter och inga skarpa eID-hemligheter används.

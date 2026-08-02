@@ -25,7 +25,7 @@ npm run db:migrate
 npm run db:verify
 ```
 
-`db:verify` kör både schemaverifiering och ett tenant-escape-test med en icke-superuserroll. I produktion ska migrationer köras separat mot `CONTROL_DATABASE_URL` och `DATA_DATABASE_URL` efter backup och stagingverifiering.
+`db:verify` kör schemaverifiering och tenant-escape-test med icke-superuserroll. Migration `migrations/control/0006_onboarding_and_activation.sql` är additiv och ska köras efter tidigare control-plane-migrationer. I produktion ska migrationer journalföras och köras efter backup/stagingverifiering.
 
 Återställ endast lokal testmiljö:
 
@@ -35,16 +35,22 @@ npm run db:reset:test
 
 ## API och portaler
 
-Terminal 1:
+Alla utvecklingsytor:
 
 ```bash
-npm run dev:api
+npm run dev
 ```
 
-Terminal 2:
+Separat körning:
 
 ```bash
-npm run dev:tenant
+npm run dev:api             # http://127.0.0.1:8787
+npm run dev:website         # http://127.0.0.1:3000
+npm run dev:platform-admin  # http://127.0.0.1:3001
+npm run dev:tenant          # http://127.0.0.1:3002
+npm run dev:signer          # http://127.0.0.1:3003
+npm run dev:verify          # http://127.0.0.1:3004
+npm run dev:onboarding      # http://127.0.0.1:3005
 ```
 
 Kontroller:
@@ -54,7 +60,19 @@ curl -i http://127.0.0.1:8787/health/live
 curl -i http://127.0.0.1:8787/health/ready
 ```
 
-Utvecklingsruntime använder `KOMMUNSIGN_API_BOOTSTRAP_MODULE=../../dist/apps/api/src/dev-runtime.js`. Modulen stoppar om `APP_ENV=production`. Produktionsruntime ska i stället injicera OAuth/mTLS, PostgreSQLrepositories, objektlagring och provideradapters.
+Utvecklingsruntime returnerar en verifieringstoken i create-responsen för automatiserade/lokala tester och använder bearer-token i portalen. Detta är avsiktligt dev-only. Produktionsadaptern ska skicka magic link och skapa en kortlivad HttpOnly-cookie med CSRF-skydd.
+
+## Produktionsgräns
+
+```bash
+npm run build
+APP_ENV=production \
+KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE=<reviewed-module> \
+KOMMUNSIGN_WORKER_ADAPTER_MODULE=<reviewed-module> \
+npm run start:api
+```
+
+Produktionsruntime stoppar om adaptermoduler eller obligatoriska endpoints saknas och accepterar inte `dev-runtime`, `dev-onboarding` eller `dev-runner`.
 
 ## Testkategorier
 
@@ -64,4 +82,4 @@ npm run test:integration
 npm run test:security
 ```
 
-`test:e2e` och `test:accessibility` avslutas avsiktligt med blockerad status tills browser-, provider- och testmiljön är konfigurerad. Det ska inte tolkas som ett grönt testresultat.
+`test:e2e` och `test:accessibility` avslutas avsiktligt med blockerad status tills browser-, provider- och testmiljö är konfigurerad. Det får inte tolkas som ett grönt resultat.
