@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:17.10-bookworm
+    environment:
+      POSTGRES_USER: kommunsign
+      POSTGRES_PASSWORD: local-change-me
+      POSTGRES_DB: kommunsign
+    ports: ["5432:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U kommunsign"], interval: 5s, timeout: 3s, retries: 20 }
+  redis:
+    image: redis:8.0.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes: ["redis-data:/data"]
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address :9001
+    environment: { MINIO_ROOT_USER: local-only, MINIO_ROOT_PASSWORD: local-only-change-me }
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["minio-data:/data"]
+  clamav:
+    image: clamav/clamav:1.5-debian13-slim
+    ports: ["3310:3310"]
+  gotenberg:
+    image: gotenberg/gotenberg:8.34.0
+    ports: ["3005:3000"]
+    command: ["gotenberg", "--api-disable-health-check-logging=true", "--chromium-disable-javascript=true"]
+volumes:
+  postgres-data: {}
+  redis-data: {}
+  minio-data: {}

@@ -1,0 +1,50 @@
+import type { TenantContext } from '../../contracts/src/index.js';
+
+export interface QueryResult<Row> { readonly rows: readonly Row[]; readonly rowCount: number; }
+export interface SqlTransaction {
+  query<Row = Readonly<Record<string, unknown>>>(sql: string, parameters?: readonly unknown[]): Promise<QueryResult<Row>>;
+}
+export interface SqlDatabase {
+  transaction<T>(work: (transaction: SqlTransaction) => Promise<T>): Promise<T>;
+}
+
+export async function withTenantTransaction<T>(
+  database: SqlDatabase,
+  context: TenantContext,
+  actorKind: 'internal_user' | 'external_client' | 'worker',
+  work: (transaction: SqlTransaction) => Promise<T>,
+): Promise<T> {
+  return database.transaction(async (transaction) => {
+    await transaction.query("select set_config('app.tenant_id', $1, true)", [context.tenantId]);
+    await transaction.query("select set_config('app.actor_kind', $1, true)", [actorKind]);
+    return work(transaction);
+  });
+}
+
+export async function assertIdempotency(
+  transaction: SqlTransaction,
+  tenantId: string,
+  apiClientId: string,
+  key: string,
+  method: string,
+  path: string,
+  payloadSha256: string,
+): Promise<'created' | 'replay'> {
+  const existing = await transaction.query<{ request_payload_sha256: string }>(
+    `select request_payload_sha256 from app.api_idempotency_keys
+     where tenant_id = $1 and api_client_id = $2 and idempotency_key = $3 for update`,
+    [tenantId, apiClientId, key],
+  );
+  const row = existing.rows[0];
+  if (row) {
+    if (row.request_payload_sha256 !== payloadSha256) throw new Error('IDEMPOTENCY_CONFLICT');
+    return 'replay';
+  }
+  await transaction.query(
+    `insert into app.api_idempotency_keys
+      (tenant_id,api_client_id,idempotency_key,request_method,request_path,request_payload_sha256,expires_at)
+     values ($1,$2,$3,$4,$5,$6,now()+interval '24 hours')`,
+    [tenantId, apiClientId, key, method, path, payloadSha256],
+  );
+  return 'created';
+}

@@ -1,0 +1,24 @@
+groups:
+  - name: kommunsign-critical
+    rules:
+      - alert: TenantIsolationFailure
+        expr: increase(kommunsign_tenant_isolation_failures_total[5m]) > 0
+        for: 0m
+        labels: { severity: critical }
+        annotations: { summary: "Tenant isolation control failed" }
+      - alert: SignatureFailureRateHigh
+        expr: sum(rate(kommunsign_signature_attempts_total{result="failed"}[15m])) / clamp_min(sum(rate(kommunsign_signature_attempts_total[15m])), 1) > 0.10
+        for: 10m
+        labels: { severity: critical }
+      - alert: CertificateExpiringSoon
+        expr: kommunsign_certificate_not_after_seconds - time() < 1209600
+        for: 1h
+        labels: { severity: warning }
+      - alert: BackupFailed
+        expr: time() - kommunsign_last_successful_backup_timestamp_seconds > 90000
+        for: 15m
+        labels: { severity: critical }
+      - alert: WebhookQueueBacklog
+        expr: kommunsign_webhook_queue_oldest_age_seconds > 900
+        for: 10m
+        labels: { severity: warning }

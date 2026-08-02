@@ -1,0 +1,21 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with: { node-version: '22.16.0', cache: npm }
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with: { distribution: temurin, java-version: '21' }
+      - run: npm run verify
+      - name: Secret scan
+        run: echo "Run pinned gitleaks/Trivy action here; release is blocked until SHA is pinned"
+      - name: SBOM
+        run: echo "Generate CycloneDX SBOM and sign artifacts in the release workflow"

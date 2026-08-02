@@ -1,0 +1,21 @@
+{
+  "name": "kommunsign",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant e-signature and digital approval platform for Swedish public sector",
+  "type": "module",
+  "bin": { "kommunsign-verify": "scripts/kommunsign-verify.mjs" },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node tests/run.mjs",
+    "verify:repository": "node scripts/verify-repository.mjs",
+    "verify:provenance": "node scripts/check-provenance.mjs",
+    "verify:java": "bash scripts/build-java.sh",
+    "verify": "npm run clean && npm run build && npm run verify:repository && npm run verify:provenance && npm run verify:java && node tests/run.mjs",
+    "package:release": "bash scripts/package-release.sh"
+  }
+}

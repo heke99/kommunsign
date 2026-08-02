@@ -1,0 +1,174 @@
+openapi: 3.1.0
+info:
+  title: KommunSign API
+  version: 2026-08-01
+  description: Tenant is derived from the authenticated OAuth client or mTLS identity, never from request payload.
+servers:
+  - url: https://api.kommunsign.se/v1
+security:
+  - oauth2: [signature-cases:read, signature-cases:write]
+paths:
+  /signature-cases:
+    post:
+      operationId: createSignatureCase
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSignatureCase' }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/SignatureCase' } } } }
+        '409': { $ref: '#/components/responses/IdempotencyConflict' }
+    get:
+      operationId: listSignatureCases
+      responses:
+        '200':
+          description: Tenant-scoped result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/SignatureCase' } }
+  /signature-cases/{id}:
+    get:
+      operationId: getSignatureCase
+      parameters: [ { $ref: '#/components/parameters/CaseId' } ]
+      responses:
+        '200': { description: Found, content: { application/json: { schema: { $ref: '#/components/schemas/SignatureCase' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /signature-cases/{id}/documents:
+    post:
+      operationId: addDocument
+      parameters: [ { $ref: '#/components/parameters/CaseId' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses: { '202': { description: Uploaded document was placed in quarantine } }
+  /signature-cases/{id}/signers:
+    post:
+      operationId: addSigner
+      parameters: [ { $ref: '#/components/parameters/CaseId' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses: { '201': { description: Signer added } }
+  /signature-cases/{id}/send:
+    post:
+      operationId: sendSignatureCase
+      parameters: [ { $ref: '#/components/parameters/CaseId' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses: { '200': { description: Sent } }
+  /signature-cases/{id}/cancel:
+    post:
+      operationId: cancelSignatureCase
+      parameters: [ { $ref: '#/components/parameters/CaseId' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses: { '200': { description: Cancelled } }
+  /signature-cases/{id}/remind:
+    post:
+      operationId: remindSigners
+      parameters: [ { $ref: '#/components/parameters/CaseId' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses: { '202': { description: Durable reminder job created } }
+  /signature-cases/{id}/signed-document:
+    get:
+      operationId: downloadSignedDocument
+      parameters: [ { $ref: '#/components/parameters/CaseId' } ]
+      responses: { '200': { description: Signed PDF, content: { application/pdf: { schema: { type: string, contentEncoding: binary } } } } }
+  /signature-cases/{id}/validation-report:
+    get:
+      operationId: downloadValidationReport
+      parameters: [ { $ref: '#/components/parameters/CaseId' } ]
+      responses: { '200': { description: Validation report } }
+  /signature-cases/{id}/evidence-package:
+    get:
+      operationId: downloadEvidencePackage
+      parameters: [ { $ref: '#/components/parameters/CaseId' } ]
+      responses: { '200': { description: Verifiable evidence archive } }
+  /uploads:
+    post:
+      operationId: createPresignedUpload
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses: { '201': { description: Short-lived, single-use, tenant-bound upload grant } }
+  /webhook-endpoints:
+    post:
+      operationId: createWebhookEndpoint
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses: { '201': { description: Endpoint created } }
+  /events:
+    get:
+      operationId: listEvents
+      responses: { '200': { description: Tenant-scoped event list } }
+  /templates:
+    get: { operationId: listTemplates, responses: { '200': { description: Templates } } }
+    post:
+      operationId: createTemplate
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses: { '201': { description: Template created } }
+components:
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: https://api.kommunsign.se/oauth/token
+          scopes:
+            signature-cases:read: Read signature cases and reports
+            signature-cases:write: Create and operate signature cases
+            documents:download: Download signed documents
+            webhooks:manage: Manage webhook endpoints
+  parameters:
+    CaseId: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    RequestId: { name: X-Request-Id, in: header, required: false, schema: { type: string, maxLength: 128 } }
+    IdempotencyKey: { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 16, maxLength: 200 } }
+  schemas:
+    CreateSignatureCase:
+      type: object
+      additionalProperties: false
+      required: [title, decisionMode, signaturePolicyId]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 300 }
+        externalReference: { type: string, maxLength: 200 }
+        decisionMode: { type: string, enum: [DIGITAL_APPROVAL, ELECTRONIC_SIGNATURE] }
+        signaturePolicyId: { type: string, format: uuid }
+    SignatureCase:
+      type: object
+      required: [id, status, title, decisionMode, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [draft, preparing, ready, sent, in_progress, partially_signed, completed, declined, expired, cancelled, failed, archiving, archived] }
+        title: { type: string }
+        externalReference: { type: string }
+        decisionMode: { type: string, enum: [DIGITAL_APPROVAL, ELECTRONIC_SIGNATURE] }
+        createdAt: { type: string, format: date-time }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            requestId: { type: string }
+            details: { type: object, additionalProperties: true }
+  responses:
+    NotFound: { description: Not found within authenticated tenant }
+    IdempotencyConflict: { description: Same idempotency key was used with a different payload }
+webhooks:
+  signatureCaseEvent:
+    post:
+      parameters:
+        - { name: X-KommunSign-Signature, in: header, required: true, schema: { type: string } }
+        - { name: X-KommunSign-Timestamp, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, type, occurredAt, apiVersion, data]
+              properties:
+                id: { type: string, format: uuid }
+                type: { type: string }
+                occurredAt: { type: string, format: date-time }
+                apiVersion: { const: '2026-08-01' }
+                data: { type: object, additionalProperties: true }
+      responses: { '204': { description: Accepted } }

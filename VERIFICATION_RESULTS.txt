@@ -1,0 +1,35 @@
+
+> kommunsign@0.1.0 verify
+> npm run clean && npm run build && npm run verify:repository && npm run verify:provenance && npm run verify:java && node tests/run.mjs
+
+
+> kommunsign@0.1.0 clean
+> node scripts/clean.mjs
+
+
+> kommunsign@0.1.0 build
+> tsc -p tsconfig.json
+
+
+> kommunsign@0.1.0 verify:repository
+> node scripts/verify-repository.mjs
+
+repository verification: OK
+
+> kommunsign@0.1.0 verify:provenance
+> node scripts/check-provenance.mjs
+
+provenance verification: OK (0 donor LOC)
+
+> kommunsign@0.1.0 verify:java
+> bash scripts/build-java.sh
+
+java boundary services: OK
+✓ canonical JSON is deterministic
+✓ tenant sources must agree
+✓ terminal status requires technical evidence
+✓ electronic signature policy cannot omit cryptographic format
+✓ BankID evidence bytes are reproducible and verifier fails closed
+✓ HMAC verification and timestamp window
+✓ evidence manifest detects modified file
+7 tests passed

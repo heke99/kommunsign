@@ -1,0 +1,86 @@
+schema: kommunsign.source-inventory.v1
+calculation_method:
+  basis: copyrightable_source_lines
+  excludes: [generated_files, lockfiles, binaries, vendored_dependencies, non_reusable_test_data]
+  maximum_percent_per_donor: 85
+sources:
+  - project: documenso
+    repository: documenso/documenso
+    pinned_commit: null
+    license: AGPL-3.0
+    permission_file: upstream/permissions/documenso/README.md
+    reuse_type: evaluated_not_imported
+    original_loc: 0
+    reused_loc: 0
+    imported: false
+    gate: blocked_until_permission_and_commit_pin
+  - project: docuseal
+    repository: docusealco/docuseal
+    pinned_commit: null
+    license: AGPL-3.0-with-additional-terms
+    permission_file: upstream/permissions/docuseal/README.md
+    reuse_type: evaluated_not_imported
+    original_loc: 0
+    reused_loc: 0
+    imported: false
+    gate: blocked_until_permission_and_commit_pin
+  - project: libresign
+    repository: LibreSign/libresign
+    pinned_commit: null
+    license: AGPL-3.0
+    permission_file: upstream/permissions/libresign/README.md
+    reuse_type: evaluated_not_imported
+    original_loc: 0
+    reused_loc: 0
+    imported: false
+    gate: blocked_until_permission_and_commit_pin
+  - project: opensign
+    repository: OpenSignLabs/OpenSign
+    pinned_commit: null
+    license: AGPL-3.0
+    permission_file: upstream/permissions/opensign/README.md
+    reuse_type: evaluated_not_imported
+    original_loc: 0
+    reused_loc: 0
+    imported: false
+    gate: blocked_until_permission_and_commit_pin
+  - project: sweden-connect-signservice
+    repository: swedenconnect/signservice
+    pinned_commit: null
+    license: Apache-2.0
+    permission_file: upstream/permissions/sweden-connect-signservice/README.md
+    reuse_type: planned_dependency
+    original_loc: 0
+    reused_loc: 0
+    imported: false
+    gate: blocked_until_version_and_commit_pin
+  - project: sweden-connect-ca-signservice
+    repository: swedenconnect/ca-signservice
+    pinned_commit: null
+    license: Apache-2.0
+    permission_file: upstream/permissions/sweden-connect-ca-signservice/README.md
+    reuse_type: planned_dependency
+    original_loc: 0
+    reused_loc: 0
+    imported: false
+    gate: blocked_until_version_and_commit_pin
+  - project: eu-dss
+    repository: esig/dss
+    pinned_commit: null
+    license: LGPL-2.1
+    permission_file: upstream/permissions/eu-dss/README.md
+    reuse_type: planned_dependency
+    original_loc: 0
+    reused_loc: 0
+    imported: false
+    gate: blocked_until_version_and_commit_pin
+  - project: freja-eid-java-client
+    repository: Freja-eID/frejaeidclient
+    pinned_commit: null
+    license: Apache-2.0
+    permission_file: upstream/permissions/freja-eid-java-client/README.md
+    reuse_type: planned_dependency
+    original_loc: 0
+    reused_loc: 0
+    imported: false
+    gate: blocked_until_version_and_commit_pin
