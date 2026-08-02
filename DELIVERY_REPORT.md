@@ -2,64 +2,72 @@
 
 Statusdatum: 2026-08-02.
 
+## Samlad status
+
+Den levererade repositorykärnan har byggts vidare till en sammanhängande och verifierbar utvecklingsplattform. Leveransen är **inte en färdig produktionsklar e-signaturtjänst**: extern eID-verifiering, PAdES, EU DSS, CA/HSM/TSA, produktionsauth, objektlagring och live driftprov är fortfarande blockerade eller återstår. Inga sådana resultat har fabricerats.
+
 ## IMPLEMENTERAT
 
-- Härdad gemensam TypeScript-/Java-kodbas med control plane och tenant data plane.
-- Tenantkontext, RBAC, versionerad policy engine, RLS-modell och composite tenant foreign keys.
-- Databasskydd mot cross-case-kopplingar och ändring av låsta dokument/policies/identitetsbindningar.
-- Separat immutable evidence för `DIGITAL_APPROVAL`.
-- Krav på kryptografisk signaturartefakt och accepterad validation för `ELECTRONIC_SIGNATURE`.
-- Canonical JSON, SHA-256, Base64, HMAC, nonce/state och evidence payload.
-- TIC BankID-adapter med POST poll, GET collect, DELETE cancel, HTTPS/timeoutskydd och Base64-kodad dold data.
-- TIC webhook-HMAC, timestamp-, session- och statebindning.
-- Freja JWS-verifieringskärna med RS256/ES256 och fail-closed headerkontroller.
-- Hållbar worker lease recovery och konsekvent attempt-räkning.
-- Audit-hash som täcker tenant, sequence, kategori, actor, resource, payload och tid.
-- API-runtime med auktorisering, strikt JSON, body limits, säkra fel och idempotens för create/send/cancel.
-- OpenAPI 3.1 med implementationsstatus per operation.
-- Java boundaries som vägrar påstå PAdES/validation utan riktig konfiguration.
-- Offline verifier-CLI, evidence manifest, CI, SBOM-generator, hemlighetsskanning och migrationskontroll.
-- Exakta pins för åtta donorprojekt och verklig 85-procents-/permission-evidence-grind.
-- Publik, responsiv och Vercel-förberedd KommunSign-webbplats med säkerhetsheaders, SEO-filer och separata informationssidor.
+- Riktig npm-workspacegrund och samlade rootkommandon för webb, portaler, API, workers, databaser och testkategorier.
+- Gemensam strikt TypeScript-build samt separata byggen för fyra portalytor och den befintliga publika Vercelwebben.
+- Tenanttransaktionswrapper som alltid sätter `tenant_id`, `actor_kind`, `actor_id` och `request_id` innan domänfrågor.
+- Sexton kärnoperationer i OpenAPI och API-router: cases, dokument, signerare, send/cancel/remind, uploads, templates, events, webhooks och tre skyddade artefaktnedladdningar.
+- Tenantisolerad utvecklingsruntime med idempotens, canonical payload hash, versionskontroll och explicit produktionsspärr.
+- Strukturerade fail-closed-fel för signerad PDF, valideringsrapport och evidence package när signer-/DSS-tjänster saknas.
+- Säkerhetsmoduler för OIDC PKCE/state/nonce, 256-bitars engångsinbjudningar, uploadmetadata/PDF magic bytes, branding/XSS/kontrast, custom domains och webhook-SSRF.
+- Additiva control-plane-migrationer för OIDC/SAML-konfiguration, SCIM-token, sessionsspårning, break-glass och domänprovisioneringsjobb.
+- Additiv data-plane-migration för upload grants, invitation consumption/revocation, notifieringsretry/bounce/complaint och idempotensresponse-hash.
+- Funktionell tenantportal för lokalt case-, dokument-, signerare-, send-, reminder- och eventflöde.
+- Operativa platform-admin-, signer- och verifieringsportaler som visar readiness och aldrig avgör kryptografiskt resultat i frontend.
+- Docker Compose för separata control/data PostgreSQL, Redis, MinIO, ClamAV, Gotenberg, Mailpit, API, workers och Java-tjänster.
+- TypeScript-, Java- och C#-SDK-källor versionsbundna till OpenAPI `2026-08-02.2`; TypeScript och Java kompileras/verifieras i leveransen.
+- CI-jobb för kodverifiering och live PostgreSQL-migration/RLS/tenant-escape-test.
 
-## VERIFIERAT LOKALT
+## VERIFIERAT I DENNA KÖRMILJÖ
 
-- TypeScript 5.8.3 strict build.
-- Repository- och migrationsstruktur.
-- Proveniensgrind: 0 donor-LOC, åtta pins, 0 mapped imports.
-- Java 21-kompilering och Freja JWS self-test.
-- 19 kärntester för crypto, tenant, policy/evidence, TIC, API, audit, worker, databasregler, publik webb och proveniens.
-- Publik webbbuild: 6 HTML-sidor, intern länkkontroll och strikt CSP-kompatibilitet.
-- Lokal HTTP-kontroll av samtliga publika sidor, statiska resurser och 404.
-- API shell: liveness 200 och readiness 503 tills riktiga dependencies har konfigurerats.
+- Node.js 22.16.0, TypeScript 5.8.3 och Java 21.0.10.
+- Strikt TypeScript-kompilering inklusive TypeScript-SDK.
+- Fyra portalbyggen.
+- Repository-, migrations-, proveniens-, SDK-synk- och hemlighetsgrindar.
+- Java 21-kompilering för tre servicegränser och Java-SDK.
+- Freja JWS self-test.
+- 19 kärntester.
+- Tenantisolerat API-integrationsflöde inklusive cross-tenant 404 och fail-closed artefaktförsök.
+- Säkerhetstester för branding/XSS/kontrast, webhook-SSRF, custom domains, uploads, invitations och OIDC.
+- Publik webbbuild med sex HTML-sidor.
+- API-smoke: readiness och skapande av tenantbundet case i utvecklingsruntime.
 
-## KRÄVER EXTERNT AVTAL
+## INTE VERIFIERAT LOKALT
 
-- TIC test-/produktionstenant och provider-E2E.
-- Freja Integrator RP/Integrated RP.
-- TSA, CA/trust service provider, e-post, objektlagring och e-arkiv.
+- `npm ci` mot den isolerade körmiljöns interna npm-spegel; spegeln saknade arkivet för TypeScript 5.8.3. Exakt global TypeScript 5.8.3 användes för verifiering. `package-lock.json` är fortsatt låst och CI använder normalt `npm ci`.
+- Live PostgreSQL eftersom Docker och `psql` saknades i sandlådan. Migrationerna och det icke-superuserbaserade RLS/tenant-escape-testet finns i CI och ska köras efter synk.
+- C#-kompilering eftersom .NET SDK saknades; C#-SDK-källan versionssynkades men ska kompileras i .NET-CI innan publicering.
+- E2E, last, penetrationstest, backup/restore och full WCAG 2.2 AA-audit.
 
-## KRÄVER PRODUKTIONSCERTIFIKAT
+## EXTERNA BLOCKERARE
 
-- Freja mTLS/JWS trust och rotationskedja.
-- Sweden Connect SignService/CA/HSM.
-- TLS/custom domains och providerwebhooks.
+- TIC BankID-testtenant, API-nyckel, webhook secret och verifierbara testtransaktioner.
+- Freja RP-avtal, officiell klientartefakt, mTLS-certifikat, truststore och verifieringsnycklar.
+- Sweden Connect SignService/CA, signing credential, HSM/PKCS#11 och key ceremony.
+- RFC 3161 TSA och policy-OID.
+- EU DSS, LOTL/TSL/trusted-list-konfiguration och officiella valideringsvektorer.
+- DNS/TLS-providerkonto, objektlagring, e-postdomän och e-arkivmål.
 
-## KRÄVER JURIDISKT BESLUT
+## JURIDISKA BLOCKERARE
 
-- Verifiering och arkivering av de uppgivna donortillstånden.
-- Signaturpolicy per handlingstyp.
-- Retention, legal hold, informationsklassning, driftregion och underbiträden.
+- `upstream/permissions` innehåller inga verifierade signerade tillstånd. Därför har ingen donor-kod importerats och `reused_loc` är fortsatt noll.
+- Signaturpolicy, retention, informationsklassning, driftregion, underbiträden och arkivkrav måste beslutas per kund/handlingstyp.
 
-## KVARVARANDE RISK
+## KVARVARANDE HÖGRISKARBETE
 
-- SQL-migrationerna kunde inte integrationstestas mot live PostgreSQL i denna körmiljö.
-- PAdES/DSS/Sweden Connect är ännu inte verkliga integrationer.
-- Bara create/list/get/send/cancel är runtimeimplementerade API-operationer.
-- Marknadswebbplatsen är färdig för Vercel-preview, men portalerna är grundskal och inte kompletta verksamhetsgränssnitt.
-- Entra ID/SCIM, custom-domain-provisionering, notifieringar, e-arkiv och connectors återstår.
-- Penetrationstest, lasttest, återställningstest, WCAG-audit och DPIA krävs före pilot.
+- Produktionsrepositories mot PostgreSQL och objektlagring för samtliga API-operationer.
+- OAuth2/JWK/mTLS, Entra OIDC, SAML, SCIM och WebAuthn i riktig runtime.
+- Fientlig PDF-processning, antivirus, canonicalisering och tillgänglig PDF-fältbyggare.
+- Oberoende BankID XML-DSig/OCSP-verifiering och Freja live/mTLS.
+- Riktig PAdES B/T/LT/LTA, flera inkrementella signaturer, DSS-validering och signerad/tidsstämplad evidence package.
+- Durable webhook-/notification-/archive-workers, retention/legal hold och tenantoffboarding.
+- OTel, referensdeployment, backup/restore, penetrationstest, belastningstest och WCAG-bevis.
 
-## DONORIMPORT
+## SLUTBEDÖMNING
 
-Ingen donor-kod importerades. Tillståndsdokumenten var inte del av uppladdningen och kunde därför inte verifieras eller checksummas. Detta är ett medvetet fail-closed-beslut, inte ett tekniskt hinder i proveniensverktyget.
+Leveransen förbättrar repositoryt utan att bryta den publika webbplatsen eller skriva om tidigare migrationer. Den är lämplig som verifierad nästa utvecklingsbas och lokal demo, men får inte markeras som produktionsklar förrän återstående krav i `docs/verification/requirements-traceability.md` är verifierade.

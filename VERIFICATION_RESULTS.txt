@@ -1,40 +1,48 @@
-# KommunSign verification results
-Executed: 2026-08-02
+KommunSign verification results
+Date: 2026-08-02
 
-## Core verification
+ENVIRONMENT
+Node.js: 22.16.0
+npm: 10.9.2
+TypeScript: 5.8.3 (exact globally installed compiler used because isolated registry returned 404)
+Java/Javac: 21.0.10
+Docker: unavailable in sandbox
+psql: unavailable in sandbox
+.NET SDK: unavailable in sandbox
+Git metadata: absent from uploaded source archive
 
-- TypeScript 5.8.3 strict build: OK
-- Repository verification: OK
-- SQL migration verification: OK
-- Provenance verification: OK (0 donor LOC, 8 pinned donors, 0 mapped imports)
-- Secret scan: OK
-- Freja JWS verifier self-test: OK
-- Java boundary services: OK
-- Automated tests: 19 passed
+VERIFIED GREEN
+- npm run verify
+- TypeScript strict build including TypeScript SDK
+- 4 portal builds
+- repository verification
+- SQL migration sequence/static verification
+- provenance verification: 0 donor LOC, 8 pinned donors, 0 mapped imports
+- OpenAPI/SDK sync: 2026-08-02.2
+- secret scan
+- Java service boundaries and Java SDK compilation
+- Freja JWS verifier self-test
+- 19 core tests
+- tenant-scoped API integration flow and cross-tenant isolation behavior
+- security tests: branding, SSRF, domains, uploads, invitations, OIDC
+- npm run web:build: 6 public HTML pages
+- API development runtime smoke: readiness + case creation
 
-The test suite includes crypto, canonical evidence, tenant matching, signature-policy completion guards, TIC methods and webhook binding, API authorization and safe errors, audit hashing, durable workers, evidence manifests, database hardening, Vercel website configuration and provenance.
+DEFINED BUT NOT EXECUTED IN SANDBOX
+- live PostgreSQL migrations and NOBYPASSRLS tenant-escape SQL test
+- Docker Compose service startup
+- C# SDK compilation
+- browser E2E
+- accessibility audit
+- provider integration tests
+- load, penetration and backup/restore tests
 
-## Public website verification
+EXTERNAL/LEGAL BLOCKERS
+- TIC/Freja credentials and certificates
+- Sweden Connect, CA/HSM/TSA and EU DSS/trusted-list configuration
+- DNS/TLS, email, object storage and archive providers
+- verified donor permission evidence
 
-```text
-npm run web:build
-public website build: OK (6 HTML pages → build/public-site)
-```
-
-The website build verifies required files, Swedish language metadata, viewport metadata, internal links, local resources and strict-CSP compatibility.
-
-Local HTTP smoke test:
-
-```text
-/                      200 text/html; charset=utf-8
-/sakerhet/             200 text/html; charset=utf-8
-/integritet/           200 text/html; charset=utf-8
-/tillganglighet/       200 text/html; charset=utf-8
-/kontakt/              200 text/html; charset=utf-8
-/assets/logo.svg       200 image/svg+xml
-/does-not-exist        404 text/html; charset=utf-8
-```
-
-## Environment note
-
-The isolated execution environment could not download TypeScript from its internal npm mirror. Core verification was therefore executed with the preinstalled exact TypeScript 5.8.3 toolchain. The user's normal `npm ci` had already completed successfully in the project environment.
+RESULT
+Development baseline: PASS
+Production signing readiness: BLOCKED / NO-GO

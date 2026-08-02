@@ -1,73 +1,90 @@
-# KommunSign changed files
-Compared with uploaded kommunsign-main.zip on 2026-08-02.
+# Ändrade och tillagda filer – KommunSign 2026-08-02
 
-ADDED (18)
-PROVENANCE_REPORT.txt
-SBOM.cdx.json
-apps/api/server.mjs
-docs/architecture/review-2026-08-02.md
-docs/operations/synchronization.md
-migrations/control/0003_domain_and_profile_integrity.sql
-migrations/control/0004_versioned_configuration_integrity.sql
-migrations/data/0009_integrity_and_worker_recovery.sql
-migrations/data/0010_immutability_and_evidence_states.sql
-packages/crypto/src/base64.ts
-scripts/check-sql-migrations.mjs
-scripts/generate-sbom.mjs
-scripts/provenance-lib.mjs
-scripts/provenance-report.mjs
-scripts/scan-secrets.mjs
-services/identity-service/src/main/java/se/kommunsign/identity/FrejaJwsVerifierSelfTest.java
-upstream/manifests/reuse-map.json
-upstream/permissions/PERMISSION_EVIDENCE_REQUIRED.md
+Jämförelsebas: `kommunsign-main(4).zip`. Genererade kataloger (`node_modules`, `dist`, `build`) och Git-metadata ingår inte.
 
-MODIFIED (41)
-.github/workflows/ci.yml
-DELIVERY_REPORT.md
-LICENSE_POLICY.md
-README.md
-THIRD_PARTY_NOTICES.md
-VERIFICATION_RESULTS.txt
-apps/api/src/ports.ts
-apps/api/src/router.ts
-apps/workers/src/jobs.ts
-docs/api/openapi.yaml
-docs/architecture/implementation-plan.md
-docs/integration/tic-bankid.md
-docs/operations/local-development.md
-docs/verification/verification-matrix.md
-infrastructure/docker/api.Dockerfile
-migrations/control/0001_control_plane.sql
-migrations/control/0002_tenant_profiles.sql
-migrations/data/0001_extensions_and_types.sql
-migrations/data/0002_core_tables.sql
-migrations/data/0003_identity_signature_validation.sql
-migrations/data/0004_audit_outbox_webhooks_archive.sql
-migrations/data/0005_rls.sql
-migrations/data/0006_functions_and_guards.sql
-migrations/data/0007_extended_required_model.sql
-migrations/data/0008_rls_for_extended_model.sql
-package.json
-packages/audit/src/index.ts
-packages/contracts/src/index.ts
-packages/crypto/src/index.ts
-packages/database/src/index.ts
-packages/domain/src/state-machines.ts
-packages/provider-adapters/src/tic-bankid.ts
-scripts/build-java.sh
-scripts/check-provenance.mjs
-scripts/verify-repository.mjs
-services/identity-service/src/main/java/se/kommunsign/identity/FrejaJwsVerifier.java
-services/signservice/src/main/java/se/kommunsign/signservice/SignCommand.java
-services/validation-service/src/main/java/se/kommunsign/validation/ValidationRequest.java
-tests/run.mjs
-upstream/licenses/license-matrix.md
-upstream/manifests/source-inventory.yaml
+## Sammanfattning
 
-DELETED (0)
-(none)
+- Tillagda filer: 36
+- Ändrade filer: 33
+- Raderade filer: 0
 
-Notes:
-- Generated/build directories and node_modules are excluded.
-- No existing source file was deleted.
-- Donor source code imported: 0 LOC; permission evidence remains unverified.
+## Tillagda filer
+
+- `PRODUCTION_CHECKLIST.md`
+- `SECURITY_REPORT.md`
+- `apps/api/src/dev-runtime.ts`
+- `apps/platform-admin/public/app.js`
+- `apps/signer-portal/public/app.js`
+- `apps/tenant-portal/public/app.js`
+- `apps/verification-portal/public/app.js`
+- `apps/workers/src/dev-runner.ts`
+- `docs/architecture/current-state-verified.md`
+- `docs/architecture/remaining-implementation-plan.md`
+- `docs/verification/requirements-traceability.md`
+- `infrastructure/docker/identity-service.Dockerfile`
+- `infrastructure/docker/signservice.Dockerfile`
+- `infrastructure/docker/validation-service.Dockerfile`
+- `infrastructure/docker/workers.Dockerfile`
+- `migrations/control/0005_auth_domain_and_break_glass_runtime.sql`
+- `migrations/data/0011_upload_notification_and_invitation_runtime.sql`
+- `packages/auth/src/index.ts`
+- `packages/branding/src/index.ts`
+- `packages/custom-domains/src/index.ts`
+- `packages/invitations/src/index.ts`
+- `packages/uploads/src/index.ts`
+- `scripts/build-portals.mjs`
+- `scripts/db-migrate.sh`
+- `scripts/db-reset-test.sh`
+- `scripts/db-verify.sh`
+- `scripts/dev-all.mjs`
+- `scripts/test-category.mjs`
+- `scripts/verify-sdk-sync.mjs`
+- `sdks/README.md`
+- `sdks/csharp/src/KommunSignClient.cs`
+- `sdks/java/src/main/java/se/kommunsign/sdk/KommunSignClient.java`
+- `sdks/typescript/src/client.ts`
+- `tests/integration.mjs`
+- `tests/security.mjs`
+- `tests/sql/tenant-isolation.sql`
+
+## Ändrade filer
+
+- `.env.example`
+- `.github/workflows/ci.yml`
+- `CHANGED_FILES.txt`
+- `DELIVERY_REPORT.md`
+- `FILE_MANIFEST.sha256`
+- `PROVENANCE_REPORT.txt`
+- `README.md`
+- `SBOM.cdx.json`
+- `VERIFICATION_RESULTS.txt`
+- `apps/api/server.mjs`
+- `apps/api/src/ports.ts`
+- `apps/api/src/router.ts`
+- `apps/platform-admin/public/app.css`
+- `apps/platform-admin/public/index.html`
+- `apps/signer-portal/public/app.css`
+- `apps/signer-portal/public/index.html`
+- `apps/tenant-portal/public/app.css`
+- `apps/tenant-portal/public/index.html`
+- `apps/verification-portal/public/app.css`
+- `apps/verification-portal/public/index.html`
+- `docker-compose.yml`
+- `docs/api/openapi.yaml`
+- `docs/operations/local-development.md`
+- `docs/operations/synchronization.md`
+- `package-lock.json`
+- `package.json`
+- `packages/authorization/src/index.ts`
+- `packages/crypto/src/base64.ts`
+- `packages/database/src/index.ts`
+- `packages/webhooks/src/index.ts`
+- `scripts/build-java.sh`
+- `scripts/verify-repository.mjs`
+- `tsconfig.json`
+
+## Raderade filer
+
+- Inga
+
+Patchpaketet raderar inga filer och ska synkas utan `--delete`.

@@ -1,77 +1,68 @@
 # KommunSign
 
-KommunSign är en säker grund för en multi-tenant och white-label-baserad plattform för digitala godkännanden och elektroniska underskrifter i svensk offentlig sektor.
+KommunSign är en multi-tenant och white-label-baserad plattformskärna för digitala godkännanden och elektroniska underskrifter i svensk offentlig sektor.
 
-Den här leveransen är en **härdad fas 0–1-kärna med delar av fas 2–4**. Den är inte hela den färdiga produkten i masterkravet.
+Den här leveransen är **inte produktionsklar e-signering**. Den innehåller en verifierad säker kärna, komplett runtimekontrakt för kärn-API:t, funktionella utvecklingsportaler och additiva databasmigrationer. Riktig PAdES, EU DSS, TIC/Freja-liveflöden, CA/HSM/TSA och produktionsauth förblir blockerade tills externa avtal, certifikat och provideradapters finns.
 
-## Implementerat i denna leverans
+## Implementerat
 
-- strikt serverhärledd tenantkontext, RBAC och PostgreSQL RLS-modell,
-- composite tenant keys och skydd mot cross-case-kopplingar,
-- versionerade signaturpolicyer och serverstyrda statusmaskiner,
-- skilda completion-krav för digitalt godkännande och e-underskrift,
-- immutable dokument-, policy-, identitets- och evidence-bindningar,
-- canonical JSON, SHA-256, Base64, HMAC och säkra engångstokens,
-- TIC/BankID-adapter med rätt HTTP-semantik, dokumenthashbindning och webhookverifiering,
-- Java JWS-verifieringskärna för Freja-gränsen,
-- hållbar worker leasing och återtag efter krasch/lease expiry,
-- append-only hashkedjad auditmodell,
-- transactional outbox, idempotens och webhookmodell,
-- säker API-runtime för create/list/get/send/cancel,
-- OpenAPI 3.1 med tydlig implementationsstatus per operation,
-- offline verifier-CLI och evidence manifest,
-- CI-grindar för build, migrationer, proveniens, hemligheter, Java och tester,
-- 85-procentsgrind med exakta donor-pins och permission-evidence-kontroll.
+- serverhärledd tenantkontext, RBAC, PostgreSQL RLS och composite tenant-FK,
+- tenanttransaktioner med `tenant_id`, `actor_kind`, `actor_id` och `request_id`,
+- immutable dokument/policy/evidence och completion guards,
+- canonical JSON, SHA-256, Base64, HMAC, OIDC PKCE/state/nonce och engångstokens,
+- TIC BankID-adaptergrund och webhookverifiering,
+- Freja JWS-verifieringskärna i Java,
+- audit-hashkedja, durable jobs, idempotens och outbox,
+- sexton runtimeoperationer i OpenAPI och API-router,
+- tenantportal för cases/uploads/signerare/events samt operativa admin-, signer- och verifieringsytor,
+- upload-, branding-, custom-domain-, invitation- och webhook-SSRF-guards,
+- Docker Compose för separata control/data-databaser och lokala stödtjänster,
+- unit-, integration-, security-, migration-, Java-, proveniens- och secret-grindar.
 
-## Viktig säkerhetsgräns
+## Säkerhetsgräns
 
-Projektet skapar inte en låtsad PAdES-signatur. Java-tjänsterna och databasen blockerar slutförande tills rätt teknisk evidence finns. Sweden Connect SignService, EU DSS, TSA, CA/HSM, TIC och Freja måste kopplas med godkända avtal, certifikat och fastlåsta versioner innan produktionssignering kan påstås fungera.
+Systemet fabricerar aldrig PAdES, DSS-resultat eller positiv provider-evidence. Nedladdning av signerad PDF, valideringsrapport och evidence package returnerar strukturerade fail-closed-fel tills motsvarande tjänst är konfigurerad.
 
-## Donorstatus
-
-Åtta donorprojekt är låsta till exakta commits, men **0 donor-LOC har importerats**. Uppgiften om skriftligt tillstånd är registrerad, men tillståndsdokumenten var inte bifogade. Lägg verifierbara kopior under `upstream/permissions/<donor>/`, registrera SHA-256 och ändra status först efter juridisk kontroll. Proveniensgrinden blockerar annars importen.
-
-## Kom igång
+## Installation
 
 ```bash
 npm ci
 cp .env.example .env
 npm run verify
+npm run web:build
 npm run sbom
-npm run provenance:report
 ```
 
-Lokal infrastruktur:
+## Lokal körning
 
 ```bash
-docker compose up -d postgres redis minio clamav gotenberg
+npm run db:up
+npm run db:migrate
+npm run db:verify
+
+npm run dev:api
+npm run dev:tenant
 ```
 
-Migrationer och synkkommandon finns i:
-
-- `docs/operations/local-development.md`
-- `docs/operations/synchronization.md`
-
-## Publik webbplats och Vercel
-
-Den publika KommunSign-webbplatsen är Vercel-förberedd och ligger under `apps/public-website/public`.
+Portaler:
 
 ```bash
-npm run web:dev       # lokal utveckling på http://localhost:3000
-npm run web:build     # bygger till build/public-site
-npm run web:preview   # bygger och visar produktionsutdata lokalt
+npm run dev:website         # 3000
+npm run dev:platform-admin  # 3001
+npm run dev:tenant          # 3002
+npm run dev:signer          # 3003
+npm run dev:verify          # 3004
 ```
 
-Deployinstruktioner finns i `docs/operations/vercel-deployment.md`. `vercel.json` deployar endast marknadswebbplatsen; API, portaler, workers och Java-tjänster ska ligga i separata driftprojekt.
+API-utvecklingsruntime lyssnar normalt på `8787`. Den använder explicita utvecklingsheaders och är kodmässigt blockerad när `APP_ENV=production`.
 
-## Repository
+## Donorstatus
 
-- `apps/` – API, workers och portalgrund.
-- `packages/` – domän, policy, crypto, audit och provideradaptrar.
-- `services/` – isolerade Java-gränser för identitet, signering och validering.
-- `migrations/` – control plane och tenant data plane.
-- `upstream/` – proveniens, licenser, pins och tillståndsbevis.
-- `infrastructure/` – lokal drift, container, monitoring och IaC-bas.
-- `docs/` – arkitektur, säkerhet, integration, compliance, drift och verifiering.
+Åtta donorprojekt är pinade, men **0 donor-LOC har importerats**. Placeholderfilerna under `upstream/permissions` är inte juridiskt tillståndsbevis. Proveniensgrinden ska fortsätta blockera all import tills signerade rättighetsdokument, SHA-256 och reuse-map är verifierade.
 
-Se `DELIVERY_REPORT.md`, `docs/architecture/review-2026-08-02.md` och `docs/verification/verification-matrix.md` för exakt status.
+## Status och nästa steg
+
+- `docs/architecture/current-state-verified.md`
+- `docs/architecture/remaining-implementation-plan.md`
+- `docs/verification/requirements-traceability.md`
+- `DELIVERY_REPORT.md`

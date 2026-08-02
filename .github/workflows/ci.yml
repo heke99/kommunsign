@@ -16,6 +16,39 @@ jobs:
         with: { distribution: temurin, java-version: '21' }
       - run: npm ci --ignore-scripts
       - run: npm run verify
+      - run: npm run web:build
       - run: npm run sbom
-      - name: Verify generated SBOM
-        run: test -s build/sbom/kommunsign.cdx.json
+      - name: Verify generated artifacts
+        run: |
+          test -s build/sbom/kommunsign.cdx.json
+          test -s build/public-site/index.html
+          test -s build/portals/tenant-portal/index.html
+  database:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17.10-bookworm
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      PGPASSWORD: postgres
+      CONTROL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/kommunsign_control
+      DATA_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/kommunsign_data
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Create isolated databases
+        run: |
+          createdb -h 127.0.0.1 -U postgres kommunsign_control
+          createdb -h 127.0.0.1 -U postgres kommunsign_data
+      - run: bash scripts/db-migrate.sh
+      - run: bash scripts/db-verify.sh

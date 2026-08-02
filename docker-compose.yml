@@ -1,24 +1,35 @@
 services:
-  postgres:
+  postgres-control:
     image: postgres:17.10-bookworm
     environment:
       POSTGRES_USER: kommunsign
       POSTGRES_PASSWORD: local-change-me
-      POSTGRES_DB: kommunsign
-    ports: ["5432:5432"]
+      POSTGRES_DB: kommunsign_control
+    ports: ["5433:5432"]
+    volumes: ["postgres-control-data:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U kommunsign -d kommunsign_control"], interval: 5s, timeout: 3s, retries: 20 }
+  postgres-data:
+    image: postgres:17.10-bookworm
+    environment:
+      POSTGRES_USER: kommunsign
+      POSTGRES_PASSWORD: local-change-me
+      POSTGRES_DB: kommunsign_data
+    ports: ["5434:5432"]
     volumes: ["postgres-data:/var/lib/postgresql/data"]
-    healthcheck: { test: ["CMD-SHELL", "pg_isready -U kommunsign"], interval: 5s, timeout: 3s, retries: 20 }
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U kommunsign -d kommunsign_data"], interval: 5s, timeout: 3s, retries: 20 }
   redis:
     image: redis:8.0.2-alpine
     command: ["redis-server", "--appendonly", "yes"]
     ports: ["6379:6379"]
     volumes: ["redis-data:/data"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 20 }
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address :9001
     environment: { MINIO_ROOT_USER: local-only, MINIO_ROOT_PASSWORD: local-only-change-me }
     ports: ["9000:9000", "9001:9001"]
     volumes: ["minio-data:/data"]
+    healthcheck: { test: ["CMD", "mc", "ready", "local"], interval: 10s, timeout: 5s, retries: 20 }
   clamav:
     image: clamav/clamav:1.5-debian13-slim
     ports: ["3310:3310"]
@@ -26,7 +37,55 @@ services:
     image: gotenberg/gotenberg:8.34.0
     ports: ["3005:3000"]
     command: ["gotenberg", "--api-disable-health-check-logging=true", "--chromium-disable-javascript=true"]
+  mailpit:
+    image: axllent/mailpit:v1.27.8
+    ports: ["1025:1025", "8025:8025"]
+  api:
+    profiles: ["runtime"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    environment:
+      APP_ENV: development
+      KOMMUNSIGN_API_BOOTSTRAP_MODULE: ../../dist/apps/api/src/dev-runtime.js
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:3002,http://localhost:3002
+      PORT: "3001"
+    ports: ["8787:3001"]
+    depends_on:
+      postgres-control: { condition: service_healthy }
+      postgres-data: { condition: service_healthy }
+  workers:
+    profiles: ["runtime"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/workers.Dockerfile
+    environment: { APP_ENV: development }
+    depends_on:
+      postgres-data: { condition: service_healthy }
+      redis: { condition: service_healthy }
+  identity-service:
+    profiles: ["runtime"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/identity-service.Dockerfile
+    environment: { PORT: "8083" }
+    ports: ["8083:8083"]
+  sign-service:
+    profiles: ["runtime"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/signservice.Dockerfile
+    environment: { PORT: "8081" }
+    ports: ["8081:8081"]
+  validation-service:
+    profiles: ["runtime"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/validation-service.Dockerfile
+    environment: { PORT: "8082" }
+    ports: ["8082:8082"]
 volumes:
+  postgres-control-data: {}
   postgres-data: {}
   redis-data: {}
   minio-data: {}

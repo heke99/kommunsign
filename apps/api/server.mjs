@@ -6,6 +6,7 @@ let applicationHandler = null;
 let readinessCode = 'API_DEPENDENCIES_NOT_CONFIGURED';
 
 const bootstrapModule = process.env.KOMMUNSIGN_API_BOOTSTRAP_MODULE;
+const allowedOrigins = new Set((process.env.CORS_ALLOWED_ORIGINS ?? '').split(',').map((value) => value.trim()).filter(Boolean));
 if (bootstrapModule) {
   try {
     const module = await import(bootstrapModule);
@@ -22,12 +23,24 @@ if (bootstrapModule) {
   }
 }
 
-function jsonResponse(response, status, body) {
+function corsHeaders(request) {
+  const origin = request.headers.origin;
+  return origin && allowedOrigins.has(origin) ? {
+    'access-control-allow-origin': origin,
+    'access-control-allow-credentials': 'true',
+    'access-control-allow-headers': 'content-type,idempotency-key,if-match,x-request-id,x-kommunsign-tenant-id,x-kommunsign-subject-id,x-kommunsign-roles',
+    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'vary': 'Origin',
+  } : {};
+}
+
+function jsonResponse(request, response, status, body) {
   const bytes = Buffer.from(JSON.stringify(body));
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': bytes.length,
     'cache-control': 'no-store',
+    ...corsHeaders(request),
   });
   response.end(bytes);
 }
@@ -44,16 +57,21 @@ async function readBody(request) {
 }
 
 async function dispatch(request, response) {
+  if (request.method === 'OPTIONS') {
+    response.writeHead(204, corsHeaders(request));
+    response.end();
+    return;
+  }
   if (request.url === '/health/live') {
-    jsonResponse(response, 200, { status: 'UP' });
+    jsonResponse(request, response, 200, { status: 'UP' });
     return;
   }
   if (request.url === '/health/ready') {
-    jsonResponse(response, applicationHandler ? 200 : 503, { status: applicationHandler ? 'UP' : 'DOWN', code: readinessCode });
+    jsonResponse(request, response, applicationHandler ? 200 : 503, { status: applicationHandler ? 'UP' : 'DOWN', code: readinessCode });
     return;
   }
   if (!applicationHandler) {
-    jsonResponse(response, 503, { error: { code: readinessCode, message: 'API dependencies are not configured' } });
+    jsonResponse(request, response, 503, { error: { code: readinessCode, message: 'API dependencies are not configured' } });
     return;
   }
 
@@ -68,11 +86,11 @@ async function dispatch(request, response) {
     const fetchResponse = await applicationHandler(fetchRequest);
     const responseBody = Buffer.from(await fetchResponse.arrayBuffer());
     const headers = Object.fromEntries(fetchResponse.headers.entries());
-    response.writeHead(fetchResponse.status, { ...headers, 'content-length': responseBody.length });
+    response.writeHead(fetchResponse.status, { ...headers, ...corsHeaders(request), 'content-length': responseBody.length });
     response.end(responseBody);
   } catch (cause) {
     const code = cause instanceof Error && cause.message === 'REQUEST_TOO_LARGE' ? 'PAYLOAD_TOO_LARGE' : 'SERVER_DISPATCH_FAILED';
-    jsonResponse(response, code === 'PAYLOAD_TOO_LARGE' ? 413 : 500, { error: { code, message: 'The request could not be completed' } });
+    jsonResponse(request, response, code === 'PAYLOAD_TOO_LARGE' ? 413 : 500, { error: { code, message: 'The request could not be completed' } });
   }
 }
 

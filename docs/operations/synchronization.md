@@ -1,48 +1,65 @@
 # Synkronisering av leveransen
 
-## Patch över befintligt repository
+## Rekommenderat: patch över befintligt repository
 
-Packa upp patchen direkt över repositoryts rot:
-
-```bash
-unzip -q kommunsign-patch-2026-08-02.zip -d /sökväg/till/kommunsign
-cd /sökväg/till/kommunsign
-npm ci
-npm run verify
-npm run sbom
-npm run provenance:report
-```
-
-Patchpaketet raderar inga filer. Granska `CHANGED_FILES.txt` och `git diff` före commit.
-
-## Ersätt med komplett repository
+Patchen innehåller endast ändrade och tillagda filer och raderar ingenting.
 
 ```bash
-unzip -q kommunsign-hardened-2026-08-02.zip -d /tmp/kommunsign-release
-rsync -a --delete \
+set -euo pipefail
+
+PROJECT=/Users/hekmath/Projects/kommunsign
+PATCH=/Users/hekmath/Downloads/kommunsign-patch-20260802.zip
+
+cd "$PROJECT"
+test "$(git rev-parse --show-toplevel)" = "$PROJECT"
+git remote -v
+git status --short
+
+BACKUP="${PROJECT}-backup-$(date +%Y%m%d-%H%M%S)"
+cp -a "$PROJECT" "$BACKUP"
+
+TMP_DIR=$(mktemp -d)
+unzip -q "$PATCH" -d "$TMP_DIR"
+
+test -d "$TMP_DIR/kommunsign"
+rsync -av \
   --exclude='.git/' \
   --exclude='.env' \
+  --exclude='.env.local' \
+  --exclude='.env.*.local' \
   --exclude='node_modules/' \
-  /tmp/kommunsign-release/kommunsign-main/ /sökväg/till/kommunsign/
-cd /sökväg/till/kommunsign
-npm ci
+  --exclude='build/' \
+  --exclude='dist/' \
+  --exclude='local-certs/' \
+  "$TMP_DIR/kommunsign/" \
+  "$PROJECT/"
+
+rm -rf "$TMP_DIR"
+
+cd "$PROJECT"
+npm ci --ignore-scripts
 npm run verify
+npm run web:build
+npm run sbom
+git status --short
 ```
 
-## Databassynk
+Avbryt innan `rsync` om Git-roten inte är exakt `/Users/hekmath/Projects/kommunsign`.
 
-Ta backup, stoppa inkompatibla writers och kör först i staging:
+## Databassynk i lokal/stagingmiljö
+
+Starta lokala dependencies och kör alla migrationer genom de versionsordnade skripten:
 
 ```bash
-for file in migrations/control/[0-9]*.sql; do
-  psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
-done
-
-for file in migrations/data/[0-9]*.sql; do
-  psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
-done
-
-psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/data/verify.sql
+cd /Users/hekmath/Projects/kommunsign
+cp -n .env.example .env
+npm run db:up
+npm run db:migrate
+npm run db:verify
 ```
 
-Kör inte SQL-filerna genom att välja enbart de senaste manuellt i en okänd miljö. Använd en migrationsjournal i den riktiga deployment-pipelinen så att redan tillämpade migrationer hoppas över deterministiskt.
+Migrationerna `migrations/control/0005_auth_domain_and_break_glass_runtime.sql` och `migrations/data/0011_upload_notification_and_invitation_runtime.sql` är nya och additiva. Äldre migrationer har inte skrivits om i denna leverans. I en riktig produktionspipeline måste en migrationsjournal användas så att redan körda filer hoppas över deterministiskt.
+
+## Komplett zip
+
+Det kompletta paketet är avsett för jämförelse, ny klon eller återställning. Kör inte `rsync --delete` mot ett aktivt repository utan manuell granskning eftersom lokala, icke versionshanterade filer kan finnas.

@@ -15,3 +15,7 @@ export function base64Encode(bytes: Uint8Array): string {
   }
   return output;
 }
+
+export function base64UrlEncode(bytes: Uint8Array): string {
+  return base64Encode(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}

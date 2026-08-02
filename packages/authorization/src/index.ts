@@ -11,21 +11,30 @@ export const TENANT_ROLES = [
 export type PlatformRole = (typeof PLATFORM_ROLES)[number];
 export type TenantRole = (typeof TENANT_ROLES)[number];
 export type Permission =
-  | 'case:create' | 'case:send' | 'case:cancel' | 'case:read'
-  | 'document:download' | 'policy:manage' | 'integration:manage'
+  | 'case:create' | 'case:send' | 'case:cancel' | 'case:read' | 'case:remind'
+  | 'document:add' | 'document:download' | 'signer:add' | 'upload:create'
+  | 'validation:read' | 'evidence:download'
+  | 'policy:manage' | 'integration:manage' | 'webhook:manage'
+  | 'event:read' | 'template:read' | 'template:manage'
   | 'audit:read' | 'archive:manage' | 'tenant:manage';
 
 const permissions: Readonly<Record<TenantRole, readonly Permission[]>> = {
-  tenant_admin: ['case:create', 'case:send', 'case:cancel', 'case:read', 'document:download', 'policy:manage', 'integration:manage', 'audit:read', 'archive:manage', 'tenant:manage'],
-  tenant_security_admin: ['case:read', 'policy:manage', 'audit:read', 'integration:manage'],
-  tenant_integration_admin: ['case:create', 'case:read', 'integration:manage'],
-  tenant_archive_admin: ['case:read', 'document:download', 'archive:manage', 'audit:read'],
-  department_admin: ['case:create', 'case:send', 'case:cancel', 'case:read', 'document:download'],
-  document_creator: ['case:create', 'case:read'],
-  document_sender: ['case:create', 'case:send', 'case:cancel', 'case:read', 'document:download'],
+  tenant_admin: [
+    'case:create', 'case:send', 'case:cancel', 'case:read', 'case:remind',
+    'document:add', 'document:download', 'signer:add', 'upload:create',
+    'validation:read', 'evidence:download', 'policy:manage', 'integration:manage',
+    'webhook:manage', 'event:read', 'template:read', 'template:manage',
+    'audit:read', 'archive:manage', 'tenant:manage',
+  ],
+  tenant_security_admin: ['case:read', 'validation:read', 'policy:manage', 'audit:read', 'event:read', 'integration:manage'],
+  tenant_integration_admin: ['case:create', 'case:read', 'document:add', 'signer:add', 'upload:create', 'integration:manage', 'webhook:manage', 'event:read', 'template:read'],
+  tenant_archive_admin: ['case:read', 'document:download', 'validation:read', 'evidence:download', 'archive:manage', 'audit:read', 'event:read'],
+  department_admin: ['case:create', 'case:send', 'case:cancel', 'case:read', 'case:remind', 'document:add', 'document:download', 'signer:add', 'upload:create', 'validation:read', 'evidence:download', 'template:read'],
+  document_creator: ['case:create', 'case:read', 'document:add', 'signer:add', 'upload:create', 'template:read'],
+  document_sender: ['case:create', 'case:send', 'case:cancel', 'case:read', 'case:remind', 'document:add', 'document:download', 'signer:add', 'upload:create', 'validation:read', 'evidence:download', 'template:read'],
   approver: ['case:read'],
-  auditor: ['case:read', 'audit:read'],
-  readonly: ['case:read'],
+  auditor: ['case:read', 'validation:read', 'event:read', 'audit:read'],
+  readonly: ['case:read', 'template:read'],
 };
 
 export function hasPermission(roles: readonly TenantRole[], permission: Permission): boolean {

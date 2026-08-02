@@ -17,6 +17,8 @@ export async function withTenantTransaction<T>(
   return database.transaction(async (transaction) => {
     await transaction.query("select set_config('app.tenant_id', $1, true)", [context.tenantId]);
     await transaction.query("select set_config('app.actor_kind', $1, true)", [actorKind]);
+    await transaction.query("select set_config('app.actor_id', $1, true)", [context.subjectId]);
+    await transaction.query("select set_config('app.request_id', $1, true)", [context.requestId]);
     return work(transaction);
   });
 }

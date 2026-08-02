@@ -1,232 +1,117 @@
 openapi: 3.1.0
 info:
   title: KommunSign API
-  version: '2026-08-02'
-  description: Tenant is derived from the authenticated OAuth client or mTLS identity, never from request payload. The x-kommunsign-implementation-status
-    extension distinguishes runtime-implemented operations from contract-only planned operations.
+  version: '2026-08-02.2'
+  description: >-
+    Tenant is derived from the authenticated OAuth client, verified domain or mTLS identity and is never accepted from request payloads.
+    Runtime endpoints fail closed when signing, validation, archive or storage providers are not configured.
 servers:
-- url: https://api.kommunsign.se/v1
+  - url: https://api.kommunsign.se/v1
 security:
-- oauth2:
-  - signature-cases:read
-  - signature-cases:write
+  - oauth2: [signature-cases:read, signature-cases:write]
 paths:
   /signature-cases:
     post:
       operationId: createSignatureCase
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      - $ref: '#/components/parameters/RequestId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateSignatureCase'
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SignatureCase'
-        '409':
-          $ref: '#/components/responses/IdempotencyConflict'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalError'
       x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/RequestId'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateSignatureCase'}}}}
+      responses: {'201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/SignatureCase'}}}}, '409': {$ref: '#/components/responses/IdempotencyConflict'}, default: {$ref: '#/components/responses/Error'}}
     get:
       operationId: listSignatureCases
-      responses:
-        '200':
-          description: Tenant-scoped result
-          content:
-            application/json:
-              schema:
-                type: object
-                required:
-                - data
-                properties:
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/SignatureCase'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalError'
       x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/RequestId'}]
+      responses: {'200': {description: Tenant-scoped page, content: {application/json: {schema: {$ref: '#/components/schemas/SignatureCasePage'}}}}, default: {$ref: '#/components/responses/Error'}}
   /signature-cases/{id}:
     get:
       operationId: getSignatureCase
-      parameters:
-      - $ref: '#/components/parameters/CaseId'
-      responses:
-        '200':
-          description: Found
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SignatureCase'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalError'
       x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/CaseId'}, {$ref: '#/components/parameters/RequestId'}]
+      responses: {'200': {description: Found, headers: {ETag: {schema: {type: string}}}, content: {application/json: {schema: {$ref: '#/components/schemas/SignatureCase'}}}}, '404': {$ref: '#/components/responses/NotFound'}, default: {$ref: '#/components/responses/Error'}}
   /signature-cases/{id}/documents:
     post:
       operationId: addDocument
-      parameters:
-      - $ref: '#/components/parameters/CaseId'
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '202':
-          description: Uploaded document was placed in quarantine
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/CaseId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AddDocument'}}}}
+      responses: {'202': {description: Document placed in quarantine, content: {application/json: {schema: {$ref: '#/components/schemas/Document'}}}}, default: {$ref: '#/components/responses/Error'}}
   /signature-cases/{id}/signers:
     post:
       operationId: addSigner
-      parameters:
-      - $ref: '#/components/parameters/CaseId'
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '201':
-          description: Signer added
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/CaseId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AddSigner'}}}}
+      responses: {'201': {description: Signer added, content: {application/json: {schema: {$ref: '#/components/schemas/Signer'}}}}, default: {$ref: '#/components/responses/Error'}}
   /signature-cases/{id}/send:
     post:
       operationId: sendSignatureCase
-      parameters:
-      - $ref: '#/components/parameters/CaseId'
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '200':
-          description: Sent
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalError'
       x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/CaseId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
+      responses: {'200': {description: Sent, content: {application/json: {schema: {$ref: '#/components/schemas/SignatureCase'}}}}, default: {$ref: '#/components/responses/Error'}}
   /signature-cases/{id}/cancel:
     post:
       operationId: cancelSignatureCase
-      parameters:
-      - $ref: '#/components/parameters/CaseId'
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '200':
-          description: Cancelled
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalError'
       x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/CaseId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
+      responses: {'200': {description: Cancelled, content: {application/json: {schema: {$ref: '#/components/schemas/SignatureCase'}}}}, default: {$ref: '#/components/responses/Error'}}
   /signature-cases/{id}/remind:
     post:
       operationId: remindSigners
-      parameters:
-      - $ref: '#/components/parameters/CaseId'
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '202':
-          description: Durable reminder job created
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/CaseId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'202': {description: Durable reminder job queued, content: {application/json: {schema: {$ref: '#/components/schemas/QueuedJob'}}}}, default: {$ref: '#/components/responses/Error'}}
   /signature-cases/{id}/signed-document:
     get:
       operationId: downloadSignedDocument
-      parameters:
-      - $ref: '#/components/parameters/CaseId'
-      responses:
-        '200':
-          description: Signed PDF
-          content:
-            application/pdf:
-              schema:
-                type: string
-                contentEncoding: binary
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      security: [{oauth2: [documents:download]}]
+      parameters: [{$ref: '#/components/parameters/CaseId'}]
+      responses: {'200': {description: Signed PDF, content: {application/pdf: {schema: {type: string, contentEncoding: binary}}}}, '503': {$ref: '#/components/responses/ProviderNotConfigured'}, default: {$ref: '#/components/responses/Error'}}
   /signature-cases/{id}/validation-report:
     get:
       operationId: downloadValidationReport
-      parameters:
-      - $ref: '#/components/parameters/CaseId'
-      responses:
-        '200':
-          description: Validation report
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/CaseId'}]
+      responses: {'200': {description: Validation report, content: {application/json: {schema: {type: string, contentEncoding: binary}}, application/pdf: {schema: {type: string, contentEncoding: binary}}}}, '503': {$ref: '#/components/responses/ProviderNotConfigured'}, default: {$ref: '#/components/responses/Error'}}
   /signature-cases/{id}/evidence-package:
     get:
       operationId: downloadEvidencePackage
-      parameters:
-      - $ref: '#/components/parameters/CaseId'
-      responses:
-        '200':
-          description: Verifiable evidence archive
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/CaseId'}]
+      responses: {'200': {description: Verifiable evidence archive, content: {application/zip: {schema: {type: string, contentEncoding: binary}}}}, '409': {description: Evidence package is not ready}, default: {$ref: '#/components/responses/Error'}}
   /uploads:
     post:
       operationId: createPresignedUpload
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '201':
-          description: Short-lived, single-use, tenant-bound upload grant
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateUploadGrant'}}}}
+      responses: {'201': {description: Short-lived single-use tenant-bound grant, content: {application/json: {schema: {$ref: '#/components/schemas/UploadGrant'}}}}, default: {$ref: '#/components/responses/Error'}}
   /webhook-endpoints:
     post:
       operationId: createWebhookEndpoint
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '201':
-          description: Endpoint created
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      security: [{oauth2: [webhooks:manage]}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateWebhookEndpoint'}}}}
+      responses: {'201': {description: Endpoint created, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookEndpoint'}}}}, default: {$ref: '#/components/responses/Error'}}
   /events:
     get:
       operationId: listEvents
-      responses:
-        '200':
-          description: Tenant-scoped event list
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses: {'200': {description: Tenant-scoped events, content: {application/json: {schema: {$ref: '#/components/schemas/EventPage'}}}}, default: {$ref: '#/components/responses/Error'}}
   /templates:
     get:
       operationId: listTemplates
-      responses:
-        '200':
-          description: Templates
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses: {'200': {description: Tenant templates, content: {application/json: {schema: {$ref: '#/components/schemas/TemplatePage'}}}}, default: {$ref: '#/components/responses/Error'}}
     post:
       operationId: createTemplate
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
-      responses:
-        '201':
-          description: Template created
-      x-kommunsign-implementation-status: contract-only
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTemplate'}}}}
+      responses: {'201': {description: Immutable template version created, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}, default: {$ref: '#/components/responses/Error'}}
 components:
   securitySchemes:
     oauth2:
@@ -237,185 +122,101 @@ components:
           scopes:
             signature-cases:read: Read signature cases and reports
             signature-cases:write: Create and operate signature cases
-            documents:download: Download signed documents
+            documents:download: Download signed documents and evidence
             webhooks:manage: Manage webhook endpoints
   parameters:
-    CaseId:
-      name: id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    RequestId:
-      name: X-Request-Id
-      in: header
-      required: false
-      schema:
-        type: string
-        maxLength: 128
-    IdempotencyKey:
-      name: Idempotency-Key
-      in: header
-      required: true
-      schema:
-        type: string
-        minLength: 16
-        maxLength: 200
+    CaseId: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    RequestId: {name: X-Request-Id, in: header, required: false, schema: {type: string, maxLength: 128}}
+    IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 16, maxLength: 200}}
+    IfMatch: {name: If-Match, in: header, required: false, description: Current positive statusVersion, schema: {type: string}}
+    Limit: {name: limit, in: query, required: false, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+    Cursor: {name: cursor, in: query, required: false, schema: {type: string, maxLength: 300}}
+  responses:
+    Error: {description: Structured error, content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}}
+    NotFound: {description: Resource not found, content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}}
+    IdempotencyConflict: {description: Idempotency key reused with different method, path or canonical payload, content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}}
+    ProviderNotConfigured: {description: Required cryptographic provider is not configured, content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}}
   schemas:
     CreateSignatureCase:
       type: object
       additionalProperties: false
-      required:
-      - title
-      - decisionMode
-      - signaturePolicyId
+      required: [title, decisionMode, signaturePolicyId]
       properties:
-        title:
-          type: string
-          minLength: 1
-          maxLength: 300
-        externalReference:
-          type: string
-          maxLength: 200
-        decisionMode:
-          type: string
-          enum:
-          - DIGITAL_APPROVAL
-          - ELECTRONIC_SIGNATURE
-        signaturePolicyId:
-          type: string
-          format: uuid
+        externalReference: {type: string, minLength: 1, maxLength: 200}
+        title: {type: string, minLength: 1, maxLength: 300}
+        decisionMode: {type: string, enum: [DIGITAL_APPROVAL, ELECTRONIC_SIGNATURE]}
+        signaturePolicyId: {type: string, format: uuid}
     SignatureCase:
       type: object
-      required:
-      - id
-      - status
-      - title
-      - decisionMode
-      - createdAt
+      additionalProperties: false
+      required: [id, tenantId, status, decisionMode, title, createdAt]
       properties:
-        id:
-          type: string
-          format: uuid
-        status:
-          type: string
-          enum:
-          - draft
-          - preparing
-          - ready
-          - sent
-          - in_progress
-          - partially_signed
-          - completed
-          - declined
-          - expired
-          - cancelled
-          - failed
-          - archiving
-          - archived
-        title:
-          type: string
-        externalReference:
-          type: string
-        decisionMode:
-          type: string
-          enum:
-          - DIGITAL_APPROVAL
-          - ELECTRONIC_SIGNATURE
-        createdAt:
-          type: string
-          format: date-time
-    Error:
+        id: {type: string, format: uuid}
+        tenantId: {type: string, format: uuid, readOnly: true}
+        status: {type: string}
+        statusVersion: {type: integer, minimum: 1}
+        decisionMode: {type: string, enum: [DIGITAL_APPROVAL, ELECTRONIC_SIGNATURE]}
+        title: {type: string}
+        externalReference: {type: string}
+        createdAt: {type: string, format: date-time}
+    AddDocument:
       type: object
-      required:
-      - error
+      additionalProperties: false
+      required: [uploadId, displayName]
+      properties: {uploadId: {type: string, format: uuid}, displayName: {type: string, minLength: 1, maxLength: 200}}
+    Document:
+      type: object
+      additionalProperties: false
+      required: [id, signatureCaseId, displayName, status, sha256, byteSize, mimeType]
+      properties: {id: {type: string, format: uuid}, signatureCaseId: {type: string, format: uuid}, displayName: {type: string}, status: {type: string}, sha256: {type: string, pattern: '^[0-9a-f]{64}$'}, byteSize: {type: integer}, mimeType: {type: string}}
+    AddSigner:
+      type: object
+      additionalProperties: false
+      required: [recipientReference, required]
+      properties:
+        displayName: {type: string, maxLength: 200}
+        recipientReference: {type: string, minLength: 16, maxLength: 300, description: Opaque encrypted or tokenized recipient reference; never a tenant selector}
+        identifierType: {type: string, enum: [SSN, UPI, EMAIL, PHONE, INFERRED]}
+        required: {type: boolean}
+        signingOrder: {type: integer, minimum: 1}
+    Signer:
+      type: object
+      additionalProperties: false
+      required: [id, signatureCaseId, recipientReference, status, required]
+      properties: {id: {type: string, format: uuid}, signatureCaseId: {type: string, format: uuid}, displayName: {type: string}, recipientReference: {type: string}, status: {type: string}, required: {type: boolean}, signingOrder: {type: integer}}
+    CreateUploadGrant:
+      type: object
+      additionalProperties: false
+      required: [fileName, mimeType, byteSize, sha256]
+      properties: {fileName: {type: string, maxLength: 200}, mimeType: {type: string, enum: [application/pdf]}, byteSize: {type: integer, minimum: 1, maximum: 104857600}, sha256: {type: string, pattern: '^[0-9a-f]{64}$'}}
+    UploadGrant:
+      allOf: [{$ref: '#/components/schemas/CreateUploadGrant'}, {type: object, required: [id, uploadUrl, expiresAt, requiredHeaders], properties: {id: {type: string, format: uuid}, uploadUrl: {type: string, format: uri}, expiresAt: {type: string, format: date-time}, requiredHeaders: {type: object, additionalProperties: {type: string}}}}]
+    CreateWebhookEndpoint:
+      type: object
+      additionalProperties: false
+      required: [url, subscribedEvents]
+      properties: {url: {type: string, format: uri, pattern: '^https://'}, subscribedEvents: {type: array, minItems: 1, maxItems: 50, uniqueItems: true, items: {type: string}}}
+    WebhookEndpoint:
+      allOf: [{$ref: '#/components/schemas/CreateWebhookEndpoint'}, {type: object, required: [id, active, createdAt], properties: {id: {type: string, format: uuid}, active: {type: boolean}, createdAt: {type: string, format: date-time}}}]
+    CreateTemplate:
+      type: object
+      additionalProperties: false
+      required: [templateKey, locale, subjectTemplate, bodyTemplate]
+      properties: {templateKey: {type: string, pattern: '^[a-z][a-z0-9_.-]+$'}, locale: {type: string}, subjectTemplate: {type: string, maxLength: 200}, bodyTemplate: {type: string, maxLength: 20000}}
+    Template:
+      allOf: [{$ref: '#/components/schemas/CreateTemplate'}, {type: object, required: [id, version, active], properties: {id: {type: string, format: uuid}, version: {type: integer, minimum: 1}, active: {type: boolean}}}]
+    QueuedJob: {type: object, additionalProperties: false, required: [jobId, status], properties: {jobId: {type: string, format: uuid}, status: {type: string, const: queued}}}
+    DomainEvent: {type: object, required: [id, tenantId, type, occurredAt, apiVersion, data], properties: {id: {type: string, format: uuid}, tenantId: {type: string, format: uuid}, type: {type: string}, occurredAt: {type: string, format: date-time}, apiVersion: {type: string}, data: {type: object}}}
+    SignatureCasePage: {type: object, required: [data], properties: {data: {type: array, items: {$ref: '#/components/schemas/SignatureCase'}}, nextCursor: {type: string}}}
+    EventPage: {type: object, required: [data], properties: {data: {type: array, items: {$ref: '#/components/schemas/DomainEvent'}}, nextCursor: {type: string}}}
+    TemplatePage: {type: object, required: [data], properties: {data: {type: array, items: {$ref: '#/components/schemas/Template'}}, nextCursor: {type: string}}}
+    ApiError:
+      type: object
+      additionalProperties: false
+      required: [error]
       properties:
         error:
           type: object
-          required:
-          - code
-          - message
-          - requestId
-          properties:
-            code:
-              type: string
-            message:
-              type: string
-            requestId:
-              type: string
-            details:
-              type: object
-              additionalProperties: true
-  responses:
-    NotFound:
-      description: Not found within authenticated tenant
-    IdempotencyConflict:
-      description: Same idempotency key was used with a different payload
-    BadRequest:
-      description: Invalid request or idempotency key
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-    Unauthorized:
-      description: Missing or invalid authentication
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-    Forbidden:
-      description: Authenticated subject is not authorized
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-    InternalError:
-      description: Generic error without internal details
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-webhooks:
-  signatureCaseEvent:
-    post:
-      parameters:
-      - name: X-KommunSign-Signature
-        in: header
-        required: true
-        schema:
-          type: string
-      - name: X-KommunSign-Timestamp
-        in: header
-        required: true
-        schema:
-          type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-              - id
-              - type
-              - occurredAt
-              - apiVersion
-              - data
-              properties:
-                id:
-                  type: string
-                  format: uuid
-                type:
-                  type: string
-                occurredAt:
-                  type: string
-                  format: date-time
-                apiVersion:
-                  const: '2026-08-02'
-                data:
-                  type: object
-                  additionalProperties: true
-      responses:
-        '204':
-          description: Accepted
+          additionalProperties: false
+          required: [code, message, requestId]
+          properties: {code: {type: string}, message: {type: string}, requestId: {type: string}, details: {type: object}}
