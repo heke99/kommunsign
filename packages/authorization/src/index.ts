@@ -1,6 +1,9 @@
 export const PLATFORM_ROLES = [
   'platform_super_admin', 'platform_security_admin', 'platform_operations',
-  'platform_support', 'platform_auditor',
+  'platform_support', 'platform_auditor', 'onboarding_manager',
+  'onboarding_case_worker', 'commercial_reviewer', 'legal_reviewer',
+  'security_reviewer', 'technical_reviewer', 'provisioning_operator',
+  'activation_approver',
 ] as const;
 export const TENANT_ROLES = [
   'tenant_admin', 'tenant_security_admin', 'tenant_integration_admin',
@@ -10,6 +13,12 @@ export const TENANT_ROLES = [
 
 export type PlatformRole = (typeof PLATFORM_ROLES)[number];
 export type TenantRole = (typeof TENANT_ROLES)[number];
+export type PlatformPermission =
+  | 'onboarding:read' | 'onboarding:assign' | 'onboarding:review'
+  | 'onboarding:request_information' | 'onboarding:decide' | 'onboarding:provision'
+  | 'tenant:readiness' | 'tenant:activation_request' | 'tenant:activation_approve'
+  | 'platform:audit_read';
+
 export type Permission =
   | 'case:create' | 'case:send' | 'case:cancel' | 'case:read' | 'case:remind'
   | 'document:add' | 'document:download' | 'signer:add' | 'upload:create'
@@ -43,4 +52,29 @@ export function hasPermission(roles: readonly TenantRole[], permission: Permissi
 
 export function requirePermission(roles: readonly TenantRole[], permission: Permission): void {
   if (!hasPermission(roles, permission)) throw new Error(`Permission denied: ${permission}`);
+}
+
+
+const platformPermissions: Readonly<Record<PlatformRole, readonly PlatformPermission[]>> = {
+  platform_super_admin: ['onboarding:read','onboarding:assign','onboarding:review','onboarding:request_information','onboarding:decide','onboarding:provision','tenant:readiness','tenant:activation_request','tenant:activation_approve','platform:audit_read'],
+  platform_security_admin: ['onboarding:read','onboarding:review','tenant:readiness','tenant:activation_approve','platform:audit_read'],
+  platform_operations: ['onboarding:read','onboarding:assign','onboarding:provision','tenant:readiness','tenant:activation_request','platform:audit_read'],
+  platform_support: ['onboarding:read','onboarding:request_information'],
+  platform_auditor: ['onboarding:read','platform:audit_read'],
+  onboarding_manager: ['onboarding:read','onboarding:assign','onboarding:review','onboarding:request_information','onboarding:decide','onboarding:provision','tenant:readiness','tenant:activation_request','platform:audit_read'],
+  onboarding_case_worker: ['onboarding:read','onboarding:assign','onboarding:review','onboarding:request_information'],
+  commercial_reviewer: ['onboarding:read','onboarding:review'],
+  legal_reviewer: ['onboarding:read','onboarding:review'],
+  security_reviewer: ['onboarding:read','onboarding:review','tenant:readiness'],
+  technical_reviewer: ['onboarding:read','onboarding:review','tenant:readiness'],
+  provisioning_operator: ['onboarding:read','onboarding:provision','tenant:readiness','tenant:activation_request'],
+  activation_approver: ['onboarding:read','tenant:readiness','tenant:activation_approve'],
+};
+
+export function hasPlatformPermission(roles: readonly PlatformRole[], permission: PlatformPermission): boolean {
+  return roles.some((role) => platformPermissions[role].includes(permission));
+}
+
+export function requirePlatformPermission(roles: readonly PlatformRole[], permission: PlatformPermission): void {
+  if (!hasPlatformPermission(roles, permission)) throw new Error(`Permission denied: ${permission}`);
 }

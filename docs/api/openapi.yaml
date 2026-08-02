@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: KommunSign API
-  version: '2026-08-02.2'
+  version: '2026-08-02.3'
   description: >-
     Tenant is derived from the authenticated OAuth client, verified domain or mTLS identity and is never accepted from request payloads.
     Runtime endpoints fail closed when signing, validation, archive or storage providers are not configured.
@@ -112,8 +112,182 @@ paths:
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTemplate'}}}}
       responses: {'201': {description: Immutable template version created, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /onboarding/applications:
+    post:
+      operationId: createOnboardingApplication
+      security: []
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateOnboardingApplication'}}}}
+      responses: {'201': {description: Draft created; response contains a one-time applicant access token, content: {application/json: {schema: {$ref: '#/components/schemas/ApplicationCreated'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /onboarding/applications/{applicationId}:
+    get:
+      operationId: getOwnOnboardingApplication
+      security: [{applicantToken: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}]
+      responses: {'200': {description: Applicant-visible application, content: {application/json: {schema: {$ref: '#/components/schemas/OnboardingApplication'}}}}, default: {$ref: '#/components/responses/Error'}}
+    patch:
+      operationId: updateOwnOnboardingApplication
+      security: [{applicantToken: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/UpdateOnboardingApplication'}}}}
+      responses: {'200': {description: Updated, content: {application/json: {schema: {$ref: '#/components/schemas/OnboardingApplication'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /onboarding/applications/{applicationId}/verify-email:
+    post:
+      operationId: verifyOnboardingEmail
+      security: []
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [token], properties: {token: {type: string, minLength: 64, maxLength: 200}}}}}}
+      responses: {'200': {description: Verified, content: {application/json: {schema: {$ref: '#/components/schemas/OnboardingApplication'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /onboarding/applications/{applicationId}/resend-verification:
+    post:
+      operationId: resendOnboardingVerification
+      security: []
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'202': {description: Accepted without disclosing account existence}, default: {$ref: '#/components/responses/Error'}}
+  /onboarding/applications/{applicationId}/documents:
+    post:
+      operationId: addOnboardingDocument
+      security: [{applicantToken: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateOnboardingDocument'}}}}
+      responses: {'201': {description: Document quarantined}, default: {$ref: '#/components/responses/Error'}}
+  /onboarding/applications/{applicationId}/submit:
+    post:
+      operationId: submitOnboardingApplication
+      security: [{applicantToken: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
+      responses: {'200': {description: Submitted with atomic ONB reference, content: {application/json: {schema: {$ref: '#/components/schemas/OnboardingApplication'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /onboarding/applications/{applicationId}/withdraw:
+    post:
+      operationId: withdrawOnboardingApplication
+      security: [{applicantToken: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
+      responses: {'200': {description: Withdrawn}, default: {$ref: '#/components/responses/Error'}}
+  /onboarding/applications/{applicationId}/messages:
+    get:
+      operationId: listOnboardingMessages
+      security: [{applicantToken: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}]
+      responses: {'200': {description: Applicant-visible communication}, default: {$ref: '#/components/responses/Error'}}
+    post:
+      operationId: createOnboardingMessage
+      security: [{applicantToken: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [body], properties: {body: {type: string, maxLength: 10000}, attachmentIds: {type: array, maxItems: 20, items: {type: string, format: uuid}}}}}}}
+      responses: {'201': {description: Message created}, default: {$ref: '#/components/responses/Error'}}
+  /onboarding/applications/{applicationId}/information-requests:
+    get:
+      operationId: listOwnInformationRequests
+      security: [{applicantToken: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}]
+      responses: {'200': {description: Open and historical requests}, default: {$ref: '#/components/responses/Error'}}
+  /onboarding/information-requests/{requestId}/responses:
+    post:
+      operationId: respondToInformationRequest
+      security: [{applicantToken: []}]
+      parameters: [{$ref: '#/components/parameters/InformationRequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [applicationId, answer], properties: {applicationId: {type: string, format: uuid}, answer: {type: string, maxLength: 10000}, attachmentIds: {type: array, maxItems: 20, items: {type: string, format: uuid}}}}}}}
+      responses: {'201': {description: Response stored as a separate revision}, default: {$ref: '#/components/responses/Error'}}
+  /platform/onboarding/applications:
+    get:
+      operationId: listPlatformOnboardingApplications
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses: {'200': {description: Permission-filtered application queue}, default: {$ref: '#/components/responses/Error'}}
+  /platform/onboarding/applications/{applicationId}:
+    get:
+      operationId: getPlatformOnboardingApplication
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}]
+      responses: {'200': {description: Internal application detail}, default: {$ref: '#/components/responses/Error'}}
+  /platform/onboarding/applications/{applicationId}/assign:
+    post:
+      operationId: assignOnboardingApplication
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {description: Assigned}, default: {$ref: '#/components/responses/Error'}}
+  /platform/onboarding/applications/{applicationId}/reviews:
+    post:
+      operationId: createOnboardingReview
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'201': {description: Immutable review recorded}, default: {$ref: '#/components/responses/Error'}}
+  /platform/onboarding/applications/{applicationId}/information-requests:
+    post:
+      operationId: createInformationRequest
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'201': {description: Request created}, default: {$ref: '#/components/responses/Error'}}
+  /platform/onboarding/applications/{applicationId}/approve:
+    post:
+      operationId: approveOnboardingApplication
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {description: Approved; no active tenant is created}, default: {$ref: '#/components/responses/Error'}}
+  /platform/onboarding/applications/{applicationId}/reject:
+    post:
+      operationId: rejectOnboardingApplication
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {description: Rejected}, default: {$ref: '#/components/responses/Error'}}
+  /platform/onboarding/applications/{applicationId}/provision:
+    post:
+      operationId: provisionApprovedApplication
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'202': {description: Idempotent provisioning saga started}, default: {$ref: '#/components/responses/Error'}}
+  /platform/onboarding/applications/{applicationId}/audit:
+    get:
+      operationId: getOnboardingAudit
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ApplicationId'}]
+      responses: {'200': {description: Internal audit timeline}, default: {$ref: '#/components/responses/Error'}}
+  /platform/provisioning/requests/{requestId}:
+    get:
+      operationId: getProvisioningRequest
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ProvisioningRequestId'}]
+      responses: {'200': {description: Provisioning state}, default: {$ref: '#/components/responses/Error'}}
+  /platform/provisioning/requests/{requestId}/retry:
+    post:
+      operationId: retryProvisioningRequest
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ProvisioningRequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'202': {description: Safe retry queued}, default: {$ref: '#/components/responses/Error'}}
+  /platform/tenants/{tenantId}/readiness:
+    get:
+      operationId: getTenantReadiness
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/TenantId'}]
+      responses: {'200': {description: Latest readiness result}, default: {$ref: '#/components/responses/Error'}}
+  /platform/tenants/{tenantId}/readiness/run:
+    post:
+      operationId: runTenantReadiness
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/TenantId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {description: Active readiness checks executed}, default: {$ref: '#/components/responses/Error'}}
+  /platform/tenants/{tenantId}/activation-requests:
+    post:
+      operationId: createTenantActivationRequest
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/TenantId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'202': {description: Activation request awaiting a distinct approver}, default: {$ref: '#/components/responses/Error'}}
+  /platform/activation-requests/{requestId}/approve:
+    post:
+      operationId: approveTenantActivation
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ActivationRequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {description: Activated only after readiness and two-person approval}, default: {$ref: '#/components/responses/Error'}}
+  /platform/activation-requests/{requestId}/reject:
+    post:
+      operationId: rejectTenantActivation
+      security: [{platformOidc: []}]
+      parameters: [{$ref: '#/components/parameters/ActivationRequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {description: Activation rejected}, default: {$ref: '#/components/responses/Error'}}
 components:
   securitySchemes:
+    applicantToken: {type: http, scheme: bearer, bearerFormat: opaque-256-bit}
+    platformOidc: {type: openIdConnect, openIdConnectUrl: https://admin.kommunsign.se/.well-known/openid-configuration}
     oauth2:
       type: oauth2
       flows:
@@ -126,6 +300,11 @@ components:
             webhooks:manage: Manage webhook endpoints
   parameters:
     CaseId: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    ApplicationId: {name: applicationId, in: path, required: true, schema: {type: string, format: uuid}}
+    InformationRequestId: {name: requestId, in: path, required: true, schema: {type: string, format: uuid}}
+    ProvisioningRequestId: {name: requestId, in: path, required: true, schema: {type: string, format: uuid}}
+    ActivationRequestId: {name: requestId, in: path, required: true, schema: {type: string, format: uuid}}
+    TenantId: {name: tenantId, in: path, required: true, schema: {type: string, format: uuid}}
     RequestId: {name: X-Request-Id, in: header, required: false, schema: {type: string, maxLength: 128}}
     IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 16, maxLength: 200}}
     IfMatch: {name: If-Match, in: header, required: false, description: Current positive statusVersion, schema: {type: string}}
@@ -137,6 +316,66 @@ components:
     IdempotencyConflict: {description: Idempotency key reused with different method, path or canonical payload, content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}}
     ProviderNotConfigured: {description: Required cryptographic provider is not configured, content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}}
   schemas:
+    CreateOnboardingApplication:
+      type: object
+      additionalProperties: false
+      required: [organizationName, organizationNumber, organizationType, primaryEmail, primaryContactName, primaryContactTitle]
+      properties:
+        organizationName: {type: string, minLength: 2, maxLength: 300}
+        organizationNumber: {type: string, pattern: '^[0-9-]{10,20}$'}
+        organizationType: {type: string, enum: [municipality, region, municipal_federation, municipal_company, authority, public_supplier, other_public_body]}
+        primaryEmail: {type: string, format: email}
+        primaryContactName: {type: string, maxLength: 200}
+        primaryContactTitle: {type: string, maxLength: 200}
+    UpdateOnboardingApplication:
+      type: object
+      additionalProperties: false
+      properties:
+        organizationName: {type: string, maxLength: 300}
+        primaryContactName: {type: string, maxLength: 200}
+        primaryContactTitle: {type: string, maxLength: 200}
+        profile: {type: object, additionalProperties: true}
+    OnboardingApplication:
+      type: object
+      additionalProperties: false
+      required: [id, status, statusVersion, organizationName, organizationNumber, organizationType, primaryEmail, primaryContactName, primaryContactTitle, profile, createdAt, updatedAt]
+      properties:
+        id: {type: string, format: uuid}
+        applicationReference: {type: string, pattern: '^ONB-[0-9]{4}-[0-9]{6}$'}
+        status: {type: string}
+        statusVersion: {type: integer, minimum: 1}
+        organizationName: {type: string}
+        organizationNumber: {type: string}
+        organizationType: {type: string}
+        primaryEmail: {type: string, format: email}
+        primaryContactName: {type: string}
+        primaryContactTitle: {type: string}
+        profile: {type: object}
+        emailVerifiedAt: {type: string, format: date-time}
+        submittedAt: {type: string, format: date-time}
+        decidedAt: {type: string, format: date-time}
+        assignedTo: {type: string, format: uuid}
+        tenantId: {type: string, format: uuid}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
+    ApplicationCreated:
+      type: object
+      additionalProperties: false
+      required: [application, accessToken, verificationRequired]
+      properties:
+        application: {$ref: '#/components/schemas/OnboardingApplication'}
+        accessToken: {type: string, writeOnly: true, minLength: 64}
+        verificationRequired: {type: boolean, const: true}
+    CreateOnboardingDocument:
+      type: object
+      additionalProperties: false
+      required: [fileName, mimeType, byteSize, sha256, category]
+      properties:
+        fileName: {type: string, maxLength: 200}
+        mimeType: {type: string, const: application/pdf}
+        byteSize: {type: integer, minimum: 1, maximum: 104857600}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        category: {type: string, maxLength: 80}
     CreateSignatureCase:
       type: object
       additionalProperties: false

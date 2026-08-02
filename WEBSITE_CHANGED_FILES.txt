@@ -1,37 +1,23 @@
-# KommunSign public website changed files
-Compared with uploaded kommunsign-main(1).zip on 2026-08-02.
+# KommunSign web changes – onboarding delivery 2026-08-02
 
-ADDED (19)
-.vercelignore
-WEBSITE_DELIVERY_REPORT.md
-apps/public-website/public/404.html
-apps/public-website/public/app.js
-apps/public-website/public/assets/logo.svg
-apps/public-website/public/assets/og-image.png
-apps/public-website/public/favicon.svg
-apps/public-website/public/integritet/index.html
-apps/public-website/public/kontakt/index.html
-apps/public-website/public/robots.txt
-apps/public-website/public/sakerhet/index.html
-apps/public-website/public/site.webmanifest
-apps/public-website/public/sitemap.xml
-apps/public-website/public/tillganglighet/index.html
-docs/operations/vercel-deployment.md
-scripts/build-public-site.mjs
-scripts/serve-static.mjs
-vercel.json
-WEBSITE_CHANGED_FILES.txt
+Compared with uploaded `kommunsign-main (1).zip`.
 
-MODIFIED (9)
-DELIVERY_REPORT.md
-FILE_MANIFEST.sha256
-README.md
-VERIFICATION_RESULTS.txt
-apps/public-website/public/app.css
-apps/public-website/public/index.html
-package.json
-scripts/verify-repository.mjs
-tests/run.mjs
+ADDED
+- apps/onboarding-portal/public/index.html
+- apps/onboarding-portal/public/app.css
+- apps/onboarding-portal/public/app.js
+- apps/public-website/public/ansok/index.html
 
-DELETED (0)
-(none)
+MODIFIED
+- apps/platform-admin/public/index.html
+- apps/platform-admin/public/app.css
+- apps/platform-admin/public/app.js
+- scripts/build-portals.mjs
+- scripts/build-public-site.mjs
+- scripts/dev-all.mjs
+- package.json
+- .github/workflows/ci.yml
+- docs/operations/vercel-deployment.md
+
+DELETED
+- none

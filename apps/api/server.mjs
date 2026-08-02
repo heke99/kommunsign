@@ -28,8 +28,8 @@ function corsHeaders(request) {
   return origin && allowedOrigins.has(origin) ? {
     'access-control-allow-origin': origin,
     'access-control-allow-credentials': 'true',
-    'access-control-allow-headers': 'content-type,idempotency-key,if-match,x-request-id,x-kommunsign-tenant-id,x-kommunsign-subject-id,x-kommunsign-roles',
-    'access-control-allow-methods': 'GET,POST,OPTIONS',
+    'access-control-allow-headers': 'authorization,content-type,idempotency-key,if-match,x-request-id,x-kommunsign-application-token,x-kommunsign-platform-subject-id,x-kommunsign-platform-roles,x-kommunsign-tenant-id,x-kommunsign-subject-id,x-kommunsign-roles',
+    'access-control-allow-methods': 'GET,POST,PATCH,OPTIONS',
     'vary': 'Origin',
   } : {};
 }

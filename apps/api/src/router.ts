@@ -1,3 +1,4 @@
+import { handleOnboardingRequest } from './onboarding-router.js';
 import type { Permission } from '../../../packages/authorization/src/index.js';
 import type { ApiErrorBody, TenantContext } from '../../../packages/contracts/src/index.js';
 import { canonicalJson, type CanonicalJsonValue } from '../../../packages/crypto/src/canonical-json.js';
@@ -228,6 +229,8 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
   return async (request: Request): Promise<Response> => {
     const requestId = requestIdFrom(request);
     try {
+      const onboardingResponse = await handleOnboardingRequest(dependencies, request, requestId);
+      if (onboardingResponse) return onboardingResponse;
       const context = await dependencies.resolveContext(request);
       const url = new URL(request.url);
       if (request.method === 'POST' && url.pathname === '/v1/signature-cases') {

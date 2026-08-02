@@ -12,7 +12,10 @@ import { createEvidenceManifest, verifyEvidenceFiles } from '../dist/packages/ev
 import { calculateAuditEventHash, createAuditHashMaterial, verifyAuditChain } from '../dist/packages/audit/src/index.js';
 import { processClaimedJob, retryDelaySeconds } from '../dist/apps/workers/src/jobs.js';
 import { createApiHandler } from '../dist/apps/api/src/router.js';
+import { createHandler as createProductionHandler } from '../dist/apps/api/src/production-runtime.js';
 import { verifyProvenance } from '../scripts/provenance-lib.mjs';
+import { assertApplicationTransition, assertDistinctApprovers, createEmailVerification, formatApplicationReference, verifyEmailToken } from '../dist/packages/onboarding/src/index.js';
+import { evaluateReadiness } from '../dist/packages/readiness/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -35,6 +38,43 @@ const identityInput = {
   issuedAt: '2026-08-02T08:00:00.000Z', expiresAt: '2026-08-02T08:05:00.000Z', state: 'state', nonce: 'nonce',
 };
 
+
+test('onboarding state machine, reference and email tokens fail closed', async () => {
+  assertApplicationTransition('email_verification_pending', 'email_verified');
+  assertApplicationTransition('approved', 'provisioning');
+  assert.throws(() => assertApplicationTransition('submitted', 'active'), /INVALID_APPLICATION_STATE_TRANSITION/);
+  assert.equal(formatApplicationReference(2026, 1), 'ONB-2026-000001');
+  const created = await createEmailVerification({ applicationId: 'a1', email: 'IT@Kommun.SE', expiresAt: '2026-08-02T12:30:00.000Z', now: new Date('2026-08-02T12:00:00.000Z') });
+  await verifyEmailToken(created.record, created.token, 'it@kommun.se', new Date('2026-08-02T12:05:00.000Z'));
+  await assert.rejects(() => verifyEmailToken(created.record, `${created.token}0`, 'it@kommun.se', new Date('2026-08-02T12:05:00.000Z')));
+  assert.throws(() => assertDistinctApprovers('actor-1', 'actor-1'), /TWO_PERSON_APPROVAL_REQUIRED/);
+});
+
+test('production API bootstrap never falls back to development repositories', async () => {
+  const previousEnvironment = process.env.APP_ENV;
+  const previousModule = process.env.KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE;
+  process.env.APP_ENV = 'production';
+  delete process.env.KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE;
+  try {
+    await assert.rejects(() => createProductionHandler(), /KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE_MISSING/);
+  } finally {
+    if (previousEnvironment === undefined) delete process.env.APP_ENV; else process.env.APP_ENV = previousEnvironment;
+    if (previousModule === undefined) delete process.env.KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE; else process.env.KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE = previousModule;
+  }
+});
+
+test('readiness separates blocking, warnings and completed checks', () => {
+  const checkedAt = '2026-08-02T12:00:00.000Z';
+  const result = evaluateReadiness('production', [
+    { code: 'DATABASE', passed: true, severity: 'blocking', checkedAt },
+    { code: 'SIGN_SERVICE_NOT_CONFIGURED', passed: false, severity: 'blocking', checkedAt },
+    { code: 'ARCHIVE_OPTIONAL', passed: false, severity: 'warning', checkedAt },
+  ]);
+  assert.equal(result.ready, false);
+  assert.deepEqual(result.blockingChecks.map((item) => item.code), ['SIGN_SERVICE_NOT_CONFIGURED']);
+  assert.deepEqual(result.warningChecks.map((item) => item.code), ['ARCHIVE_OPTIONAL']);
+});
+
 test('canonical JSON is deterministic', async () => {
   assert.equal(canonicalJson({ z: 1, a: { y: true, x: null } }), '{"a":{"x":null,"y":true},"z":1}');
   assert.equal(await sha256Hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
@@ -46,9 +86,9 @@ test('base64 encoder is deterministic and standards-compatible', () => {
 });
 
 test('tenant sources must agree', () => {
-  const context = resolveTenantContext({ requestId: 'r1', subjectId: 's1', verifiedDomainTenantId: 't1', membershipTenantId: 't1' });
+  const context = resolveTenantContext({ requestId: 'r1', subjectId: 's1', authMethod: 'development', verifiedDomainTenantId: 't1', membershipTenantId: 't1' });
   assert.equal(context.tenantId, 't1');
-  assert.throws(() => resolveTenantContext({ requestId: 'r1', subjectId: 's1', verifiedDomainTenantId: 't1', membershipTenantId: 't2' }));
+  assert.throws(() => resolveTenantContext({ requestId: 'r1', subjectId: 's1', authMethod: 'development', verifiedDomainTenantId: 't1', membershipTenantId: 't2' }));
   assert.throws(() => assertTenantMatch(context, 't2'));
 });
 
@@ -147,7 +187,7 @@ test('HMAC verification, timestamp window and webhook binding', async () => {
 });
 
 test('API rejects malformed and unsupported JSON without leaking internals', async () => {
-  const context = { tenantId: 'tenant', source: 'api-client', subjectId: 'subject', requestId: 'ctx' };
+  const context = { tenantId: 'tenant', source: 'api-client', subjectId: 'subject', requestId: 'ctx', authMethod: 'development' };
   let reported = null;
   const handler = createApiHandler({
     resolveContext: async () => context,
@@ -182,7 +222,7 @@ test('API rejects malformed and unsupported JSON without leaking internals', asy
 
 test('API hashes semantically identical create payloads canonically', async () => {
   const hashes = [];
-  const context = { tenantId: 'tenant', source: 'api-client', subjectId: 'subject', requestId: 'ctx' };
+  const context = { tenantId: 'tenant', source: 'api-client', subjectId: 'subject', requestId: 'ctx', authMethod: 'development' };
   const view = { id: '22222222-2222-4222-8222-222222222222', tenantId: 'tenant', status: 'draft', decisionMode: 'DIGITAL_APPROVAL', title: 'A', createdAt: '2026-08-02T00:00:00Z' };
   const handler = createApiHandler({
     resolveContext: async () => context, authorize: () => {},
@@ -201,7 +241,7 @@ test('API hashes semantically identical create payloads canonically', async () =
 
 test('API authorizes every case operation', async () => {
   const permissions = [];
-  const context = { tenantId: 'tenant', source: 'api-client', subjectId: 'subject', requestId: 'ctx' };
+  const context = { tenantId: 'tenant', source: 'api-client', subjectId: 'subject', requestId: 'ctx', authMethod: 'development' };
   const view = { id: '22222222-2222-4222-8222-222222222222', tenantId: 'tenant', status: 'draft', decisionMode: 'DIGITAL_APPROVAL', title: 'A', createdAt: '2026-08-02T00:00:00Z' };
   const handler = createApiHandler({
     resolveContext: async () => context, authorize: (_context, permission) => { permissions.push(permission); },

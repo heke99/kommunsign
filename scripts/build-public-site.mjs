@@ -23,6 +23,7 @@ const required = [
   'integritet/index.html',
   'tillganglighet/index.html',
   'kontakt/index.html',
+  'ansok/index.html',
 ];
 
 for (const path of required) await access(new URL(path, output));

@@ -12,4 +12,4 @@ WORKDIR /app
 COPY --from=build /app/dist ./dist
 USER nonroot
 ENV APP_ENV=production
-CMD ["dist/apps/workers/src/dev-runner.js"]
+CMD ["dist/apps/workers/src/production-runner.js"]

@@ -1,1 +1,32 @@
-<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KommunSign – plattformsadmin</title><link rel="stylesheet" href="app.css"><script src="app.js" defer></script></head><body><a class="skip-link" href="#content">Hoppa till innehåll</a><header><strong>KommunSign Plattform</strong><span class="badge">Ingen dokumentåtkomst</span></header><main id="content"><h1>Teknisk plattformsöversikt</h1><p>Kontrollerar tjänsternas readiness och validerar domänunderlag. Tenantlivscykel kräver control-plane API och visas därför inte som falskt aktiv.</p><div class="grid"><section class="card"><h2>Tjänstehälsa</h2><button id="check-health" type="button">Kontrollera tjänster</button><ul id="health-list" aria-live="polite"></ul></section><section class="card"><h2>Custom domain</h2><form id="domain-form"><label for="domain">Domännamn</label><input id="domain" required placeholder="sign.kommun.se"><button type="submit">Validera och skapa DNS-underlag</button></form><div id="domain-status" class="status" aria-live="polite">Ingen domän kontrollerad.</div></section><section class="card"><h2>Produktionsblockerare</h2><ul><li>TIC-testnyckel och verifierad testtenant</li><li>Freja mTLS-certifikat och officiell klient</li><li>Sweden Connect SignService, CA/HSM och TSA</li><li>EU DSS och trust-list-konfiguration</li><li>DNS/TLS-provider för custom domains</li></ul></section></div></main></body></html>
+<!doctype html>
+<html lang="sv">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KommunSign – plattformsadmin</title><link rel="stylesheet" href="app.css"></head>
+<body><a class="skip-link" href="#content">Hoppa till innehåll</a><header><strong>KommunSign Plattform</strong><span class="badge">Control plane – ingen dokumentåtkomst</span></header>
+<main id="content">
+  <h1>Ansökningar och produktionsreadiness</h1>
+  <p>Godkännande, provisioning och aktivering är separata, auditerade beslut. Samma person får inte initiera och slutgodkänna en produktionsaktivering.</p>
+  <div class="layout">
+    <nav class="card" aria-label="Plattformsfunktioner"><a href="#applications" aria-current="page">Ansökningskö</a><a href="#health">Tjänstehälsa</a><a href="#domains">Custom domains</a><a href="#blockers">Produktionsblockerare</a></nav>
+    <div>
+      <section class="card" id="applications">
+        <h2>Ansökningskö</h2>
+        <form id="filter-form" class="grid"><label>Status<select name="status"><option value="">Alla</option><option>submitted</option><option>under_initial_review</option><option>additional_information_requested</option><option>commercial_review</option><option>legal_review</option><option>security_review</option><option>technical_review</option><option>approved</option><option>provisioning</option><option>onboarding</option></select></label><label>Sök organisation<input name="search" autocomplete="off"></label><div class="actions"><button type="submit">Filtrera</button></div></form>
+        <div class="status" id="queue-status" role="status">Kön har inte hämtats.</div>
+        <div class="table-wrap"><table><thead><tr><th>Referens</th><th>Organisation</th><th>Status</th><th>Inkommen</th><th>Åtgärd</th></tr></thead><tbody id="application-rows"></tbody></table></div>
+      </section>
+      <section class="card hidden" id="application-detail" aria-labelledby="detail-title">
+        <h2 id="detail-title">Ansökan</h2><dl class="facts" id="application-facts"></dl>
+        <div class="grid">
+          <form id="review-form"><h3>Registrera granskning</h3><label>Typ<select name="reviewType" required><option value="commercial">Kommersiell</option><option value="legal">Juridisk</option><option value="security">Säkerhet</option><option value="technical">Teknisk</option></select></label><label>Resultat<select name="result" required><option value="passed">Godkänd</option><option value="requires_information">Kräver komplettering</option><option value="failed">Underkänd</option></select></label><label>Risk<select name="riskLevel"><option value="low">Låg</option><option value="medium">Medel</option><option value="high">Hög</option><option value="critical">Kritisk</option></select></label><label>Sammanfattning<textarea name="summary" required></textarea></label><button type="submit">Spara granskning</button></form>
+          <form id="information-form"><h3>Begär komplettering</h3><label>Kategori<select name="category"><option value="organization">Organisation</option><option value="commercial">Kommersiell</option><option value="legal">Juridisk</option><option value="security">Säkerhet</option><option value="technical">Teknisk</option><option value="other">Övrigt</option></select></label><label>Fråga<textarea name="question" required></textarea></label><label><input name="attachmentRequired" type="checkbox"> Bilaga krävs</label><button type="submit">Skicka kompletteringskrav</button></form>
+        </div>
+        <form id="decision-form"><h3>Beslut</h3><label>Extern motivering<textarea name="reason" required></textarea></label><label>Andra godkännare vid hög risk<input name="secondApproverId" placeholder="UUID"></label><div class="actions"><button name="decision" value="approve" type="submit">Godkänn ansökan</button><button name="decision" value="reject" type="submit" class="secondary">Avslå ansökan</button><button id="provision-button" type="button">Starta provisioning</button></div></form>
+        <h3>Audit</h3><ol id="audit-list"></ol>
+      </section>
+      <section class="card" id="health"><h2>Tjänstehälsa</h2><button id="check-health" type="button">Kontrollera tjänster</button><ul id="health-list" aria-live="polite"></ul></section>
+      <section class="card" id="domains"><h2>Custom domain</h2><form id="domain-form"><label for="domain">Domännamn</label><input id="domain" required placeholder="sign.kommun.se"><button type="submit">Validera och skapa DNS-underlag</button></form><div id="domain-status" class="status" aria-live="polite">Ingen domän kontrollerad.</div></section>
+      <section class="card" id="blockers"><h2>Produktionsblockerare</h2><ul><li>TIC-testnyckel och verifierad testtenant</li><li>Freja mTLS-certifikat och officiell klient</li><li>Sweden Connect SignService, CA/HSM och TSA</li><li>EU DSS och trust-list-konfiguration</li><li>DNS/TLS-provider för custom domains</li></ul></section>
+    </div>
+  </div>
+  <div id="notice" class="status hidden" role="status" aria-live="polite"></div>
+</main><script src="app.js" defer></script></body></html>

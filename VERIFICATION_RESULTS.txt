@@ -4,7 +4,7 @@ Date: 2026-08-02
 ENVIRONMENT
 Node.js: 22.16.0
 npm: 10.9.2
-TypeScript: 5.8.3 (exact globally installed compiler used because isolated registry returned 404)
+TypeScript: 5.8.3 (exact globally installed compiler; sandbox registry returned 404 for locked tarball)
 Java/Javac: 21.0.10
 Docker: unavailable in sandbox
 psql: unavailable in sandbox
@@ -14,26 +14,34 @@ Git metadata: absent from uploaded source archive
 VERIFIED GREEN
 - npm run verify
 - TypeScript strict build including TypeScript SDK
-- 4 portal builds
+- 5 portal builds: onboarding, platform admin, tenant, signer, verification
 - repository verification
-- SQL migration sequence/static verification
-- provenance verification: 0 donor LOC, 8 pinned donors, 0 mapped imports
-- OpenAPI/SDK sync: 2026-08-02.2
+- SQL migration ordering/static verification including control/0006
+- provenance: 0 donor LOC, 8 pinned donors, 0 mapped imports
+- OpenAPI/SDK sync: 2026-08-02.3
+- OpenAPI YAML parsed successfully: OpenAPI 3.1.0, 40 paths
 - secret scan
 - Java service boundaries and Java SDK compilation
 - Freja JWS verifier self-test
-- 19 core tests
+- 22 core tests
 - tenant-scoped API integration flow and cross-tenant isolation behavior
+- onboarding create/email verification/update/submit/reviews/approve/provision flow
+- readiness blocks activation fail-closed
 - security tests: branding, SSRF, domains, uploads, invitations, OIDC
-- npm run web:build: 6 public HTML pages
-- API development runtime smoke: readiness + case creation
+- npm run web:build: 7 public HTML pages including /ansok
+- HTTP API smoke: /health/ready
+- HTTP CORS smoke: applicant/platform headers and PATCH allowed only for configured origins
+- HTTP onboarding create smoke: 201, 64-hex access token, email_verification_pending
+- production API bootstrap rejects missing KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE
+- production worker rejects missing KOMMUNSIGN_WORKER_ADAPTER_MODULE
 
 DEFINED BUT NOT EXECUTED IN SANDBOX
-- live PostgreSQL migrations and NOBYPASSRLS tenant-escape SQL test
+- live PostgreSQL migrations and rollback/upgrade verification
+- concurrent ONB reference and activation approval race tests
+- NOBYPASSRLS tenant/application escape SQL tests
 - Docker Compose service startup
 - C# SDK compilation
-- browser E2E
-- accessibility audit
+- browser E2E and accessibility audit
 - provider integration tests
 - load, penetration and backup/restore tests
 
@@ -44,5 +52,6 @@ EXTERNAL/LEGAL BLOCKERS
 - verified donor permission evidence
 
 RESULT
-Development baseline: PASS
+Onboarding development vertical slice: PASS
+Production adapter readiness: BLOCKED / NO-GO
 Production signing readiness: BLOCKED / NO-GO

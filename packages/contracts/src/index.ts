@@ -35,9 +35,24 @@ export type IdentityStatus =
   | 'EXPIRED'
   | 'FAILED';
 
+export type AuthMethod = 'oidc' | 'saml' | 'oauth2_client_credentials' | 'mtls' | 'session' | 'magic_link' | 'worker' | 'trusted_service' | 'development';
+
 export interface TenantContext {
   readonly tenantId: UUID;
   readonly source: 'verified-domain' | 'membership' | 'api-client' | 'deployment';
+  readonly subjectId: UUID;
+  readonly requestId: string;
+  readonly authMethod: AuthMethod;
+}
+
+
+export interface ApplicantContext {
+  readonly applicationId: UUID;
+  readonly subjectId: string;
+  readonly requestId: string;
+}
+
+export interface PlatformContext {
   readonly subjectId: UUID;
   readonly requestId: string;
 }

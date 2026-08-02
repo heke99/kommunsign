@@ -1,3 +1,4 @@
+import { authorizeDevPlatform, devOnboardingRepository, resolveDevPlatformContext } from './dev-onboarding.js';
 import { requirePermission, TENANT_ROLES, type TenantRole } from '../../../packages/authorization/src/index.js';
 import type { DomainEvent, TenantContext } from '../../../packages/contracts/src/index.js';
 import { createApiHandler } from './router.js';
@@ -183,11 +184,14 @@ if ((globalThis as { process?: { env?: Record<string, string | undefined> } }).p
 export function createHandler() {
   return createApiHandler({
     cases: caseRepository, uploads: uploadRepository, webhooks: webhookRepository, events: eventRepository, templates: templateRepository,
+    onboarding: devOnboardingRepository,
+    resolvePlatformContext: async (request) => resolveDevPlatformContext(request),
+    authorizePlatform: authorizeDevPlatform,
     resolveContext: async (request) => {
       const tenantId = request.headers.get('x-kommunsign-tenant-id') ?? DEFAULT_TENANT;
       const subjectId = request.headers.get('x-kommunsign-subject-id') ?? DEFAULT_SUBJECT;
       parseRoles(request, subjectId);
-      return { tenantId, subjectId, source: 'api-client', requestId: request.headers.get('x-request-id') ?? crypto.randomUUID() };
+      return { tenantId, subjectId, source: 'api-client', requestId: request.headers.get('x-request-id') ?? crypto.randomUUID(), authMethod: 'development' };
     },
     authorize: (context, permission) => requirePermission(rolesBySubject.get(context.subjectId) ?? [], permission),
     reportError: (cause, requestId) => console.error(JSON.stringify({ level: 'error', code: 'API_INTERNAL_ERROR', requestId, cause: cause instanceof Error ? cause.name : typeof cause })),

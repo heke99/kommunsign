@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 const commands = [
   ['npm', ['run', 'dev:website']],
   ['npm', ['run', 'dev:platform-admin']],
+  ['npm', ['run', 'dev:onboarding']],
   ['npm', ['run', 'dev:tenant']],
   ['npm', ['run', 'dev:signer']],
   ['npm', ['run', 'dev:verify']],

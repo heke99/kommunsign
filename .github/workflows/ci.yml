@@ -22,6 +22,7 @@ jobs:
         run: |
           test -s build/sbom/kommunsign.cdx.json
           test -s build/public-site/index.html
+          test -s build/portals/onboarding-portal/index.html
           test -s build/portals/tenant-portal/index.html
   database:
     runs-on: ubuntu-24.04
