@@ -59,5 +59,8 @@
   "packageManager": "npm@10.9.2",
   "devDependencies": {
     "typescript": "5.8.3"
+  },
+  "dependencies": {
+    "postgres": "3.4.7"
   }
 }

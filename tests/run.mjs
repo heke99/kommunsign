@@ -16,6 +16,10 @@ import { createHandler as createProductionHandler } from '../dist/apps/api/src/p
 import { verifyProvenance } from '../scripts/provenance-lib.mjs';
 import { assertApplicationTransition, assertDistinctApprovers, createEmailVerification, formatApplicationReference, verifyEmailToken } from '../dist/packages/onboarding/src/index.js';
 import { evaluateReadiness } from '../dist/packages/readiness/src/index.js';
+import { normalizeTenantSlug, canonicalHostname as canonicalTenantHostname, createDomainVerificationChallenge, verifyDomainChallengeValue } from '../dist/packages/custom-domains/src/index.js';
+import { TenantHostnameResolver, resolveTenantPublicUrl, isAllowedCredentialOrigin } from '../dist/packages/tenant-gateway/src/index.js';
+import { buildHostOnlySessionCookie, issueAuthorizationCode, exchangeAuthorizationCode } from '../dist/packages/auth-broker/src/index.js';
+import { createSensitiveDataAdapter } from '../dist/apps/api/src/adapters/aes-gcm-sensitive-data.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -56,11 +60,90 @@ test('production API bootstrap never falls back to development repositories', as
   process.env.APP_ENV = 'production';
   delete process.env.KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE;
   try {
-    await assert.rejects(() => createProductionHandler(), /KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE_MISSING/);
+    await assert.rejects(() => createProductionHandler(), /CONTROL_DATABASE_URL_MISSING/);
   } finally {
     if (previousEnvironment === undefined) delete process.env.APP_ENV; else process.env.APP_ENV = previousEnvironment;
     if (previousModule === undefined) delete process.env.KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE; else process.env.KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE = previousModule;
   }
+});
+
+test('domain gateway derives tenant only from an active canonical hostname', async () => {
+  assert.equal(normalizeTenantSlug('Region Östergötland'), 'region-ostergotland');
+  assert.throws(() => normalizeTenantSlug('admin'), /TENANT_SLUG_RESERVED/);
+  assert.equal(canonicalTenantHostname('SIGNERING.KUNGALV.SE.'), 'signering.kungalv.se');
+  assert.equal(canonicalTenantHostname('münchen.example'), 'xn--mnchen-3ya.example');
+  const events = [];
+  const domain = {
+    domainId: '11111111-1111-4111-8111-111111111111', tenantId: '22222222-2222-4222-8222-222222222222',
+    environmentId: '33333333-3333-4333-8333-333333333333', environment: 'production', dataPlaneId: '44444444-4444-4444-8444-444444444444',
+    hostname: 'kungalv.kommunsign.se', primaryHostname: 'signering.kungalv.se', defaultHostname: 'kungalv.kommunsign.se', status: 'active',
+  };
+  const resolver = new TenantHostnameResolver({
+    findActiveByHostname: async (hostname) => hostname === domain.hostname ? domain : null,
+    recordRoutingEvent: async (event) => { events.push(event); },
+  }, { trustProxy: false, trustedProxyProvider: 'none', requireVerifiedForwardedHost: true, now: () => 1_000, cacheTtlMs: 5_000 });
+  const resolved = await resolver.resolve(new Request('https://kungalv.kommunsign.se/app', { headers: { host: 'kungalv.kommunsign.se' } }), '55555555-5555-4555-8555-555555555555');
+  assert.equal(resolved.tenantId, domain.tenantId);
+  assert.equal(resolveTenantPublicUrl(domain, 'signer_invitation', 'a'.repeat(32)).href, `https://signering.kungalv.se/sign/${'a'.repeat(32)}`);
+  assert.equal(isAllowedCredentialOrigin('https://signering.kungalv.se', new Set(['signering.kungalv.se'])), true);
+  await assert.rejects(() => resolver.resolve(new Request('https://unknown.kommunsign.se', { headers: { host: 'unknown.kommunsign.se' } })), /TENANT_DOMAIN_NOT_FOUND/);
+  assert.ok(events.some((event) => event.eventType === 'unknown_host_rejected'));
+});
+
+test('domain challenge and auth exchange are single-use and host-bound', async () => {
+  const challengeTenantId = '11111111-1111-4111-8111-111111111111';
+  const challenge = await createDomainVerificationChallenge({ tenantId: challengeTenantId, hostname: 'signering.kungalv.se', expiresAt: '2026-08-02T10:30:00Z', now: new Date('2026-08-02T10:00:00Z') });
+  assert.equal(await verifyDomainChallengeValue({ tenantId: challengeTenantId, hostname: 'signering.kungalv.se', expectedRecordValueHash: challenge.recordValueHash, observedValues: [challenge.recordValue] }), true);
+  assert.equal(await verifyDomainChallengeValue({ tenantId: challengeTenantId, hostname: 'signering.kungalv.se', expectedRecordValueHash: challenge.recordValueHash, observedValues: [`${challenge.recordValue}x`] }), false);
+  const records = new Map();
+  const store = {
+    create: async (record) => { records.set(record.codeHash, record); },
+    consume: async (codeHash, now) => {
+      const record = records.get(codeHash);
+      if (!record || record.usedAt) return null;
+      const consumed = { ...record, usedAt: now.toISOString() };
+      records.set(codeHash, consumed);
+      return { ...record };
+    },
+  };
+  const issued = await issueAuthorizationCode({ store, tenantId: 't1', subjectId: 's1', destinationHostname: 'signering.kungalv.se', authMethod: 'oidc', signingKey: 'k'.repeat(32), now: new Date('2026-08-02T10:00:00Z') });
+  const exchanged = await exchangeAuthorizationCode({ store, code: issued.code, destinationHostname: 'signering.kungalv.se', signingKey: 'k'.repeat(32), now: new Date('2026-08-02T10:00:30Z') });
+  assert.equal(exchanged.tenantId, 't1');
+  await assert.rejects(() => exchangeAuthorizationCode({ store, code: issued.code, destinationHostname: 'signering.kungalv.se', signingKey: 'k'.repeat(32), now: new Date('2026-08-02T10:00:31Z') }));
+  const cookie = buildHostOnlySessionCookie('tenant', 'o'.repeat(32), { secure: true, maxAgeSeconds: 3600 });
+  assert.match(cookie, /^__Host-ks_tenant_session=/);
+  assert.doesNotMatch(cookie, /Domain=/i);
+  assert.match(cookie, /HttpOnly/);
+});
+
+test('production sensitive-data adapter authenticates ciphertext and purpose', async () => {
+  const encryptionKey = base64Encode(new Uint8Array(32).fill(7));
+  const blindIndexKey = base64Encode(new Uint8Array(32).fill(9));
+  const adapter = await createSensitiveDataAdapter({
+    SENSITIVE_DATA_ENCRYPTION_KEY_BASE64: encryptionKey,
+    SENSITIVE_DATA_BLIND_INDEX_KEY_BASE64: blindIndexKey,
+  });
+  const ciphertext = await adapter.encryptText('it@kommun.se', 'onboarding.primary_email');
+  assert.notEqual(new TextDecoder().decode(ciphertext), 'it@kommun.se');
+  assert.equal(await adapter.decryptText(ciphertext, 'onboarding.primary_email'), 'it@kommun.se');
+  await assert.rejects(() => adapter.decryptText(ciphertext, 'tenant.user_email'), /SENSITIVE_DATA_DECRYPTION_FAILED/);
+  assert.deepEqual(
+    await adapter.blindIndex(' IT@Kommun.SE ', 'onboarding.primary_email'),
+    await adapter.blindIndex('it@kommun.se', 'onboarding.primary_email'),
+  );
+});
+
+test('production adapter module paths resolve to built files', async () => {
+  const environment = await readFile('.env.example', 'utf8');
+  assert.match(environment, /KOMMUNSIGN_OBJECT_STORAGE_ADAPTER_MODULE=\.\.\/\.\.\/adapters\/supabase-storage\.js/);
+  assert.match(environment, /KOMMUNSIGN_QUEUE_ADAPTER_MODULE=\.\.\/\.\.\/adapters\/postgres-queue\.js/);
+  assert.match(environment, /KOMMUNSIGN_SENSITIVE_DATA_ADAPTER_MODULE=\.\.\/\.\.\/adapters\/aes-gcm-sensitive-data\.js/);
+  await Promise.all([
+    import('../dist/apps/api/src/adapters/supabase-storage.js'),
+    import('../dist/apps/api/src/adapters/postgres-queue.js'),
+    import('../dist/apps/api/src/adapters/aes-gcm-sensitive-data.js'),
+    import('../dist/apps/workers/src/postgres-production-adapter.js'),
+  ]);
 });
 
 test('readiness separates blocking, warnings and completed checks', () => {

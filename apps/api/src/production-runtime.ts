@@ -5,8 +5,8 @@ import type { ApiDependencies } from './ports.js';
 export interface ProductionRuntimeConfiguration {
   readonly controlDatabaseUrl: string;
   readonly dataDatabaseUrl: string;
-  readonly objectStorageEndpoint: string;
-  readonly queueEndpoint: string;
+  readonly objectStorageEndpoint?: string;
+  readonly queueEndpoint?: string;
   readonly environment: 'production';
 }
 
@@ -31,13 +31,13 @@ function assertProductionDependencies(dependencies: ApiDependencies): void {
 
 export async function createHandler(): Promise<(request: Request) => Promise<Response>> {
   if (process.env.APP_ENV !== 'production') throw new Error('PRODUCTION_RUNTIME_REQUIRES_PRODUCTION_ENV');
-  const moduleName = requiredEnvironment('KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE');
+  const moduleName = process.env.KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE?.trim() || './production-adapters/postgres/index.js';
   if (moduleName.includes('dev-runtime') || moduleName.includes('dev-onboarding')) throw new Error('DEVELOPMENT_RUNTIME_FORBIDDEN_IN_PRODUCTION');
   const configuration: ProductionRuntimeConfiguration = {
     controlDatabaseUrl: requiredEnvironment('CONTROL_DATABASE_URL'),
     dataDatabaseUrl: requiredEnvironment('DATA_DATABASE_URL'),
-    objectStorageEndpoint: requiredEnvironment('OBJECT_STORAGE_ENDPOINT'),
-    queueEndpoint: requiredEnvironment('QUEUE_ENDPOINT'),
+    ...(process.env.OBJECT_STORAGE_ENDPOINT?.trim() ? { objectStorageEndpoint: process.env.OBJECT_STORAGE_ENDPOINT.trim() } : {}),
+    ...(process.env.QUEUE_ENDPOINT?.trim() ? { queueEndpoint: process.env.QUEUE_ENDPOINT.trim() } : {}),
     environment: 'production',
   };
   const adapter = await import(moduleName) as ProductionAdapterModule;

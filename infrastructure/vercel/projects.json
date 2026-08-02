@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "projects": [
+    {"name":"kommunsign-public","domains":["kommunsign.se","www.kommunsign.se"],"source":"apps/public-website"},
+    {"name":"kommunsign-onboarding","domains":["apply.kommunsign.se"],"source":"apps/onboarding-portal"},
+    {"name":"kommunsign-platform-admin","domains":["admin.kommunsign.se"],"source":"apps/platform-admin"},
+    {"name":"kommunsign-auth","domains":["auth.kommunsign.se"],"source":"packages/auth-broker"},
+    {"name":"kommunsign-tenant-gateway","domains":["app.kommunsign.se","sign.kommunsign.se","*.kommunsign.se"],"source":"packages/tenant-gateway","acceptsVerifiedCustomDomains":true},
+    {"name":"kommunsign-verification","domains":["verify.kommunsign.se"],"source":"apps/verification-portal"},
+    {"name":"kommunsign-docs","domains":["docs.kommunsign.se"],"source":"docs"}
+  ]
+}

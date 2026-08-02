@@ -16,10 +16,12 @@ const moduleName=required('KOMMUNSIGN_WORKER_ADAPTER_MODULE');
 if(moduleName.includes('dev-runner'))throw new Error('DEVELOPMENT_WORKER_FORBIDDEN_IN_PRODUCTION');
 const loaded=await import(moduleName) as ProductionWorkerModule;
 if(typeof loaded.createProductionWorkerAdapter!=='function')throw new Error('PRODUCTION_WORKER_ADAPTER_EXPORT_MISSING');
-const adapter=await loaded.createProductionWorkerAdapter({
-  CONTROL_DATABASE_URL:required('CONTROL_DATABASE_URL'), DATA_DATABASE_URL:required('DATA_DATABASE_URL'),
-  OBJECT_STORAGE_ENDPOINT:required('OBJECT_STORAGE_ENDPOINT'), QUEUE_ENDPOINT:required('QUEUE_ENDPOINT'),
-});
+required('CONTROL_DATABASE_URL');
+required('DATA_DATABASE_URL');
+const configuration=Object.fromEntries(
+  Object.entries(process.env).filter((entry): entry is [string,string]=>typeof entry[1]==='string'),
+);
+const adapter=await loaded.createProductionWorkerAdapter(configuration);
 const workerId=process.env.WORKER_ID?.trim()||`kommunsign-${process.pid}-${crypto.randomUUID()}`;
 const claimLimit=Number.parseInt(process.env.WORKER_CLAIM_LIMIT??'10',10);
 const leaseSeconds=Number.parseInt(process.env.WORKER_LEASE_SECONDS??'60',10);
