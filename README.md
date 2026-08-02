@@ -25,6 +25,7 @@ Projektet skapar **inte** en låtsad PAdES-signatur. Java-tjänsterna returnerar
 ## Kom igång
 
 ```bash
+npm ci
 cp .env.example .env
 npm run verify
 ```
@@ -50,4 +51,3 @@ Kör SQL-migrationerna i ordning under `migrations/control` och `migrations/data
 ## Verifieringsstatus
 
 Se `docs/verification/verification-matrix.md` och `DELIVERY_REPORT.md` för exakt skillnad mellan implementerat, lokalt verifierat och beroenden som kräver externa avtal eller produktionscertifikat.
-# kommunsign
