@@ -1,4 +1,8 @@
 -- Purpose: tamper-evident audit, durable jobs, outbox, API idempotency, webhook and archive records.
+-- Impact: Adds audit chains, durable jobs, outbox, idempotency, webhooks, evidence packages, archive and usage records.
+-- Backfill: No data backfill; initial operational schema.
+-- Rollback: Drain workers and exports, preserve audit/evidence data, then drop in reverse dependency order.
+-- Verification: Confirm idempotency and event uniqueness constraints and tenant foreign keys.
 CREATE TABLE audit.audit_chain_heads (
   tenant_id uuid PRIMARY KEY,
   last_sequence bigint NOT NULL DEFAULT 0,

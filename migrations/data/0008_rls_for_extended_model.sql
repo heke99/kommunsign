@@ -1,4 +1,8 @@
 -- Purpose: apply forced tenant RLS to tables introduced after the initial RLS migration.
+-- Impact: Extends forced tenant RLS to every table introduced after the first RLS migration.
+-- Backfill: No row rewrite; missing policies are created in place.
+-- Rollback: Do not disable RLS without a replacement isolation mechanism.
+-- Verification: Run migrations/data/verify.sql and confirm no app/audit table lacks forced RLS.
 DO $$
 DECLARE table_record record;
 BEGIN

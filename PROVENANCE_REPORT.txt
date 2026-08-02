@@ -1,0 +1,14 @@
+
+> kommunsign@0.1.0 provenance:report
+> node scripts/provenance-report.mjs
+
+Donor provenance report
+Maximum permitted reuse per donor: 85%
+documenso: 0/0 LOC (0.00%), pin 6ec67d1c4db67812c737a30e40f8e0bd6086f920, permission claimed_not_verified
+docuseal: 0/0 LOC (0.00%), pin 7ce6c29f4dfe62beceb97a21b6f49b995488ec1e, permission claimed_not_verified
+libresign: 0/0 LOC (0.00%), pin 8bb799542dcd4b4d61f138b5d574332d2d8371dd, permission claimed_not_verified
+opensign: 0/0 LOC (0.00%), pin f72624fa26211fe00776453d99a67120a4f5e060, permission claimed_not_verified
+sweden-connect-signservice: 0/0 LOC (0.00%), pin 8b5d67a3526379b9bc762965eadb9455ef680e8c, permission standard_license_review_pending
+sweden-connect-ca-signservice: 0/0 LOC (0.00%), pin 2cd3b592809610d5e217f6e4db604dafc2216c99, permission standard_license_review_pending
+eu-dss: 0/0 LOC (0.00%), pin 4c2129862948bfd53ca1455832260aa17e183cf8, permission standard_license_review_pending
+freja-eid-java-client: 0/0 LOC (0.00%), pin a237aee441ef79512b39420389350b6aad154d0d, permission standard_license_review_pending

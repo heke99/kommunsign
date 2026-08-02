@@ -1,46 +1,62 @@
-# Leveransrapport
+# Leveransrapport – KommunSign
+
+Statusdatum: 2026-08-02.
 
 ## IMPLEMENTERAT
 
-- Greenfield-monorepo och tydliga servicegränser.
-- Tenantkontext, RBAC, versionerad policy engine och serverstyrda statusmaskiner.
-- Canonical JSON, SHA-256, HMAC, nonce/state och evidence payload.
-- TIC BankID startadapter, collect/status/cancel som explicit konfigurerbara kontrakt samt webhookverifiering.
-- Databasschema för control plane, data plane, identitet, signatur, validering, audit, outbox, webhook, arkiv och usage.
-- PostgreSQL RLS och composite tenant foreign keys.
-- OpenAPI 3.1, idempotensmodell, signerade webhookkontrakt och offline verifier-CLI.
-- Java boundary services som vägrar påstå kryptografisk signering/validering utan konfiguration.
-- White-label design tokens och tillgängliga portalgrundsidor.
-- CI, säkerhetsgrindar, IaC-bas, monitoringregler, runbooks och proveniensgrind.
+- Härdad gemensam TypeScript-/Java-kodbas med control plane och tenant data plane.
+- Tenantkontext, RBAC, versionerad policy engine, RLS-modell och composite tenant foreign keys.
+- Databasskydd mot cross-case-kopplingar och ändring av låsta dokument/policies/identitetsbindningar.
+- Separat immutable evidence för `DIGITAL_APPROVAL`.
+- Krav på kryptografisk signaturartefakt och accepterad validation för `ELECTRONIC_SIGNATURE`.
+- Canonical JSON, SHA-256, Base64, HMAC, nonce/state och evidence payload.
+- TIC BankID-adapter med POST poll, GET collect, DELETE cancel, HTTPS/timeoutskydd och Base64-kodad dold data.
+- TIC webhook-HMAC, timestamp-, session- och statebindning.
+- Freja JWS-verifieringskärna med RS256/ES256 och fail-closed headerkontroller.
+- Hållbar worker lease recovery och konsekvent attempt-räkning.
+- Audit-hash som täcker tenant, sequence, kategori, actor, resource, payload och tid.
+- API-runtime med auktorisering, strikt JSON, body limits, säkra fel och idempotens för create/send/cancel.
+- OpenAPI 3.1 med implementationsstatus per operation.
+- Java boundaries som vägrar påstå PAdES/validation utan riktig konfiguration.
+- Offline verifier-CLI, evidence manifest, CI, SBOM-generator, hemlighetsskanning och migrationskontroll.
+- Exakta pins för åtta donorprojekt och verklig 85-procents-/permission-evidence-grind.
 
 ## VERIFIERAT LOKALT
 
-- TypeScript strict build.
-- Kärntester för canonical JSON, hash, statusmaskin, policy, tenantkontext, HMAC och evidence package.
-- Repositorystruktur och förbjudna hemlighetsfiltyper.
-- Proveniensgräns: 0 importerade donor-LOC och blockerad import utan tillstånd/pin.
-- Java 21-kompilering av boundary services.
+- TypeScript 5.8.3 strict build.
+- Repository- och migrationsstruktur.
+- Proveniensgrind: 0 donor-LOC, åtta pins, 0 mapped imports.
+- Java 21-kompilering och Freja JWS self-test.
+- 18 kärntester för crypto, tenant, policy/evidence, TIC, API, audit, worker, databasregler och proveniens.
+- API shell: liveness 200 och readiness 503 tills riktiga dependencies har konfigurerats.
 
 ## KRÄVER EXTERNT AVTAL
 
-- TIC produktions-/testtenant och fullständigt godkända endpointkontrakt.
-- Freja Integrator RP och Integrated RP per kund.
-- TSA, CA/trust service provider, e-post och e-arkiv.
+- TIC test-/produktionstenant och provider-E2E.
+- Freja Integrator RP/Integrated RP.
+- TSA, CA/trust service provider, e-post, objektlagring och e-arkiv.
 
 ## KRÄVER PRODUKTIONSCERTIFIKAT
 
-- Freja mTLS/JWS trust.
+- Freja mTLS/JWS trust och rotationskedja.
 - Sweden Connect SignService/CA/HSM.
 - TLS/custom domains och providerwebhooks.
 
 ## KRÄVER JURIDISKT BESLUT
 
-- Donortillstånd och licensmodell.
+- Verifiering och arkivering av de uppgivna donortillstånden.
 - Signaturpolicy per handlingstyp.
-- Retention, legal hold, informationsklassning och underbiträden.
+- Retention, legal hold, informationsklassning, driftregion och underbiträden.
 
 ## KVARVARANDE RISK
 
-- PAdES/DSS är arkitekturellt avgränsat men inte produktionsintegrerat i denna lokala leverans.
-- Portalgränssnitten är grundskal och inte kompletta verksamhetsvyer.
-- Infrastruktur måste bindas till vald svensk/EU-driftleverantör och genomgå penetrationstest, återställningstest och DPIA innan pilot.
+- SQL-migrationerna kunde inte integrationstestas mot live PostgreSQL i denna körmiljö.
+- PAdES/DSS/Sweden Connect är ännu inte verkliga integrationer.
+- Bara create/list/get/send/cancel är runtimeimplementerade API-operationer.
+- Portalerna är grundskal, inte kompletta verksamhetsgränssnitt.
+- Entra ID/SCIM, custom-domain-provisionering, notifieringar, e-arkiv och connectors återstår.
+- Penetrationstest, lasttest, återställningstest, WCAG-audit och DPIA krävs före pilot.
+
+## DONORIMPORT
+
+Ingen donor-kod importerades. Tillståndsdokumenten var inte del av uppladdningen och kunde därför inte verifieras eller checksummas. Detta är ett medvetet fail-closed-beslut, inte ett tekniskt hinder i proveniensverktyget.

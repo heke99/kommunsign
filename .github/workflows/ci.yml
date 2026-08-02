@@ -16,7 +16,6 @@ jobs:
         with: { distribution: temurin, java-version: '21' }
       - run: npm ci --ignore-scripts
       - run: npm run verify
-      - name: Secret scan
-        run: echo "Run pinned gitleaks/Trivy action here; release is blocked until SHA is pinned"
-      - name: SBOM
-        run: echo "Generate CycloneDX SBOM and sign artifacts in the release workflow"
+      - run: npm run sbom
+      - name: Verify generated SBOM
+        run: test -s build/sbom/kommunsign.cdx.json

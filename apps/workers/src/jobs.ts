@@ -17,6 +17,7 @@ export interface DurableJob<T = Readonly<Record<string, unknown>>> {
   readonly payload: T;
   readonly idempotencyKey: string;
   readonly availableAt: string;
+  /** Number of claims including the current lease. */
   readonly attempts: number;
   readonly maximumAttempts: number;
 }
@@ -28,20 +29,33 @@ export interface DurableJobRepository {
   deadLetter(jobId: string, workerId: string, safeErrorCode: string): Promise<void>;
 }
 
+export function retryDelaySeconds(attemptsIncludingCurrentClaim: number): number {
+  const completedFailures = Math.max(1, attemptsIncludingCurrentClaim);
+  return Math.min(3600, 2 ** Math.min(completedFailures - 1, 10));
+}
+
+function safeWorkerErrorCode(cause: unknown): string {
+  if (!(cause instanceof Error)) return 'UNKNOWN_WORKER_ERROR';
+  const candidate = cause.name.toUpperCase().replace(/[^A-Z0-9_]/g, '_').slice(0, 80);
+  return candidate || 'WORKER_ERROR';
+}
+
 export async function processClaimedJob(
   repository: DurableJobRepository,
   workerId: string,
   job: DurableJob,
   handlers: Readonly<Record<DurableJobType, (job: DurableJob) => Promise<void>>>,
 ): Promise<void> {
+  if (!workerId.trim()) throw new Error('Worker identity is required');
+  if (job.attempts < 1) throw new Error('Claimed jobs must include the current attempt');
   try {
     await handlers[job.type](job);
     await repository.complete(job.id, workerId);
   } catch (cause) {
-    const code = cause instanceof Error ? cause.name : 'UNKNOWN_WORKER_ERROR';
-    if (job.attempts + 1 >= job.maximumAttempts) await repository.deadLetter(job.id, workerId, code);
+    const code = safeWorkerErrorCode(cause);
+    if (job.attempts >= job.maximumAttempts) await repository.deadLetter(job.id, workerId, code);
     else {
-      const delaySeconds = Math.min(3600, 2 ** Math.min(job.attempts, 10));
+      const delaySeconds = retryDelaySeconds(job.attempts);
       await repository.retry(job.id, workerId, new Date(Date.now() + delaySeconds * 1000).toISOString(), code);
     }
   }

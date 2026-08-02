@@ -1,8 +1,8 @@
 # Third-Party Notices
 
-Denna leverans innehåller ingen kopierad eller adapterad kod från donorprojekten i masterplanen.
+Den här leveransen innehåller ingen kopierad, adapterad eller semantiskt portad donor-kod från projekten i källinventeringen.
 
-Följande projekt är endast registrerade för framtida utvärdering och importeras inte ännu:
+Följande projekt är endast registrerade och commit-pinnade för framtida, kontrollerad utvärdering:
 
 - Documenso
 - DocuSeal
@@ -13,4 +13,4 @@ Följande projekt är endast registrerade för framtida utvärdering och importe
 - EU Digital Signature Service (DSS)
 - Freja eID Java Client
 
-När en dependency eller kodimport godkänns genereras denna fil från proveniensmanifestet och SBOM-pipelinen.
+När ett dependency eller en kodimport godkänns ska denna fil genereras från proveniensmanifest, verifierad permission evidence och SBOM. Originalcopyright, licenstext och attribution får inte tas bort när licens eller separat tillstånd kräver dem.

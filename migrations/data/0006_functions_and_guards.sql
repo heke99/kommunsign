@@ -1,4 +1,8 @@
 -- Purpose: server-only state guards, hash-chained audit append and durable job claims.
+-- Impact: Adds server-state guards, audit append logic and durable job claiming.
+-- Backfill: No data backfill; functions operate on existing rows.
+-- Rollback: Replace functions with the previous definitions and recreate prior triggers in a maintenance window.
+-- Verification: Exercise terminal-state denial, audit append sequencing and concurrent job claims.
 CREATE OR REPLACE FUNCTION app.prevent_client_terminal_status() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN

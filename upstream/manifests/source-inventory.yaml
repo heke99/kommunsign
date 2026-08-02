@@ -1,4 +1,4 @@
-schema: kommunsign.source-inventory.v1
+schema: kommunsign.source-inventory.v2
 calculation_method:
   basis: copyrightable_source_lines
   excludes: [generated_files, lockfiles, binaries, vendored_dependencies, non_reusable_test_data]
@@ -6,81 +6,105 @@ calculation_method:
 sources:
   - project: documenso
     repository: documenso/documenso
-    pinned_commit: null
+    pinned_commit: 6ec67d1c4db67812c737a30e40f8e0bd6086f920
     license: AGPL-3.0
     permission_file: upstream/permissions/documenso/README.md
+    permission_status: claimed_not_verified
+    permission_evidence: null
+    permission_sha256: null
     reuse_type: evaluated_not_imported
     original_loc: 0
     reused_loc: 0
     imported: false
-    gate: blocked_until_permission_and_commit_pin
+    gate: blocked_until_permission_evidence
   - project: docuseal
     repository: docusealco/docuseal
-    pinned_commit: null
+    pinned_commit: 7ce6c29f4dfe62beceb97a21b6f49b995488ec1e
     license: AGPL-3.0-with-additional-terms
     permission_file: upstream/permissions/docuseal/README.md
+    permission_status: claimed_not_verified
+    permission_evidence: null
+    permission_sha256: null
     reuse_type: evaluated_not_imported
     original_loc: 0
     reused_loc: 0
     imported: false
-    gate: blocked_until_permission_and_commit_pin
+    gate: blocked_until_permission_evidence
   - project: libresign
     repository: LibreSign/libresign
-    pinned_commit: null
+    pinned_commit: 8bb799542dcd4b4d61f138b5d574332d2d8371dd
     license: AGPL-3.0
     permission_file: upstream/permissions/libresign/README.md
+    permission_status: claimed_not_verified
+    permission_evidence: null
+    permission_sha256: null
     reuse_type: evaluated_not_imported
     original_loc: 0
     reused_loc: 0
     imported: false
-    gate: blocked_until_permission_and_commit_pin
+    gate: blocked_until_permission_evidence
   - project: opensign
     repository: OpenSignLabs/OpenSign
-    pinned_commit: null
+    pinned_commit: f72624fa26211fe00776453d99a67120a4f5e060
     license: AGPL-3.0
     permission_file: upstream/permissions/opensign/README.md
+    permission_status: claimed_not_verified
+    permission_evidence: null
+    permission_sha256: null
     reuse_type: evaluated_not_imported
     original_loc: 0
     reused_loc: 0
     imported: false
-    gate: blocked_until_permission_and_commit_pin
+    gate: blocked_until_permission_evidence
   - project: sweden-connect-signservice
     repository: swedenconnect/signservice
-    pinned_commit: null
+    pinned_commit: 8b5d67a3526379b9bc762965eadb9455ef680e8c
     license: Apache-2.0
     permission_file: upstream/permissions/sweden-connect-signservice/README.md
+    permission_status: standard_license_review_pending
+    permission_evidence: null
+    permission_sha256: null
     reuse_type: planned_dependency
     original_loc: 0
     reused_loc: 0
     imported: false
-    gate: blocked_until_version_and_commit_pin
+    gate: blocked_until_dependency_lock
   - project: sweden-connect-ca-signservice
     repository: swedenconnect/ca-signservice
-    pinned_commit: null
+    pinned_commit: 2cd3b592809610d5e217f6e4db604dafc2216c99
     license: Apache-2.0
     permission_file: upstream/permissions/sweden-connect-ca-signservice/README.md
+    permission_status: standard_license_review_pending
+    permission_evidence: null
+    permission_sha256: null
     reuse_type: planned_dependency
     original_loc: 0
     reused_loc: 0
     imported: false
-    gate: blocked_until_version_and_commit_pin
+    gate: blocked_until_dependency_lock
   - project: eu-dss
     repository: esig/dss
-    pinned_commit: null
+    pinned_commit: 4c2129862948bfd53ca1455832260aa17e183cf8
     license: LGPL-2.1
     permission_file: upstream/permissions/eu-dss/README.md
+    permission_status: standard_license_review_pending
+    permission_evidence: null
+    permission_sha256: null
     reuse_type: planned_dependency
     original_loc: 0
     reused_loc: 0
     imported: false
-    gate: blocked_until_version_and_commit_pin
+    gate: blocked_until_dependency_lock
   - project: freja-eid-java-client
     repository: Freja-eID/frejaeidclient
-    pinned_commit: null
+    pinned_commit: a237aee441ef79512b39420389350b6aad154d0d
     license: Apache-2.0
     permission_file: upstream/permissions/freja-eid-java-client/README.md
+    permission_status: standard_license_review_pending
+    permission_evidence: null
+    permission_sha256: null
     reuse_type: planned_dependency
     original_loc: 0
     reused_loc: 0
     imported: false
-    gate: blocked_until_version_and_commit_pin
+    gate: blocked_until_dependency_lock

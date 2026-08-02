@@ -54,12 +54,32 @@ export function requireCaseTransition(from: SignatureCaseStatus, to: SignatureCa
   if (!canTransitionCase(from, to)) throw new Error(`Invalid case transition: ${from} -> ${to}`);
 }
 
+export interface CaseCompletionEvidence {
+  readonly decisionMode: 'DIGITAL_APPROVAL' | 'ELECTRONIC_SIGNATURE';
+  readonly allRequiredParticipantsCompleted: boolean;
+  readonly documentVersionLocked: boolean;
+  readonly approvalEvidenceRecorded: boolean;
+  readonly cryptographicSignatureCreated: boolean;
+  readonly validationAccepted: boolean;
+  readonly archiveCompleted: boolean;
+}
+
 export function requireServerEvidenceForCaseStatus(
   to: SignatureCaseStatus,
-  evidence: { readonly allRequiredSignersSigned: boolean; readonly validationAccepted: boolean; readonly archiveCompleted: boolean },
+  evidence: CaseCompletionEvidence,
 ): void {
-  if (to === 'completed' && (!evidence.allRequiredSignersSigned || !evidence.validationAccepted)) {
-    throw new Error('completed requires all signatures and accepted validation');
+  if (to === 'completed' && !evidence.allRequiredParticipantsCompleted) {
+    throw new Error('completed requires all required participants to complete their steps');
+  }
+  if (to === 'completed' && !evidence.documentVersionLocked) {
+    throw new Error('completed requires the immutable document version to remain locked');
+  }
+  if (to === 'completed' && evidence.decisionMode === 'DIGITAL_APPROVAL' && !evidence.approvalEvidenceRecorded) {
+    throw new Error('digital approval completion requires immutable approval evidence');
+  }
+  if (to === 'completed' && evidence.decisionMode === 'ELECTRONIC_SIGNATURE'
+      && (!evidence.cryptographicSignatureCreated || !evidence.validationAccepted)) {
+    throw new Error('electronic signature completion requires a cryptographic signature and accepted validation');
   }
   if (to === 'archived' && !evidence.archiveCompleted) throw new Error('archived requires completed archive evidence');
 }

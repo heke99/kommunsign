@@ -1,4 +1,8 @@
 -- Purpose: tenant-owned organization, users, policies, cases, documents and signers.
+-- Impact: Creates organization, authorization, policy, case, document and signer tables.
+-- Backfill: No data backfill; initial schema.
+-- Rollback: Export tenant data and drop tables in reverse dependency order in a maintenance window.
+-- Verification: Confirm every tenant-owned relation has tenant_id and composite tenant foreign keys.
 CREATE TABLE app.organizations (
   tenant_id uuid NOT NULL,
   id uuid NOT NULL DEFAULT gen_random_uuid(),

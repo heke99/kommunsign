@@ -19,8 +19,12 @@
     "verify:repository": "node scripts/verify-repository.mjs",
     "verify:provenance": "node scripts/check-provenance.mjs",
     "verify:java": "bash scripts/build-java.sh",
-    "verify": "npm run clean && npm run build && npm run verify:repository && npm run verify:provenance && npm run verify:java && node tests/run.mjs",
-    "package:release": "bash scripts/package-release.sh"
+    "verify": "npm run clean && npm run build && npm run verify:repository && npm run verify:migrations && npm run verify:provenance && npm run scan:secrets && npm run verify:java && node tests/run.mjs",
+    "package:release": "bash scripts/package-release.sh",
+    "provenance:report": "node scripts/provenance-report.mjs",
+    "verify:migrations": "node scripts/check-sql-migrations.mjs",
+    "scan:secrets": "node scripts/scan-secrets.mjs",
+    "sbom": "node scripts/generate-sbom.mjs"
   },
   "packageManager": "npm@10.9.2",
   "devDependencies": {

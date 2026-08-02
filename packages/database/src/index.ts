@@ -11,7 +11,7 @@ export interface SqlDatabase {
 export async function withTenantTransaction<T>(
   database: SqlDatabase,
   context: TenantContext,
-  actorKind: 'internal_user' | 'external_client' | 'worker',
+  actorKind: 'internal_user' | 'external_client' | 'worker' | 'trusted_service',
   work: (transaction: SqlTransaction) => Promise<T>,
 ): Promise<T> {
   return database.transaction(async (transaction) => {
@@ -30,21 +30,25 @@ export async function assertIdempotency(
   path: string,
   payloadSha256: string,
 ): Promise<'created' | 'replay'> {
-  const existing = await transaction.query<{ request_payload_sha256: string }>(
-    `select request_payload_sha256 from app.api_idempotency_keys
+  const inserted = await transaction.query<{ request_payload_sha256: string }>(
+    `insert into app.api_idempotency_keys
+      (tenant_id,api_client_id,idempotency_key,request_method,request_path,request_payload_sha256,expires_at)
+     values ($1,$2,$3,$4,$5,$6,now()+interval '24 hours')
+     on conflict (tenant_id,api_client_id,idempotency_key) do nothing
+     returning request_payload_sha256`,
+    [tenantId, apiClientId, key, method, path, payloadSha256],
+  );
+  if (inserted.rowCount === 1) return 'created';
+
+  const existing = await transaction.query<{ request_payload_sha256: string; request_method: string; request_path: string }>(
+    `select request_payload_sha256, request_method, request_path from app.api_idempotency_keys
      where tenant_id = $1 and api_client_id = $2 and idempotency_key = $3 for update`,
     [tenantId, apiClientId, key],
   );
   const row = existing.rows[0];
-  if (row) {
-    if (row.request_payload_sha256 !== payloadSha256) throw new Error('IDEMPOTENCY_CONFLICT');
-    return 'replay';
+  if (!row) throw new Error('IDEMPOTENCY_STATE_LOST');
+  if (row.request_payload_sha256 !== payloadSha256 || row.request_method !== method || row.request_path !== path) {
+    throw new Error('IDEMPOTENCY_CONFLICT');
   }
-  await transaction.query(
-    `insert into app.api_idempotency_keys
-      (tenant_id,api_client_id,idempotency_key,request_method,request_path,request_payload_sha256,expires_at)
-     values ($1,$2,$3,$4,$5,$6,now()+interval '24 hours')`,
-    [tenantId, apiClientId, key, method, path, payloadSha256],
-  );
-  return 'created';
+  return 'replay';
 }

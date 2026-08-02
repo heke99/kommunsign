@@ -1,26 +1,35 @@
 # KommunSign
 
-KommunSign är en greenfield-grund för en multi-tenant och white-label-baserad underskriftsplattform för svensk offentlig sektor.
+KommunSign är en säker grund för en multi-tenant och white-label-baserad plattform för digitala godkännanden och elektroniska underskrifter i svensk offentlig sektor.
 
-Denna leverans implementerar en säker produktkärna och de kontrakt som resten av plattformen måste följa:
+Den här leveransen är en **härdad fas 0–1-kärna med delar av fas 2–4**. Den är inte hela den färdiga produkten i masterkravet.
 
-- strikt tenantkontext och auktorisering,
-- versionerade signaturpolicyer,
-- separata statusmaskiner för ärende, signerare och dokument,
-- canonical JSON, SHA-256, HMAC och säkra engångstokens,
-- TIC/BankID-adapter med dokumenthashbindning och webhookverifiering,
-- provideroberoende identitetskontrakt,
-- PostgreSQL-schema med composite tenant keys och RLS,
+## Implementerat i denna leverans
+
+- strikt serverhärledd tenantkontext, RBAC och PostgreSQL RLS-modell,
+- composite tenant keys och skydd mot cross-case-kopplingar,
+- versionerade signaturpolicyer och serverstyrda statusmaskiner,
+- skilda completion-krav för digitalt godkännande och e-underskrift,
+- immutable dokument-, policy-, identitets- och evidence-bindningar,
+- canonical JSON, SHA-256, Base64, HMAC och säkra engångstokens,
+- TIC/BankID-adapter med rätt HTTP-semantik, dokumenthashbindning och webhookverifiering,
+- Java JWS-verifieringskärna för Freja-gränsen,
+- hållbar worker leasing och återtag efter krasch/lease expiry,
 - append-only hashkedjad auditmodell,
-- transactional outbox, idempotens och webhookleveranser,
-- OpenAPI 3.1,
-- Java-gränstjänster som blockerar falsk produktionssignering,
-- Docker Compose, Kubernetes-bas, CI, hotmodell och drift/runbooks,
-- verifieringsbara tester och proveniensgrind.
+- transactional outbox, idempotens och webhookmodell,
+- säker API-runtime för create/list/get/send/cancel,
+- OpenAPI 3.1 med tydlig implementationsstatus per operation,
+- offline verifier-CLI och evidence manifest,
+- CI-grindar för build, migrationer, proveniens, hemligheter, Java och tester,
+- 85-procentsgrind med exakta donor-pins och permission-evidence-kontroll.
 
 ## Viktig säkerhetsgräns
 
-Projektet skapar **inte** en låtsad PAdES-signatur. Java-tjänsterna returnerar explicit `NOT_CONFIGURED` tills Sweden Connect SignService, EU DSS, TSA, CA/HSM, TIC och Freja har kopplats med godkända avtal, certifikat och fastlåsta versioner. Ett ärende kan därför inte bli `completed` bara genom en klientstatus eller en namn-/signaturbild.
+Projektet skapar inte en låtsad PAdES-signatur. Java-tjänsterna och databasen blockerar slutförande tills rätt teknisk evidence finns. Sweden Connect SignService, EU DSS, TSA, CA/HSM, TIC och Freja måste kopplas med godkända avtal, certifikat och fastlåsta versioner innan produktionssignering kan påstås fungera.
+
+## Donorstatus
+
+Åtta donorprojekt är låsta till exakta commits, men **0 donor-LOC har importerats**. Uppgiften om skriftligt tillstånd är registrerad, men tillståndsdokumenten var inte bifogade. Lägg verifierbara kopior under `upstream/permissions/<donor>/`, registrera SHA-256 och ändra status först efter juridisk kontroll. Proveniensgrinden blockerar annars importen.
 
 ## Kom igång
 
@@ -28,26 +37,29 @@ Projektet skapar **inte** en låtsad PAdES-signatur. Java-tjänsterna returnerar
 npm ci
 cp .env.example .env
 npm run verify
+npm run sbom
+npm run provenance:report
 ```
 
-För lokal infrastruktur, på en dator med Docker:
+Lokal infrastruktur:
 
 ```bash
 docker compose up -d postgres redis minio clamav gotenberg
 ```
 
-Kör SQL-migrationerna i ordning under `migrations/control` och `migrations/data`. Se `docs/operations/local-development.md`.
+Migrationer och synkkommandon finns i:
+
+- `docs/operations/local-development.md`
+- `docs/operations/synchronization.md`
 
 ## Repository
 
-- `apps/` – API, workers och portalgränssnitt.
-- `packages/` – domän, policy, säkerhet och provideradaptrar.
+- `apps/` – API, workers och portalgrund.
+- `packages/` – domän, policy, crypto, audit och provideradaptrar.
 - `services/` – isolerade Java-gränser för identitet, signering och validering.
 - `migrations/` – control plane och tenant data plane.
-- `upstream/` – proveniens, licenser och tillstånd.
-- `infrastructure/` – lokal drift, Kubernetes, monitoring och backup.
-- `docs/` – arkitektur, säkerhet, integration, compliance och drift.
+- `upstream/` – proveniens, licenser, pins och tillståndsbevis.
+- `infrastructure/` – lokal drift, container, monitoring och IaC-bas.
+- `docs/` – arkitektur, säkerhet, integration, compliance, drift och verifiering.
 
-## Verifieringsstatus
-
-Se `docs/verification/verification-matrix.md` och `DELIVERY_REPORT.md` för exakt skillnad mellan implementerat, lokalt verifierat och beroenden som kräver externa avtal eller produktionscertifikat.
+Se `DELIVERY_REPORT.md`, `docs/architecture/review-2026-08-02.md` och `docs/verification/verification-matrix.md` för exakt status.

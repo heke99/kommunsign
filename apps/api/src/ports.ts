@@ -1,3 +1,4 @@
+import type { Permission } from '../../../packages/authorization/src/index.js';
 import type { SignatureCaseStatus, TenantContext } from '../../../packages/contracts/src/index.js';
 
 export interface CreateCaseInput {
@@ -10,6 +11,7 @@ export interface SignatureCaseView {
   readonly id: string;
   readonly tenantId: string;
   readonly status: SignatureCaseStatus;
+  readonly decisionMode: 'DIGITAL_APPROVAL' | 'ELECTRONIC_SIGNATURE';
   readonly title: string;
   readonly externalReference?: string;
   readonly createdAt: string;
@@ -18,10 +20,12 @@ export interface CaseRepository {
   create(context: TenantContext, input: CreateCaseInput, idempotencyKey: string, payloadHash: string): Promise<SignatureCaseView>;
   get(context: TenantContext, id: string): Promise<SignatureCaseView | null>;
   list(context: TenantContext): Promise<readonly SignatureCaseView[]>;
-  send(context: TenantContext, id: string): Promise<SignatureCaseView>;
-  cancel(context: TenantContext, id: string): Promise<SignatureCaseView>;
+  send(context: TenantContext, id: string, idempotencyKey: string, payloadHash: string): Promise<SignatureCaseView>;
+  cancel(context: TenantContext, id: string, idempotencyKey: string, payloadHash: string): Promise<SignatureCaseView>;
 }
 export interface ApiDependencies {
   readonly cases: CaseRepository;
   readonly resolveContext: (request: Request) => Promise<TenantContext>;
+  readonly authorize: (context: TenantContext, permission: Permission) => Promise<void> | void;
+  readonly reportError?: (cause: unknown, requestId: string) => void;
 }

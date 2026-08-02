@@ -1,4 +1,8 @@
 -- Purpose: complete tenant configuration as secret references and versioned policy/profile metadata.
+-- Impact: Adds versioned tenant policy, identity, signature, storage, encryption, email, archive, audit and retention profiles.
+-- Backfill: No automatic backfill; tenant profiles are provisioned explicitly.
+-- Rollback: Remove profile consumers first, export configuration, then drop these tables in a maintenance window.
+-- Verification: Confirm secret references use approved URI schemes and all foreign keys resolve to platform_tenants.
 CREATE TABLE control.tenant_policies (
   tenant_id uuid NOT NULL REFERENCES control.platform_tenants(id),
   policy_key text NOT NULL,

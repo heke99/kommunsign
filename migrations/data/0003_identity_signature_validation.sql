@@ -1,4 +1,8 @@
 -- Purpose: provider evidence, cryptographic signatures, certificates and validation.
+-- Impact: Adds identity transactions, cryptographic signature artifacts, certificate evidence and validation runs.
+-- Backfill: No data backfill; evidence is created only by trusted services.
+-- Rollback: Disable signing workers, export evidence references, then drop in reverse dependency order.
+-- Verification: Confirm digest checks and tenant-scoped foreign keys exist.
 CREATE TABLE app.identity_transactions (
   tenant_id uuid NOT NULL,
   id uuid NOT NULL DEFAULT gen_random_uuid(),

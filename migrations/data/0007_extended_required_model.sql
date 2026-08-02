@@ -1,4 +1,8 @@
 -- Purpose: complete the required domain model without weakening tenant isolation.
+-- Impact: Adds signing order, pages, render snapshots, identifiers, provider detail, reports, notifications, reminders and billing periods.
+-- Backfill: No automatic backfill; new records are produced by later application releases.
+-- Rollback: Stop dependent application writes and drop tables in reverse dependency order.
+-- Verification: Confirm all required model tables and composite tenant foreign keys exist.
 CREATE TABLE app.signature_case_participants (
   tenant_id uuid NOT NULL, id uuid NOT NULL DEFAULT gen_random_uuid(), signature_case_id uuid NOT NULL,
   participant_type text NOT NULL, participant_reference uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),

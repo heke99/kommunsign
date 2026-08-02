@@ -1,4 +1,8 @@
 -- Purpose: establish tenant data-plane schemas, enums and immutable status vocabulary.
+-- Impact: Creates tenant data-plane schemas and immutable enum vocabularies.
+-- Backfill: No data backfill; initial schema.
+-- Rollback: Drop dependent objects first, then types and schemas in a maintenance window.
+-- Verification: Confirm required schemas, extension and enum values exist.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS app;
 CREATE SCHEMA IF NOT EXISTS audit;

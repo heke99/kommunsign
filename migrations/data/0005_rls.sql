@@ -1,4 +1,8 @@
 -- Purpose: deny cross-tenant reads/writes at the database boundary.
+-- Impact: Enables and forces tenant Row Level Security on all current app and audit tables.
+-- Backfill: No row rewrite; policies apply immediately to existing rows.
+-- Rollback: Do not disable RLS in production; rollback only with a replacement isolation boundary in a maintenance window.
+-- Verification: Run migrations/data/verify.sql under two tenant contexts and confirm cross-tenant access fails.
 CREATE OR REPLACE FUNCTION app.current_tenant_id() RETURNS uuid
 LANGUAGE sql STABLE AS $$
   SELECT nullif(current_setting('app.tenant_id', true), '')::uuid

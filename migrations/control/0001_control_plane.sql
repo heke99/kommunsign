@@ -1,4 +1,8 @@
 -- Purpose: control-plane metadata only. No documents, national identifiers or signature evidence.
+-- Impact: Creates control-plane schemas and tenant registry tables; no tenant document data is stored.
+-- Backfill: No data backfill; initial schema.
+-- Rollback: Disable control-plane writes, export the registry, then drop schema in a maintenance window.
+-- Verification: Confirm all control tables exist and PUBLIC has no schema privileges.
 -- Rollback: disable writes, export tenant deployment registry, then drop schema in a dedicated maintenance window.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS control;

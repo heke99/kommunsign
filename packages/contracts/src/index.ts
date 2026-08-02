@@ -68,6 +68,9 @@ export interface IdentitySession {
   readonly providerReference: string;
   readonly autoStartToken?: string;
   readonly qrStartToken?: string;
+  readonly qrStartSecret?: string;
+  readonly subscriptionToken?: string;
+  readonly orderReference?: string;
   readonly expiresAt: IsoDateTime;
 }
 
