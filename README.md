@@ -1,42 +1,56 @@
-# KommunSign
+# Kommunsign
 
-KommunSign är en multi-tenant och white-label-baserad plattform för ansökningsstyrd onboarding, digitala godkännanden och elektroniska underskrifter i svensk offentlig sektor.
+Kommunsign är en organisationsseparerad och varumärkesanpassningsbar plattform för ansökningsstyrd anslutning, digitala godkännanden och BankID-baserad avancerad elektronisk underskrift för svensk offentlig sektor.
 
-Den här leveransen är en **verifierad utvecklingsbas, inte en produktionsklar e-signaturtjänst**. Ansökningsflödet fungerar sammanhängande i utvecklingsruntime och har additiv produktionsdatamodell, OpenAPI och fail-closed produktionsentrypoints. Riktig produktionsrepository, dokumentpipeline, federation, PAdES, EU DSS, TIC/Freja-liveflöden, CA/HSM/TSA och e-arkiv återstår eller är externt blockerade.
+Repositoryt innehåller produktionsimplementationen för den första BankID-fasen: privat PDF-uppladdning, säker dokumentbearbetning, PDF/A-2b, TIC BankID, fristående kryptografiska bevis, evidenspaket, e-postleverans, administratörsstyrda konton och stängd lösenordsinloggning.
+
+## Kontomodell
+
+Kommunsign har ingen publik registrering.
+
+1. En organisation skickar en ansökan via `apply.kommunsign.se`.
+2. En superadministratör granskar ansökan och skapar organisationens miljö.
+3. Superadministratören bjuder in organisationens första administratör.
+4. Inbjudan skickas med e-post via Supabase Auth och vald SMTP-leverantör.
+5. Administratören väljer ett lösenord på `auth.kommunsign.se/aktivera/`.
+6. Fler organisationskonton skapas av superadministratören i plattformsadministrationen.
+7. Glömt lösenord hanteras på `auth.kommunsign.se/aterstall/`; svaret avslöjar aldrig om en e-postadress finns.
+
+Gamla automatiskt skapade ansökningsidentiteter stängs av av datamigration `0014_managed_organization_accounts.sql`.
 
 ## Implementerat
 
-- separat onboardingportal och publik `/ansok`-ingång,
-- applicant-, platform- och tenantseparerad routing och auktorisering,
-- strikt ansökningsstatusmaskin, 256-bitars tokenkärna och atomiska `ONB-ÅÅÅÅ-NNNNNN`-referenser,
-- immutable ansökningsversioner, reviews, kompletteringar, beslut och audit,
-- idempotent provisioningmodell som alltid lämnar tenant i `onboarding`,
-- central readinessmotor och fail-closed aktiveringsgrind,
-- tvåpersonsprincip med databasblockering av självgodkänd aktivering,
-- additiv control-plane-migration `0006_onboarding_and_activation.sql`,
-- plattformsadmin för ansökningskö, review, beslut, provisioning och audit,
-- produktionsbootstrap för API/workers utan in-memory-fallback,
-- serverhärledd tenantkontext, RBAC, PostgreSQL RLS och composite tenant-FK,
-- canonical JSON, SHA-256, HMAC, OIDC PKCE/state/nonce och engångstokens,
-- befintlig TIC-adaptergrund, Freja JWS-kärna, evidence manifest och offlineverifiering,
-- OpenAPI 3.1 och SDK-version `2026-08-02.3`,
-- unit-, integration-, security-, migration-, Java-, proveniens- och secret-grindar.
+- separat ansökningsportal och publik ansökningsingång,
+- superadministratörsstyrda organisationskonton utan publik självregistrering,
+- inloggning, säkra webbläsarsessioner, CSRF-skydd och lösenordsåterställning,
+- Supabase Auth som identitetsleverantör med serverbaserad administratörsinbjudan,
+- separata control- och data-plane-databaser,
+- strikt organisationsisolering med RLS, sammansatta foreign keys och serverhärledd kontext,
+- privat dokumentlagring, kortlivade uppladdnings- och nedladdningslänkar,
+- ClamAV, qpdf, Gotenberg PDF/A-2b och veraPDF,
+- immutable flerhandlingsmanifest och canonical SHA-256,
+- TIC BankID-produktion med QR, samma-enhet, polling, collect och verifierad webhook,
+- oberoende XML-DSig-, payload-, identitets-, dokumenthash- och OCSP-verifiering,
+- deterministiska evidenspaket och publik verifiering utan personnummer,
+- providerneutral e-post med Resend-, SMTP- och utvecklingsadapter,
+- additiva databasmigrationer, OpenAPI och synkade SDK-versioner,
+- maskinella kontroller för miljövariabler, migrationer, säkerhet och produktionsberoenden.
 
-## Säkerhetsgräns
-
-Systemet fabricerar aldrig aktiv tenant, PAdES, DSS-resultat eller positiv provider-evidence. Produktions-API och workers kräver explicit granskade adaptermoduler och stoppar annars. Nedladdning av signerad PDF, valideringsrapport och evidence package returnerar fail-closed-fel tills verkliga tjänster är konfigurerade.
-
-## Installation och verifiering
+## Installation
 
 ```bash
 npm ci
-cp .env.example .env
+cp .env.production.template .env.production
+npm run verify:env-contract
+npm run auth:configure-production
+npm run verify:auth-config
+npm run build
 npm run verify
-npm run web:build
-npm run sbom
 ```
 
-## Lokal databas
+## Databaser
+
+Kör alltid control-migrationer före data-migrationer:
 
 ```bash
 npm run db:up
@@ -44,48 +58,61 @@ npm run db:migrate
 npm run db:verify
 ```
 
-## Lokal körning
+Senaste kontomigrationer:
 
-Kör alla statiska portaler och utvecklings-API:
+```text
+migrations/control/0011_managed_accounts_and_password_sessions.sql
+migrations/data/0014_managed_organization_accounts.sql
+```
+
+## Första superadministratören
+
+Fyll de serverhemliga Supabase Auth-variablerna och följ sedan:
+
+```bash
+set -a
+source .env.production
+set +a
+npm run auth:bootstrap-superadmin
+```
+
+Kommandot skickar en aktiveringsinbjudan och skapar den aktiva plattformsrollen idempotent. Sätt `SUPERADMIN_BOOTSTRAPPED=true` först efter att inbjudan har mottagits, lösenordet har satts och inloggning till `admin.kommunsign.se` har verifierats.
+
+## Lokal utveckling
 
 ```bash
 npm run dev
 ```
 
-Eller separat:
+Portaler:
 
 ```bash
-npm run dev:api             # 8787
-npm run dev:website         # 3000
-npm run dev:platform-admin  # 3001
-npm run dev:tenant          # 3002
-npm run dev:signer          # 3003
-npm run dev:verify          # 3004
-npm run dev:onboarding      # 3005
+npm run dev:website
+npm run dev:platform-admin
+npm run dev:tenant
+npm run dev:signer
+npm run dev:verify
+npm run dev:onboarding
+npm run dev:auth
 ```
 
-Utvecklingsruntime använder explicita utvecklingsidentiteter och är kodmässigt blockerad när `APP_ENV=production`. Använd inga riktiga personuppgifter eller eID-hemligheter i detta läge.
+Använd endast syntetiska testuppgifter lokalt.
 
-## Produktionsentrypoints
+## Produktion
 
 ```bash
-npm run build
+npm run verify:env-contract
+npm run verify:env
 npm run start:api
 npm run start:workers
 ```
 
-Dessa kommandon kräver `KOMMUNSIGN_PRODUCTION_ADAPTER_MODULE`, `KOMMUNSIGN_WORKER_ADAPTER_MODULE`, control/data database URLs, object storage och queue. Saknad dependency ger blockerande startfel; ingen devfallback används.
+`verify:env` blir grön först när hemligheter, DNS, TLS, e-post, TIC, dokumenttjänster, migrationsstatus, workers och acceptanstest har verifierats i målmiljön. Ingen utvecklingsfallback används i produktion.
 
-## Donorstatus
+Detaljer:
 
-Åtta donorprojekt är pinade, men **0 donor-LOC har importerats**. Placeholderfiler under `upstream/permissions` är inte juridiska tillståndsbevis. Proveniensgrinden ska fortsätta blockera kodimport tills rättighetshavare, tillståndsomfattning och SHA-256 är verifierade.
-
-## Statusdokument
-
-- `docs/architecture/current-state-verified.md`
-- `docs/architecture/target-architecture.md`
-- `docs/architecture/onboarding-architecture.md`
-- `docs/architecture/remaining-implementation-plan.md`
-- `docs/verification/requirements-traceability.md`
-- `docs/verification/production-readiness.md`
-- `DELIVERY_REPORT.md`
+- `docs/operations/account-provisioning.md`
+- `docs/operations/production-environment.md`
+- `docs/operations/supabase-auth-email.md`
+- `docs/security/password-authentication.md`
+- `PRODUCTION_CHECKLIST.md`

@@ -1,4 +1,4 @@
-export const KOMMUNSIGN_OPENAPI_VERSION = '2026-08-03.1';
+export const KOMMUNSIGN_OPENAPI_VERSION = '2026-08-03.2';
 
 export interface KommunSignClientOptions {
   readonly baseUrl: string;

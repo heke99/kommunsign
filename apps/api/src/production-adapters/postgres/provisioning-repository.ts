@@ -262,15 +262,12 @@ export function createProvisioningRepository(
 
         await runStep(controlDatabase, request, claimed.attemptNumber, 'seed_policies', workerId, async (transaction) => {
           const tenantId = await requiredTenantId(transaction, request.id);
-          await seedSharedDataPlane(dataDatabase, infrastructure, {
+          await seedSharedDataPlane(dataDatabase, {
             tenantId,
             requestId: request.id,
             actorId: request.requested_by,
             legalName: request.organization_name,
             organizationNumber: request.organization_number,
-            adminDisplayName: request.primary_contact_name,
-            adminEmail: primaryEmail,
-            applicationId: request.application_id,
           });
           return `tenant:${tenantId}:baseline`;
         });
@@ -362,20 +359,29 @@ export function createProvisioningRepository(
           return checklistId;
         });
 
-        await runStep(controlDatabase, request, claimed.attemptNumber, 'invite_first_admin', workerId, async (transaction) => {
+        await runStep(controlDatabase, request, claimed.attemptNumber, 'enable_account_management', workerId, async (transaction) => {
           const tenantId = await requiredTenantId(transaction, request.id);
-          const queued = await infrastructure.queue.enqueue({
-            tenantId,
-            jobType: 'TENANT_ADMIN_INVITATION',
-            idempotencyKey: `tenant-admin-invite:${tenantId}:${request.application_id}`,
-            payload: {
+          await transaction.query(
+            `insert into control.onboarding_tasks(application_id,tenant_id,task_type,status,payload)
+             select $1,$2,'create_first_organization_admin','queued',$3::jsonb
+              where not exists (
+                select 1
+                  from control.onboarding_tasks
+                 where application_id=$1
+                   and task_type='create_first_organization_admin'
+                   and status in ('queued','in_progress','blocked')
+              )`,
+            [
+              request.application_id,
               tenantId,
-              applicationId: request.application_id,
-              email: primaryEmail,
-              destination: 'apply.kommunsign.se',
-            },
-          });
-          return queued.jobId;
+              JSON.stringify({
+                managedBy: 'platform_super_admin',
+                applicantAccountCreated: false,
+                organizationAccountInvitationRequired: true,
+              }),
+            ],
+          );
+          return `organization:${tenantId}:account-management-enabled`;
         });
 
         const tenantId = await controlDatabase.transaction(async (transaction) => requiredTenantId(transaction, request.id));
@@ -596,16 +602,12 @@ async function allocateTenantSlug(
 
 async function seedSharedDataPlane(
   database: SqlDatabase,
-  infrastructure: ProductionInfrastructure,
   input: {
     readonly tenantId: string;
     readonly requestId: string;
     readonly actorId: string;
     readonly legalName: string;
     readonly organizationNumber: string;
-    readonly adminDisplayName: string;
-    readonly adminEmail: string;
-    readonly applicationId: string;
   },
 ): Promise<void> {
   const context: TenantContext = {
@@ -624,75 +626,29 @@ async function seedSharedDataPlane(
         limit 1`,
       [input.tenantId],
     );
-    let organizationId = existingOrganization.rows[0]?.id;
-    if (!organizationId) {
-      const organization = await transaction.query<{ readonly id: string }>(
+    if (!existingOrganization.rows[0]) {
+      await transaction.query(
         `insert into app.organizations(tenant_id,legal_name,organization_number)
-         values($1,$2,$3)
-         returning id`,
+         values($1,$2,$3)`,
         [input.tenantId, input.legalName, input.organizationNumber],
       );
-      organizationId = required(organization.rows[0], 'TENANT_ORGANIZATION_CREATE_FAILED').id;
     }
 
-    const emailCiphertext = await infrastructure.sensitiveData.encryptText(
-      input.adminEmail,
-      'tenant.user_email',
-    );
-    const emailBlindIndex = await infrastructure.sensitiveData.blindIndex(
-      input.adminEmail,
-      'tenant.user_email',
-    );
-    const user = await transaction.query<{ readonly id: string }>(
-      `insert into app.users(tenant_id,external_subject,display_name,email_ciphertext,email_blind_index)
-       values($1,$2,$3,$4,$5)
+    const systemUser = await transaction.query<{ readonly id: string }>(
+      `insert into app.users(tenant_id,external_subject,display_name)
+       values($1,'system:provisioning','Kommunsign system')
        on conflict(tenant_id,external_subject) do update set
          display_name=excluded.display_name,
-         email_ciphertext=excluded.email_ciphertext,
-         email_blind_index=excluded.email_blind_index
+         disabled_at=null
        returning id`,
-      [
-        input.tenantId,
-        `pending-invite:${input.applicationId}`,
-        input.adminDisplayName,
-        emailCiphertext,
-        emailBlindIndex,
-      ],
+      [input.tenantId],
     );
-    const userId = required(user.rows[0], 'TENANT_ADMIN_USER_CREATE_FAILED').id;
-
-    const existingMembership = await transaction.query<{ readonly id: string }>(
-      `select id
-         from app.memberships
-        where tenant_id=$1
-          and user_id=$2
-        order by created_at
-        limit 1`,
-      [input.tenantId, userId],
-    );
-    let membershipId = existingMembership.rows[0]?.id;
-    if (!membershipId) {
-      const membership = await transaction.query<{ readonly id: string }>(
-        `insert into app.memberships(tenant_id,user_id,status)
-         values($1,$2,'active')
-         returning id`,
-        [input.tenantId, userId],
-      );
-      membershipId = required(membership.rows[0], 'TENANT_ADMIN_MEMBERSHIP_CREATE_FAILED').id;
-    } else {
-      await transaction.query(
-        `update app.memberships
-            set status='active'
-          where tenant_id=$1
-            and id=$2`,
-        [input.tenantId, membershipId],
-      );
-    }
+    const systemUserId = required(systemUser.rows[0], 'SYSTEM_PROVISIONING_USER_CREATE_FAILED').id;
 
     const rolePermissions: Readonly<Record<string, readonly string[]>> = {
       tenant_admin: [
         'case:create', 'case:send', 'case:cancel', 'case:read', 'case:remind',
-        'document:add', 'document:download', 'signer:add', 'upload:create',
+        'document:add', 'document:download', 'signer:add', 'signer:personnummer-binding-exempt', 'upload:create',
         'validation:read', 'evidence:download', 'policy:manage', 'integration:manage',
         'webhook:manage', 'event:read', 'template:read', 'template:manage',
         'audit:read', 'archive:manage', 'tenant:manage',
@@ -700,6 +656,19 @@ async function seedSharedDataPlane(
       tenant_security_admin: [
         'case:read', 'validation:read', 'policy:manage', 'audit:read',
         'event:read', 'integration:manage',
+      ],
+      tenant_integration_admin: [
+        'case:create', 'case:read', 'document:add', 'signer:add', 'upload:create',
+        'integration:manage', 'webhook:manage', 'event:read', 'template:read',
+      ],
+      tenant_archive_admin: [
+        'case:read', 'document:download', 'validation:read', 'evidence:download',
+        'archive:manage', 'audit:read', 'event:read',
+      ],
+      department_admin: [
+        'case:create', 'case:send', 'case:cancel', 'case:read', 'case:remind',
+        'document:add', 'document:download', 'signer:add', 'upload:create',
+        'validation:read', 'evidence:download', 'template:read',
       ],
       document_creator: [
         'case:create', 'case:read', 'document:add', 'signer:add', 'upload:create', 'template:read',
@@ -709,33 +678,18 @@ async function seedSharedDataPlane(
         'document:add', 'document:download', 'signer:add', 'upload:create',
         'validation:read', 'evidence:download', 'template:read',
       ],
+      approver: ['case:read'],
       auditor: ['case:read', 'validation:read', 'event:read', 'audit:read'],
       readonly: ['case:read', 'template:read'],
     };
 
     for (const [roleKey, permissions] of Object.entries(rolePermissions)) {
-      const role = await transaction.query<{ readonly id: string }>(
+      await transaction.query(
         `insert into app.roles(tenant_id,role_key,permissions)
          values($1,$2,$3::jsonb)
-         on conflict(tenant_id,role_key) do update set permissions=excluded.permissions
-         returning id`,
+         on conflict(tenant_id,role_key) do update set permissions=excluded.permissions`,
         [input.tenantId, roleKey, JSON.stringify(permissions)],
       );
-      if (roleKey === 'tenant_admin') {
-        const roleId = required(role.rows[0], 'TENANT_ADMIN_ROLE_MISSING').id;
-        await transaction.query(
-          `insert into app.role_assignments(tenant_id,membership_id,role_id)
-           select $1,$2,$3
-            where not exists (
-              select 1
-                from app.role_assignments
-               where tenant_id=$1
-                 and membership_id=$2
-                 and role_id=$3
-            )`,
-          [input.tenantId, membershipId, roleId],
-        );
-      }
     }
 
     const policies = [
@@ -746,7 +700,8 @@ async function seedSharedDataPlane(
       ['Elektronisk underskrift', 'ELECTRONIC_SIGNATURE', {
         requiresIdentity: true,
         requiresCryptographicSignature: true,
-        signatureFormat: 'PAdES',
+        signatureMethod: 'BANKID_TIC_XML_EVIDENCE',
+        evidenceSchema: 'kommunsign.bankid-evidence.v2',
       }],
     ] as const;
     for (const [name, decisionMode, policy] of policies) {
@@ -760,11 +715,9 @@ async function seedSharedDataPlane(
                and name=$2
                and version=1
           )`,
-        [input.tenantId, name, decisionMode, JSON.stringify(policy), userId],
+        [input.tenantId, name, decisionMode, JSON.stringify(policy), systemUserId],
       );
     }
-
-    void organizationId;
   });
 }
 

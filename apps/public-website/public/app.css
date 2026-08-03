@@ -127,8 +127,8 @@ button { color: inherit; }
 }
 .hero-grid { position: relative; display: grid; grid-template-columns: minmax(0, 1.28fr) minmax(300px, .72fr); gap: 4rem; align-items: center; }
 .hero-copy { position: relative; z-index: 2; }
-.pilot-pill { display: inline-flex; align-items: center; gap: .55rem; padding: .48rem .75rem; background: rgba(255,255,255,.8); border: 1px solid var(--line); border-radius: 999px; color: var(--forest); font-size: .84rem; font-weight: 750; }
-.pilot-pill::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: #19a66a; box-shadow: 0 0 0 5px rgba(25,166,106,.12); }
+.product-pill { display: inline-flex; align-items: center; gap: .55rem; padding: .48rem .75rem; background: rgba(255,255,255,.8); border: 1px solid var(--line); border-radius: 999px; color: var(--forest); font-size: .84rem; font-weight: 750; }
+.product-pill::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: #19a66a; box-shadow: 0 0 0 5px rgba(25,166,106,.12); }
 .hero-panel { position: relative; min-height: 480px; }
 .document-card {
   position: absolute;

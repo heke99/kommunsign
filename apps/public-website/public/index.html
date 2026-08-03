@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>KommunSign – säker e-underskrift för offentlig sektor</title>
-  <meta name="description" content="KommunSign utvecklas för säkra digitala godkännanden och elektroniska underskrifter i svenska kommuner, regioner och offentliga organisationer.">
+  <meta name="description" content="KommunSign erbjuder säkra digitala godkännanden och BankID-baserade elektroniska underskrifter för svenska kommuner, regioner och offentliga organisationer.">
   <meta name="theme-color" content="#0B4D3C">
   <meta property="og:title" content="KommunSign – underskrifter för offentlig sektor">
-  <meta property="og:description" content="En svensk, tenantseparerad och verifierbar plattform för digitala godkännanden och elektroniska underskrifter.">
+  <meta property="og:description" content="En svensk, organisationsseparerad och verifierbar plattform för digitala godkännanden och BankID-baserade elektroniska underskrifter.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://kommunsign.se/">
   <meta property="og:image" content="https://kommunsign.se/assets/og-image.png">
@@ -30,7 +30,7 @@
         <a href="#sakerhet">Säkerhet</a>
         <a href="#anvandning">Användning</a>
         <a href="/sakerhet/">Teknisk säkerhet</a>
-        <a class="button button-primary button-small" href="/kontakt/">Boka pilotdialog</a>
+        <a class="button button-primary button-small" href="/kontakt/">Boka produktgenomgång</a>
       </div>
     </nav>
   </header>
@@ -39,12 +39,12 @@
     <section class="hero">
       <div class="hero-grid container">
         <div class="hero-copy">
-          <span class="pilot-pill">Pilotplattform under utveckling</span>
+          <span class="product-pill">Säker signering med BankID</span>
           <p class="eyebrow mt-2">För svensk offentlig sektor</p>
           <h1 class="display">Underskrifter som går att <em>verifiera.</em></h1>
-          <p class="lead">KommunSign utvecklas för kommuner, regioner och offentliga organisationer som behöver säkra digitala godkännanden och elektroniska underskrifter – utan att tappa kontrollen över data, identitet eller beviskedja.</p>
+          <p class="lead">KommunSign hjälper kommuner, regioner och offentliga organisationer att hantera digitala godkännanden och BankID-baserade elektroniska underskrifter med tydlig kontroll över dokument, identitet och beviskedja.</p>
           <div class="button-row">
-            <a class="button button-primary" href="/kontakt/">Diskutera en pilot</a>
+            <a class="button button-primary" href="/kontakt/">Boka produktgenomgång</a>
             <a class="button button-secondary" href="#produkt">Se hur det fungerar</a>
           </div>
         </div>
@@ -68,7 +68,7 @@
     <section class="trust-strip" aria-label="Produktprinciper">
       <div class="trust-inner container">
         <span class="trust-label">Byggd för offentlig förvaltning</span>
-        <div class="trust-items"><span class="trust-item">Multi-tenant</span><span class="trust-item">White-label</span><span class="trust-item">BankID via TIC</span><span class="trust-item">Freja eID</span><span class="trust-item">WCAG 2.2 AA</span></div>
+        <div class="trust-items"><span class="trust-item">Säker organisationsseparering</span><span class="trust-item">Egen profil och domän</span><span class="trust-item">BankID via TIC</span><span class="trust-item">WCAG 2.2 AA</span></div>
       </div>
     </section>
 
@@ -99,10 +99,10 @@
     <section class="section dark-section" id="sakerhet">
       <div class="container">
         <p class="eyebrow">Säkerhet från grunden</p>
-        <h2 class="h2">Ingen tenant ska behöva lita på en visuell namnteckning.</h2>
+        <h2 class="h2">Ingen organisation ska behöva lita på en visuell namnteckning.</h2>
         <p class="lead copy">Plattformen utformas för att skilja på identifiering, avsikt, dokumenthash, kryptografisk signatur, validering och långsiktigt bevarande.</p>
         <div class="security-grid">
-          <article class="security-card"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.7 3.2 7.8 7.5 9.5 4.3-1.7 7.5-4.8 7.5-9.5V6L12 3Z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m8.8 12 2 2 4.5-4.7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><h3 class="h3">Tenantisolering</h3><p class="copy">Tenantkontext härleds från verifierad domän, medlemskap eller API-klient och förstärks med RLS, tenantbundna nycklar och sammansatta relationer.</p></article>
+          <article class="security-card"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.7 3.2 7.8 7.5 9.5 4.3-1.7 7.5-4.8 7.5-9.5V6L12 3Z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m8.8 12 2 2 4.5-4.7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><h3 class="h3">Organisationsisolering</h3><p class="copy">Organisationskontext härleds från verifierad domän, medlemskap eller API-klient och förstärks med RLS, organisationsbundna nycklar och sammansatta relationer.</p></article>
           <article class="security-card"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11V8a4 4 0 0 1 8 0v3M6 11h12v10H6V11Z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="16" r="1.4" fill="currentColor"/></svg><h3 class="h3">Oföränderlig dokumentversion</h3><p class="copy">Dokument, policy och signerare låses när ärendet skickas. Kritiska statusar kan bara sättas av servern efter verifierad evidens.</p></article>
           <article class="security-card"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5zM8.5 9h7M8.5 12h7M8.5 15h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><h3 class="h3">Manipulationsupptäckande audit</h3><p class="copy">Tekniska och verksamhetsmässiga händelser lagras separat och kan hashkedjas för att upptäcka efterhandsändringar.</p></article>
           <article class="security-card"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18 8.5 13.5 12 17l4-5 4 6M6 6h12v14H6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><h3 class="h3">Öppen verifiering</h3><p class="copy">Målet är ett exportformat som kan granskas offline och inte låser kommunens dokument eller bevis till en enda leverantör.</p></article>
@@ -117,7 +117,7 @@
         <h2 class="h2">Använd rätt nivå för rätt beslut.</h2>
         <div class="use-case-grid">
           <article class="use-case"><h3 class="h3">Digitalt godkännande</h3><p class="copy">För attest, intern bekräftelse och spårbar accept där en formell elektronisk underskrift inte krävs.</p><ul><li>Autentiserad användare</li><li>Exakt dokumentversion och hash</li><li>Versionerad godkännandepolicy</li><li>Oföränderlig auditlogg</li></ul></article>
-          <article class="use-case"><h3 class="h3">Elektronisk underskrift</h3><p class="copy">För processer där identitet, avsikt och kryptografisk koppling till dokumentet behöver verifieras.</p><ul><li>BankID via TIC eller Freja eID</li><li>Kryptografisk dokumentbindning</li><li>Teknisk signaturvalidering</li><li>Valideringsrapport och bevispaket</li></ul></article>
+          <article class="use-case"><h3 class="h3">Elektronisk underskrift</h3><p class="copy">För processer där identitet, avsikt och kryptografisk koppling till dokumentet behöver verifieras.</p><ul><li>BankID via TIC</li><li>Kryptografisk dokumentbindning</li><li>Teknisk signaturvalidering</li><li>Valideringsrapport och bevispaket</li></ul></article>
         </div>
       </div>
     </section>
@@ -125,27 +125,27 @@
     <section class="section-sm bg-soft">
       <div class="narrow">
         <p class="eyebrow">Vanliga frågor</p>
-        <h2 class="h2">Det här behöver en pilotkommun veta.</h2>
+        <h2 class="h2">Vanliga frågor om Kommunsign.</h2>
         <div class="faq-list">
-          <details><summary>Är KommunSign färdig för produktion?</summary><p class="copy">Nej. Plattformen är i utvecklings- och pilotfas. En produktionssättning kräver färdig providerintegration, certifikat, validering, driftmiljö, juridisk kontroll och en genomförd säkerhetsgranskning.</p></details>
-          <details><summary>Kan lösningen använda kommunens egen domän?</summary><p class="copy">Målarkitekturen stödjer både en tenantdomän under kommunsign.se och en verifierad kommunal custom domain, exempelvis signera.kommun.se.</p></details>
+          <details><summary>Hur skapas ett konto?</summary><p class="copy">En organisation skickar först in en ansökan. Efter godkännande skapar Kommunsigns superadministratör organisationens miljö och bjuder in den första administratören via en personlig aktiveringslänk.</p></details>
+          <details><summary>Kan lösningen använda kommunens egen domän?</summary><p class="copy">Kommunsign stödjer både en organisationsadress under kommunsign.se och en verifierad kommunal domän, exempelvis signera.kommun.se.</p></details>
           <details><summary>Är digitalt godkännande samma sak som e-underskrift?</summary><p class="copy">Nej. KommunSign skiljer uttryckligen mellan spårbart godkännande och elektronisk underskrift. Vilken nivå som används styrs av en versionerad policy.</p></details>
-          <details><summary>Kan data separeras per kommun?</summary><p class="copy">Ja. Arkitekturen är utformad för shared SaaS med strikt tenantisolering, separat data plane eller kundägd installation utan kundunika kodforkar.</p></details>
+          <details><summary>Kan data separeras per kommun?</summary><p class="copy">Ja. Ja. Varje organisations behörigheter, dokument och data hålls isär med domänbunden kontext, åtkomstkontroll och databasskydd.</p></details>
         </div>
       </div>
     </section>
 
     <section class="cta-section">
-      <div class="cta-box container"><div><p class="eyebrow">Nästa steg</p><h2 class="h2">Kartlägg ett verkligt underskriftsflöde tillsammans med oss.</h2></div><a class="button button-primary" href="/kontakt/">Boka pilotdialog</a></div>
+      <div class="cta-box container"><div><p class="eyebrow">Nästa steg</p><h2 class="h2">Kartlägg ett verkligt underskriftsflöde tillsammans med oss.</h2></div><a class="button button-primary" href="/kontakt/">Boka produktgenomgång</a></div>
     </section>
   </main>
 
   <footer class="site-footer">
     <div class="footer-grid container">
-      <div class="footer-brand"><img src="/assets/logo.svg" alt="KommunSign"><p>En verifierbar underskriftsplattform under utveckling för svensk offentlig sektor.</p></div>
+      <div class="footer-brand"><img src="/assets/logo.svg" alt="KommunSign"><p>En verifierbar underskriftsplattform för svensk offentlig sektor.</p></div>
       <div class="footer-col"><h2>Produkt</h2><a href="/#produkt">Så fungerar det</a><a href="/#sakerhet">Säkerhet</a><a href="/#anvandning">Användningssätt</a></div>
       <div class="footer-col"><h2>Information</h2><a href="/sakerhet/">Teknisk säkerhet</a><a href="/integritet/">Integritet</a><a href="/tillganglighet/">Tillgänglighet</a></div>
-      <div class="footer-col"><h2>Kontakt</h2><a href="/kontakt/">Boka pilotdialog</a><a href="mailto:kontakt@kommunsign.se">kontakt@kommunsign.se</a></div>
+      <div class="footer-col"><h2>Kontakt</h2><a href="/kontakt/">Boka produktgenomgång</a><a href="mailto:kontakt@kommunsign.se">kontakt@kommunsign.se</a></div>
     </div>
     <div class="footer-bottom container"><span>© <span data-current-year></span> KommunSign</span><span>Utvecklad för offentlig förvaltning i Sverige.</span></div>
   </footer>

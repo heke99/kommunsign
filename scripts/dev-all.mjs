@@ -4,6 +4,7 @@ const commands = [
   ['npm', ['run', 'dev:website']],
   ['npm', ['run', 'dev:platform-admin']],
   ['npm', ['run', 'dev:onboarding']],
+  ['npm', ['run', 'dev:auth']],
   ['npm', ['run', 'dev:tenant']],
   ['npm', ['run', 'dev:signer']],
   ['npm', ['run', 'dev:verify']],

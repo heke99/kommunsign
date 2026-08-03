@@ -22,6 +22,7 @@ function requiredEnvironment(name: string): string {
 
 function assertProductionDependencies(dependencies: ApiDependencies): void {
   if (!dependencies.onboarding) throw new Error('PRODUCTION_ONBOARDING_REPOSITORY_MISSING');
+  if (!dependencies.authentication) throw new Error('PRODUCTION_AUTHENTICATION_REPOSITORY_MISSING');
   if (!dependencies.resolvePlatformContext || !dependencies.authorizePlatform) throw new Error('PRODUCTION_PLATFORM_AUTH_MISSING');
   if (!dependencies.resolveContext || !dependencies.authorize) throw new Error('PRODUCTION_TENANT_AUTH_MISSING');
   for (const key of ['cases','uploads','webhooks','events','templates','publicSigning','providerWebhooks','publicVerification'] as const) {

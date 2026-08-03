@@ -12,8 +12,8 @@ const required = [
   'docs/operations/synchronization.md','docs/operations/vercel-deployment.md','docs/architecture/review-2026-08-02.md',
   'docs/architecture/current-state-verified.md','docs/architecture/target-architecture.md','docs/architecture/remaining-implementation-plan.md','docs/architecture/onboarding-architecture.md','docs/verification/requirements-traceability.md','docs/verification/production-readiness.md',
   'vercel.json','apps/public-website/public/index.html','apps/public-website/public/app.css','scripts/build-public-site.mjs','scripts/build-portals.mjs',
-  'apps/onboarding-portal/public/index.html','apps/onboarding-portal/public/app.js','apps/tenant-portal/public/app.js','apps/platform-admin/public/app.js','apps/signer-portal/public/app.js','apps/verification-portal/public/app.js',
-  'migrations/control/0006_onboarding_and_activation.sql','tests/sql/onboarding-control.sql','apps/api/src/onboarding-router.ts','apps/api/src/production-runtime.ts','apps/workers/src/production-runner.ts','packages/onboarding/src/index.ts','packages/readiness/src/index.ts',
+  'apps/onboarding-portal/public/index.html','apps/onboarding-portal/public/app.js','apps/auth-portal/public/index.html','apps/auth-portal/public/app.js','apps/tenant-portal/public/app.js','apps/platform-admin/public/app.js','apps/signer-portal/public/app.js','apps/verification-portal/public/app.js',
+  'migrations/control/0006_onboarding_and_activation.sql','migrations/control/0011_managed_accounts_and_password_sessions.sql','migrations/data/0014_managed_organization_accounts.sql','tests/sql/onboarding-control.sql','apps/api/src/onboarding-router.ts','apps/api/src/production-runtime.ts','apps/workers/src/production-runner.ts','packages/onboarding/src/index.ts','packages/readiness/src/index.ts',
   'packages/auth/src/index.ts','packages/branding/src/index.ts','packages/custom-domains/src/index.ts','packages/invitations/src/index.ts','packages/uploads/src/index.ts',
   'sdks/typescript/src/client.ts','sdks/csharp/src/KommunSignClient.cs','sdks/java/src/main/java/se/kommunsign/sdk/KommunSignClient.java','scripts/verify-sdk-sync.mjs',
 ];
@@ -70,7 +70,7 @@ const server = await readFile('apps/api/server.mjs', 'utf8');
 if (!server.includes('x-kommunsign-application-token') || !server.includes('PATCH')) throw new Error('API CORS contract must support onboarding auth and draft updates');
 
 const api = await readFile('docs/api/openapi.yaml', 'utf8');
-if (api.includes('tenantId:') && !api.includes('Tenant is derived')) throw new Error('OpenAPI may not accept arbitrary tenantId');
+if (api.includes('tenantId:') && !api.includes('Organization context is derived')) throw new Error('OpenAPI may not accept arbitrary organization context');
 if (!api.includes('additionalProperties: false')) throw new Error('Create payload must reject unknown fields');
 if ((api.match(/x-kommunsign-implementation-status: runtime/g) ?? []).length < 18) throw new Error('OpenAPI must expose all required runtime operations');
 if (api.includes('x-kommunsign-implementation-status: contract-only')) throw new Error('Required OpenAPI operations may not remain contract-only');
@@ -94,13 +94,14 @@ const vercelConfig = JSON.parse(await readFile('vercel.json', 'utf8'));
 if (vercelConfig.buildCommand !== 'npm run web:build') throw new Error('Vercel must use the isolated public website build');
 if (vercelConfig.outputDirectory !== 'build/public-site') throw new Error('Vercel output directory is incorrect');
 const website = await readFile('apps/public-website/public/index.html', 'utf8');
-if (!website.includes('Pilotplattform under utveckling')) throw new Error('Public website must not imply production readiness');
+if (!website.includes('Säker signering med BankID')) throw new Error('Public website must describe the production product clearly');
+if (/Pilotplattform under utveckling|inte produktionsklar|ej redo|under utveckling/i.test(website)) throw new Error('Public website contains obsolete development messaging');
 const applicationLanding = await readFile('apps/public-website/public/ansok/index.html', 'utf8');
 if (!applicationLanding.includes('apply.kommunsign.se')) throw new Error('Application landing page must route to the isolated onboarding portal');
 if (/\sstyle=/.test(website) || /<script(?![^>]*\ssrc=)/.test(website)) throw new Error('Public website must remain compatible with strict CSP');
 
 const packageConfig = JSON.parse(await readFile('package.json', 'utf8'));
-for (const command of ['dev','dev:api','dev:workers','db:up','db:migrate','db:verify','db:reset:test','test:unit','test:integration','test:e2e','test:security','test:accessibility','verify:sdk']) {
+for (const command of ['dev','dev:api','dev:workers','db:up','db:migrate','db:verify','db:reset:test','test:unit','test:integration','test:e2e','test:security','test:accessibility','verify:sdk','verify:env-contract','verify:env','auth:bootstrap-superadmin']) {
   if (!packageConfig.scripts?.[command]) throw new Error(`Missing root command: ${command}`);
 }
 console.log('repository verification: OK');

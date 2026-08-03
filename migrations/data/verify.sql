@@ -54,3 +54,31 @@ WHERE c.status='completed' AND NOT EXISTS (
   WHERE ep.tenant_id=c.tenant_id AND ep.signature_case_id=c.id AND ep.signer_id IS NULL
     AND ep.status='ready' AND ep.package_sha256 IS NOT NULL
 );
+
+-- Managed account invariants. These checks intentionally return zero rows on success.
+SELECT 'active_legacy_applicant_identity' AS violation, id::text AS resource_id
+FROM app.users
+WHERE external_subject LIKE 'pending-invite:%'
+  AND disabled_at IS NULL;
+
+SELECT 'active_legacy_applicant_membership' AS violation, m.id::text AS resource_id
+FROM app.memberships m
+JOIN app.users u ON u.tenant_id=m.tenant_id AND u.id=m.user_id
+WHERE u.external_subject LIKE 'pending-invite:%'
+  AND m.status='active';
+
+SELECT 'legacy_applicant_role_assignment' AS violation, ra.id::text AS resource_id
+FROM app.role_assignments ra
+JOIN app.memberships m ON m.tenant_id=ra.tenant_id AND m.id=ra.membership_id
+JOIN app.users u ON u.tenant_id=m.tenant_id AND u.id=m.user_id
+WHERE u.external_subject LIKE 'pending-invite:%';
+
+WITH required_roles(role_key) AS (
+  VALUES ('tenant_admin'),('tenant_security_admin'),('tenant_integration_admin'),('tenant_archive_admin'),
+         ('department_admin'),('document_creator'),('document_sender'),('approver'),('auditor'),('readonly')
+)
+SELECT 'missing_managed_role' AS violation, o.tenant_id::text || ':' || required_roles.role_key AS resource_id
+FROM (SELECT DISTINCT tenant_id FROM app.organizations) o
+CROSS JOIN required_roles
+LEFT JOIN app.roles r ON r.tenant_id=o.tenant_id AND r.role_key=required_roles.role_key
+WHERE r.id IS NULL;

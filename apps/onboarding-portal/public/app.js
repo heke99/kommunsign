@@ -1,4 +1,4 @@
-const API_BASE = globalThis.KOMMUNSIGN_API_BASE || 'http://127.0.0.1:8787';
+const API_BASE = globalThis.KOMMUNSIGN_API_BASE || ((location.hostname === 'localhost' || location.hostname === '127.0.0.1') ? 'http://127.0.0.1:8787' : 'https://api.kommunsign.se');
 const state = { applicationId: sessionStorage.getItem('kommunsign.applicationId'), accessToken: sessionStorage.getItem('kommunsign.accessToken'), application: null };
 const $ = (selector) => document.querySelector(selector);
 const notice = (message) => { $('#notice').textContent = message; };

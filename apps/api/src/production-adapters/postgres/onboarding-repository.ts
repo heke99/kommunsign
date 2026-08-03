@@ -301,7 +301,7 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
           [applicationId,deployment.mode,deployment.region??'se-central',context.subjectId,key,payloadHash],
         );
         const request=requireRow(inserted.rows[0],'PROVISIONING_REQUEST_INSERT_FAILED');
-        const steps=['reserve_tenant_slug','create_tenant','create_environment','assign_data_plane','create_default_domain','create_storage_namespaces','seed_policies','seed_roles','create_branding_draft','create_auth_draft','create_onboarding_checklist','invite_first_admin'];
+        const steps=['reserve_tenant_slug','create_tenant','create_environment','assign_data_plane','create_default_domain','create_storage_namespaces','seed_policies','seed_roles','create_branding_draft','create_auth_draft','create_onboarding_checklist','enable_account_management'];
         for(let index=0;index<steps.length;index+=1)await transaction.query(`insert into control.tenant_provisioning_steps(provisioning_request_id,step_key,sequence_number,status) values($1,$2,$3,'pending')`,[request.id,steps[index],index+1]);
         await infrastructure.queue.enqueue({tenantId:'00000000-0000-0000-0000-000000000000',jobType:'TENANT_PROVISION',idempotencyKey:`tenant-provision:${request.id}`,payload:{provisioningRequestId:request.id,applicationId}});
         await appendControlAudit(transaction,null,context.subjectId,'tenant.provisioning.queued',{applicationId,requestId:request.id});
@@ -410,7 +410,10 @@ async function collectReadinessChecks(transaction:SqlTransaction,tenantId:string
   const checks:ReadinessCheck[]=[
     check('TENANT_DATABASE_NOT_READY',env?.data_plane_status==='ready','blocking',checkedAt,{dataPlaneStatus:env?.data_plane_status??'missing'}),
     check('OBJECT_STORAGE_NOT_READY',privateStorageReady,'blocking',checkedAt,{provider:environmentValue('STORAGE_PROVIDER')??'missing'}),
-    check('OIDC_NOT_CONFIGURED',environmentPresent('AUTH_BROKER_URL','OIDC_CALLBACK_URL','OIDC_STATE_SIGNING_KEY','OIDC_SESSION_ENCRYPTION_KEY','AUTH_CODE_SIGNING_KEY','CSRF_SIGNING_KEY'),'blocking',checkedAt),
+    check('AUTH_SERVICE_NOT_CONFIGURED',environmentPresent('AUTH_BROKER_URL','SUPABASE_AUTH_PROJECT_URL','SUPABASE_AUTH_ANON_KEY','SUPABASE_AUTH_SERVICE_ROLE_KEY','CSRF_SIGNING_KEY'),'blocking',checkedAt),
+    check('PUBLIC_ACCOUNT_REGISTRATION_ENABLED',environmentValue('AUTH_PUBLIC_SIGNUP_ENABLED')==='false','blocking',checkedAt),
+    check('AUTH_EMAIL_DELIVERY_NOT_VERIFIED',environmentFlag('AUTH_EMAIL_DELIVERY_VERIFIED'),'blocking',checkedAt),
+    check('SUPERADMIN_NOT_BOOTSTRAPPED',environmentFlag('SUPERADMIN_BOOTSTRAPPED'),'blocking',checkedAt),
     check('DEFAULT_TENANT_DOMAIN_NOT_ACTIVE',defaultDomain?.status==='active','blocking',checkedAt,{hostname:defaultDomain?.normalized_hostname??null,status:defaultDomain?.status??'missing'}),
     check('PRIMARY_DOMAIN_NOT_SELECTED',Boolean(primary),'blocking',checkedAt,{hostname:primary?.normalized_hostname??null}),
     check('CUSTOM_DOMAIN_REQUIRED_BUT_MISSING',!customRequired.rows[0]?.required||Boolean(custom),'blocking',checkedAt),

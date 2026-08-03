@@ -1,6 +1,6 @@
-# Kommunsign BankID production checklist
+# Kommunsign produktionschecklista
 
-No item may be marked complete from assumption. Attach environment-specific evidence outside Git.
+Markera endast en kontroll som genomförd när målmiljön har ett sparat testbevis. Hemligheter och personuppgifter ska inte läggas i Git.
 
 ## Build and database
 
@@ -9,9 +9,26 @@ No item may be marked complete from assumption. Attach environment-specific evid
 - [ ] `npm run verify:evidence-fixtures` passes and a modified package is rejected.
 - [ ] `npm run verify:container-health` passes from the production worker network.
 - [ ] Control migrations run in numeric order and `tests/sql/onboarding-control.sql` passes.
-- [ ] Data migrations run in numeric order, including `0013_bankid_production_foundation.sql`, and `migrations/data/verify.sql` passes.
+- [ ] Data migrations run in numeric order, including `0013_bankid_production_foundation.sql` och `0014_managed_organization_accounts.sql`, and `migrations/data/verify.sql` passes.
 - [ ] Empty-database and upgrade-database rehearsals both pass.
-- [ ] Generated SDK/OpenAPI contract version is `2026-08-03.1`.
+- [ ] Generated SDK/OpenAPI contract version is `2026-08-03.2`.
+
+## Konton och inloggning
+
+- [ ] Publik registrering är avstängd i Supabase Auth och `AUTH_PUBLIC_SIGNUP_ENABLED=false`.
+- [ ] Site URL är `https://auth.kommunsign.se`.
+- [ ] Endast exakta redirect-URL:er för `/aktivera/` och `/aterstall/` är tillåtna i produktion.
+- [ ] `npm run auth:configure-production` och `npm run verify:auth-config` passerar mot Supabase-projektet.
+- [ ] Custom SMTP via `smtp.resend.com:465`, SPF, DKIM och DMARC är verifierade.
+- [ ] Mallarna **Bjud in användare** och **Återställ lösenord** är testade med token-hashflödet och klickspårning avstängd.
+- [ ] En e-postsäkerhetsskanner kan öppna länken utan att förbruka aktiveringen; token verifieras först när lösenordet skickas.
+- [ ] `npm run auth:bootstrap-superadmin` har körts och första superadministratören kan logga in.
+- [ ] Ansökan skapar ingen personanvändare eller inloggning.
+- [ ] Superadministratören kan skapa organisationens första administratör och mottagaren kan aktivera kontot.
+- [ ] Superadministratören kan stänga av och återaktivera ett konto; avstängning återkallar aktiva Kommunsign-sessioner.
+- [ ] Glömt lösenord skickar e-post men avslöjar inte om adressen finns.
+- [ ] Hostbunden session, CSRF, logout, rate limiting och utgången/återanvänd länk har verifierats.
+- [ ] Migration `0014_managed_organization_accounts.sql` har stängt gamla automatiska ansökningsidentiteter.
 
 ## Domains and ingress
 
@@ -80,4 +97,4 @@ No item may be marked complete from assumption. Attach environment-specific evid
 - [ ] Backup/restore and evidence retention decisions are approved.
 - [ ] Accessibility tests target WCAG 2.2 AA.
 - [ ] Production acceptance record in `docs/verification/bankid-production-acceptance.md` is completed.
-- [ ] External tenants remain disabled until every blocking item is evidenced.
+- [ ] Organisationer aktiveras först när samtliga tillämpliga kontroller har dokumenterade testbevis.

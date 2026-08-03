@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { isIP } from 'node:net';
+import { timingSafeEqual } from 'node:crypto';
 
 const port = Number.parseInt(process.env.PORT ?? '3001', 10);
 const maximumRequestBytes = Number.parseInt(process.env.API_MAX_REQUEST_BYTES ?? String(1024 * 1024), 10);
@@ -29,7 +30,7 @@ function corsHeaders(request) {
   return origin && allowedOrigins.has(origin) ? {
     'access-control-allow-origin': origin,
     'access-control-allow-credentials': 'true',
-    'access-control-allow-headers': 'authorization,content-type,idempotency-key,if-match,x-request-id,x-kommunsign-application-token,x-kommunsign-platform-subject-id,x-kommunsign-platform-roles,x-kommunsign-tenant-id,x-kommunsign-subject-id,x-kommunsign-roles',
+    'access-control-allow-headers': 'authorization,content-type,idempotency-key,if-match,x-request-id,x-csrf-token,x-kommunsign-application-token,x-kommunsign-platform-subject-id,x-kommunsign-platform-roles,x-kommunsign-tenant-id,x-kommunsign-subject-id,x-kommunsign-roles',
     'access-control-allow-methods': 'GET,POST,PATCH,DELETE,OPTIONS',
     'vary': 'Origin',
   } : {};
@@ -51,15 +52,24 @@ function firstForwardedIp(value) {
   return isIP(candidate) ? candidate : null;
 }
 
+function constantTimeSecretMatches(value, expected) {
+  if (!value || !expected || expected.length < 32) return false;
+  const supplied = Buffer.from(String(value), 'utf8');
+  const wanted = Buffer.from(expected, 'utf8');
+  return supplied.length === wanted.length && timingSafeEqual(supplied, wanted);
+}
+
+function trustedProxyRequest(request) {
+  const trustProxy = (process.env.TRUST_PROXY ?? 'true').trim().toLowerCase() === 'true';
+  if (!trustProxy) return false;
+  return constantTimeSecretMatches(request.headers['x-kommunsign-proxy-secret'], process.env.TRUSTED_PROXY_SHARED_SECRET);
+}
+
 function trustedClientIp(request) {
   const provider = (process.env.TRUSTED_PROXY_PROVIDER ?? 'vercel').trim().toLowerCase();
-  const trustProxy = (process.env.TRUST_PROXY ?? 'true').trim().toLowerCase() === 'true';
-  if (!trustProxy || provider === 'none') return firstForwardedIp(request.socket.remoteAddress);
+  if (!trustedProxyRequest(request) || provider === 'none') return firstForwardedIp(request.socket.remoteAddress);
   if (provider === 'cloudflare') return firstForwardedIp(request.headers['cf-connecting-ip']);
-  if (provider === 'vercel') {
-    if (!request.headers['x-vercel-id']) return null;
-    return firstForwardedIp(request.headers['x-vercel-forwarded-for'] ?? request.headers['x-forwarded-for']);
-  }
+  if (provider === 'vercel') return firstForwardedIp(request.headers['x-vercel-forwarded-for'] ?? request.headers['x-forwarded-for']);
   return null;
 }
 
@@ -97,7 +107,12 @@ async function dispatch(request, response) {
     const host = request.headers.host ?? 'localhost';
     const body = await readBody(request);
     const forwardedHeaders = new Headers(request.headers);
+    const proxyTrusted = trustedProxyRequest(request);
+    const forwardedHost = proxyTrusted ? request.headers['x-forwarded-host'] : undefined;
     forwardedHeaders.delete('x-kommunsign-end-user-ip');
+    forwardedHeaders.delete('x-kommunsign-proxy-secret');
+    forwardedHeaders.delete('x-forwarded-host');
+    if (forwardedHost) forwardedHeaders.set('x-forwarded-host', String(forwardedHost).split(',', 1)[0].trim());
     const clientIp = trustedClientIp(request);
     if (clientIp) forwardedHeaders.set('x-kommunsign-end-user-ip', clientIp);
     const fetchRequest = new Request(`http://${host}${request.url ?? '/'}`, {

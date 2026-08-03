@@ -280,6 +280,68 @@ export interface OnboardingRepository {
 }
 
 
+
+export interface LoginInput {
+  readonly email: string;
+  readonly password: string;
+  readonly destinationHostname: string;
+  readonly organizationSlug?: string;
+}
+export interface PasswordRecoveryInput {
+  readonly email: string;
+  readonly destinationHostname: string;
+  readonly organizationSlug?: string;
+}
+export interface CompletePasswordInput {
+  readonly accessToken?: string;
+  readonly tokenHash?: string;
+  readonly type?: 'invite' | 'recovery';
+  readonly password: string;
+  readonly destinationHostname: string;
+  readonly organizationSlug?: string;
+}
+export interface AuthRequestMetadata {
+  readonly ipAddress: string;
+  readonly userAgent: string;
+}
+export interface AuthenticatedSessionView {
+  readonly subjectId: string;
+  readonly boundary: 'tenant' | 'platform';
+  readonly destinationUrl: string;
+  readonly expiresAt: string;
+  readonly csrfToken: string;
+  readonly tenantId?: string;
+  readonly displayName?: string;
+}
+export interface OrganizationUserInput {
+  readonly displayName: string;
+  readonly email: string;
+  readonly roleKey: 'tenant_admin' | 'tenant_security_admin' | 'tenant_integration_admin' | 'tenant_archive_admin' | 'department_admin' | 'document_creator' | 'document_sender' | 'approver' | 'auditor' | 'readonly';
+}
+export interface OrganizationUserStatusInput {
+  readonly action: 'disable' | 'enable';
+}
+export interface OrganizationUserView {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly providerSubjectId: string;
+  readonly displayName: string;
+  readonly maskedEmail: string;
+  readonly roleKey: OrganizationUserInput['roleKey'];
+  readonly status: 'invited' | 'active' | 'disabled' | 'revoked' | 'failed';
+  readonly invitedAt: string;
+}
+export interface AuthenticationRepository {
+  login(input: LoginInput, metadata: AuthRequestMetadata): Promise<AuthenticatedSessionView & { readonly sessionToken: string }>;
+  forgotPassword(input: PasswordRecoveryInput, metadata: AuthRequestMetadata): Promise<{ readonly accepted: true }>;
+  completePassword(input: CompletePasswordInput, metadata: AuthRequestMetadata): Promise<AuthenticatedSessionView & { readonly sessionToken: string }>;
+  session(sessionToken: string, originHostname: string): Promise<AuthenticatedSessionView>;
+  logout(sessionToken: string, originHostname: string, csrfToken: string): Promise<{ readonly loggedOut: true }>;
+  listOrganizationUsers(context: PlatformContext, tenantId: string): Promise<readonly OrganizationUserView[]>;
+  inviteOrganizationUser(context: PlatformContext, tenantId: string, input: OrganizationUserInput, idempotencyKey: string, payloadHash: string): Promise<OrganizationUserView>;
+  setOrganizationUserStatus(context: PlatformContext, tenantId: string, accountId: string, input: OrganizationUserStatusInput): Promise<OrganizationUserView>;
+}
+
 export interface PublicSigningDocumentView {
   readonly id: string;
   readonly displayName: string;
@@ -352,6 +414,7 @@ export interface ApiDependencies {
   readonly resolveContext: (request: Request) => Promise<TenantContext>;
   readonly authorize: (context: TenantContext, permission: Permission) => Promise<void> | void;
   readonly onboarding?: OnboardingRepository;
+  readonly authentication?: AuthenticationRepository;
   readonly resolvePlatformContext?: (request: Request) => Promise<PlatformContext>;
   readonly authorizePlatform?: (context: PlatformContext, permission: PlatformPermission) => Promise<void> | void;
   readonly reportError?: (cause: unknown, requestId: string) => void;

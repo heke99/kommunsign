@@ -1,0 +1,47 @@
+KOMMUNSIGN ACCOUNT / AUTH / PRODUCTION VERIFICATION
+Date: 2026-08-03
+
+PASS  node --check scripts/bootstrap-superadmin.mjs
+PASS  node --check scripts/configure-supabase-auth.mjs
+PASS  node --check scripts/verify-supabase-auth-production.mjs
+PASS  node --check scripts/check-production-env.mjs
+PASS  tsc -p tsconfig.json
+PASS  node scripts/build-portals.mjs — 6 portals
+PASS  node tests/run.mjs — 33 tests
+PASS  node tests/integration.mjs — organization-scoped API and onboarding/provisioning flows
+PASS  node tests/security.mjs
+PASS  node scripts/check-sql-migrations.mjs
+PASS  node scripts/check-provenance.mjs
+PASS  node scripts/verify-sdk-sync.mjs — 2026-08-03.2
+PASS  node scripts/scan-secrets.mjs
+PASS  node scripts/check-env-contract.mjs — 184 declared variables, 26 runtime references
+PASS  node scripts/verify-repository.mjs
+PASS  bash scripts/build-java.sh
+PASS  node scripts/verify-evidence-fixtures.mjs
+PASS  bash -n scripts/db-migrate.sh scripts/db-verify.sh
+PASS  synthetic non-secret production environment through node scripts/check-production-env.mjs
+PASS  user-facing production-language test in tests/run.mjs
+
+CLEAN-INSTALL ENVIRONMENT LIMITATION
+FAIL  npm ci
+      The execution environment's configured npm mirror returned E404 for the locked artifact:
+      postgres@3.4.7
+      Registry used by the environment:
+      https://packages.applied-caas-gateway1.internal.api.openai.org/artifactory/api/npm/npm-public
+      No dependency version was changed to work around the mirror.
+
+CONSEQUENCE
+- npm run verify could not pass its local dependency precheck after clean because node_modules was unavailable.
+- The same build and verification stages were executed directly with the installed Node 22 / TypeScript 5.8.3 toolchain and passed as listed above.
+- Run npm ci and npm run verify again in the deployment/CI environment with access to the locked npm artifact.
+
+LIVE INFRASTRUCTURE NOT AVAILABLE IN THIS EXECUTION ENVIRONMENT
+- docker: not installed
+- psql: not installed
+- qpdf: not installed
+- ClamAV: not installed
+- Gotenberg: not installed
+- veraPDF: not installed
+- no production Supabase, Vercel, TIC, Resend or DNS credentials were supplied
+
+No live production verification has been claimed for those external systems.

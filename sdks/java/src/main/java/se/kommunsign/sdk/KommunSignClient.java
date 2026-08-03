@@ -7,9 +7,9 @@ import java.net.http.HttpResponse;
 import java.util.Objects;
 import java.util.function.Supplier;
 
-/** OpenAPI version 2026-08-03.1. */
+/** OpenAPI version 2026-08-03.2. */
 public final class KommunSignClient {
-  public static final String OPENAPI_VERSION = "2026-08-03.1";
+  public static final String OPENAPI_VERSION = "2026-08-03.2";
   private final HttpClient http;
   private final URI baseUri;
   private final Supplier<String> accessToken;

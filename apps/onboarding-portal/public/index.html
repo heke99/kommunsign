@@ -11,13 +11,13 @@
   <a class="skip-link" href="#main">Hoppa till innehållet</a>
   <header class="site-header">
     <div><strong>KommunSign</strong><span> Ansökningsportal</span></div>
-    <div id="connection-status" role="status">Inte ansluten</div>
+    <div id="connection-status" role="status">Säker anslutning</div>
   </header>
   <main id="main" class="layout">
     <section class="hero" aria-labelledby="page-title">
-      <p class="eyebrow">Ansökningsstyrd onboarding</p>
-      <h1 id="page-title">Ansök om en säker KommunSign-miljö</h1>
-      <p>En inskickad ansökan skapar aldrig automatiskt en aktiv tenant. Granskning, provisioning, acceptanstest och produktionsaktivering är separata steg.</p>
+      <p class="eyebrow">Ansökan för organisationer</p>
+      <h1 id="page-title">Ansök om Kommunsign</h1>
+      <p>Ansökan skapar inget användarkonto. Efter godkännande skapar Kommunsigns superadministratör organisationens miljö och bjuder in den första administratören via e-post.</p>
     </section>
 
     <section class="card" id="start-section" aria-labelledby="start-title">
@@ -41,7 +41,7 @@
 
       <div id="verification-panel" class="panel">
         <h3>2. Verifiera e-post</h3>
-        <p>Ange engångstoken från verifieringsmeddelandet. I lokal utvecklingsruntime visas token i statusrutan.</p>
+        <p>Ange engångskoden från verifieringsmeddelandet.</p>
         <form id="verification-form"><label>Verifieringstoken<input name="token" required minlength="64" autocomplete="one-time-code"></label><button type="submit">Verifiera e-post</button></form>
       </div>
 
@@ -52,7 +52,7 @@
             <label>Webbplats<input name="website" type="url" placeholder="https://kommun.se"></label>
             <label>Officiell e-postdomän<input name="officialEmailDomain" placeholder="kommun.se"></label>
             <label>Kommun eller region<input name="municipalityOrRegion"></label>
-            <label>Önskad driftmodell<select name="mode"><option value="shared_saas">Shared SaaS</option><option value="dedicated_data_plane">Dedicated data plane</option><option value="customer_hosted">Customer-hosted data plane</option></select></label>
+            <label>Önskad driftform<select name="mode"><option value="shared_saas">Kommunsigns molntjänst</option><option value="dedicated_data_plane">Dedikerad datamiljö</option><option value="customer_hosted">Organisationens egen drift</option></select></label>
             <label>Önskad region<input name="region" value="se-central"></label>
             <label>Informationsklassning<select name="classification"><option value="INTERNAL">Intern</option><option value="CONFIDENTIAL">Konfidentiell</option><option value="HIGHLY_CONFIDENTIAL">Mycket konfidentiell</option></select></label>
           </div>

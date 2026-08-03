@@ -1,4 +1,4 @@
-// OpenAPI version: 2026-08-03.1
+// OpenAPI version: 2026-08-03.2
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace KommunSign.Sdk;
 public sealed class KommunSignClient(HttpClient http, Func<CancellationToken, Task<string>> accessToken)
 {
-    public const string OpenApiVersion = "2026-08-03.1";
+    public const string OpenApiVersion = "2026-08-03.2";
     public Task<JsonDocument> ListSignatureCasesAsync(CancellationToken ct = default) => SendAsync(HttpMethod.Get, "signature-cases", null, null, null, ct);
     public Task<JsonDocument> GetSignatureCaseAsync(Guid id, CancellationToken ct = default) => SendAsync(HttpMethod.Get, $"signature-cases/{id}", null, null, null, ct);
     public Task<JsonDocument> CreateSignatureCaseAsync(object body, string idempotencyKey, CancellationToken ct = default) => SendAsync(HttpMethod.Post, "signature-cases", body, idempotencyKey, null, ct);

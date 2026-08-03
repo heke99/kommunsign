@@ -5,5 +5,6 @@ set -euo pipefail
 command -v psql >/dev/null || { echo 'psql is required' >&2; exit 1; }
 psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "select count(*) >= 0 from control.platform_tenants" | grep -qx t
 psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/onboarding-control.sql
+psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/control/verify_accounts.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/data/verify.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/tenant-isolation.sql

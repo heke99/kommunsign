@@ -11,6 +11,8 @@ import { createPublicRepositories } from './public-signing-repository.js';
 import { GatewayRequestAuthenticator } from './request-auth.js';
 import { createPostgresDatabase } from './sql-database.js';
 import { createTenantRepository } from './tenant-repository.js';
+import { createAuthenticationRepository } from './authentication-repository.js';
+import { SupabaseAuthProvider } from '../../../../../packages/provider-adapters/src/supabase-auth.js';
 
 export async function createProductionDependencies(configuration: ProductionRuntimeConfiguration): Promise<ApiDependencies> {
   const controlDatabase = await createPostgresDatabase(configuration.controlDatabaseUrl, 'kommunsign-control-api');
@@ -31,10 +33,29 @@ export async function createProductionDependencies(configuration: ProductionRunt
       maximumClockSkewSeconds: integerEnvironment('INTERNAL_GATEWAY_MAX_CLOCK_SKEW_SECONDS', 60, 5, 300),
     });
     const tenants = createTenantRepository(dataDatabase);
+    const authentication = createAuthenticationRepository(
+      controlDatabase,
+      dataDatabase,
+      infrastructure,
+      new SupabaseAuthProvider({
+        projectUrl: requiredEnvironment('SUPABASE_AUTH_PROJECT_URL'),
+        anonKey: requiredEnvironment('SUPABASE_AUTH_ANON_KEY'),
+        serviceRoleKey: requiredEnvironment('SUPABASE_AUTH_SERVICE_ROLE_KEY'),
+        requestTimeoutMs: integerEnvironment('SUPABASE_AUTH_REQUEST_TIMEOUT_MS', 10_000, 1_000, 60_000),
+      }),
+      {
+        rootDomain: requiredEnvironment('KOMMUNSIGN_ROOT_DOMAIN'),
+        platformAdminHostname: new URL(requiredEnvironment('PLATFORM_ADMIN_URL')).hostname,
+        tenantDiscoveryHostname: new URL(requiredEnvironment('TENANT_DISCOVERY_URL')).hostname,
+        authPortalUrl: requiredEnvironment('AUTH_BROKER_URL'),
+        sessionLifetimeSeconds: integerEnvironment('SESSION_COOKIE_MAX_AGE_SECONDS', 28_800, 900, 86_400),
+      },
+    );
     return {
       ...data,
       ...publicRepositories,
       onboarding: createOnboardingRepository(controlDatabase, infrastructure),
+      authentication,
       resolveContext: (request) => authenticator.resolveTenantContext(request),
       authorize: async (context, permission) => requirePermission(await tenants.rolesForSubject(context), permission),
       resolvePlatformContext: (request) => authenticator.resolvePlatformContext(request),
@@ -79,6 +100,7 @@ export { createPostgresDatabase, type PostgresDatabase } from './sql-database.js
 export { createDomainRepository } from './domain-repository.js';
 export { createDomainManagementRepository } from './domain-management-repository.js';
 export { createTenantRepository } from './tenant-repository.js';
+export { createAuthenticationRepository } from './authentication-repository.js';
 export { createOnboardingRepository } from './onboarding-repository.js';
 export { createProvisioningRepository } from './provisioning-repository.js';
 export { createApplicationSessionRepository } from './application-session-repository.js';

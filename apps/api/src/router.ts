@@ -1,4 +1,5 @@
 import { handleOnboardingRequest } from './onboarding-router.js';
+import { handleAuthRequest } from './auth-router.js';
 import type { Permission } from '../../../packages/authorization/src/index.js';
 import type { ApiErrorBody, TenantContext } from '../../../packages/contracts/src/index.js';
 import { canonicalJson, type CanonicalJsonValue } from '../../../packages/crypto/src/canonical-json.js';
@@ -402,6 +403,8 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
     try {
       const publicResponse = await handlePublicRequest(dependencies, request, requestId);
       if (publicResponse) return publicResponse;
+      const authResponse = await handleAuthRequest(dependencies, request, requestId);
+      if (authResponse) return authResponse;
       const onboardingResponse = await handleOnboardingRequest(dependencies, request, requestId);
       if (onboardingResponse) return onboardingResponse;
       const context = await dependencies.resolveContext(request);

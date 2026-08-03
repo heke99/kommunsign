@@ -1,13 +1,23 @@
 import { verifyHmacSha256Hex } from '../../../../../packages/crypto/src/hmac.js';
+import { sha256Hex } from '../../../../../packages/crypto/src/hash.js';
 import type { AuthMethod, PlatformContext, TenantContext } from '../../../../../packages/contracts/src/index.js';
 import { PLATFORM_ROLES, type PlatformRole } from '../../../../../packages/authorization/src/index.js';
 import { createTenantContextFromDomain, type TenantHostnameResolver } from '../../../../../packages/tenant-gateway/src/index.js';
+import { canonicalHostname } from '../../../../../packages/custom-domains/src/index.js';
 import type { SqlDatabase } from '../../../../../packages/database/src/index.js';
+import { sessionTokenFromRequest } from './authentication-repository.js';
 
 export interface GatewayRequestAuthenticatorConfiguration {
   readonly hmacKey: string;
   readonly maximumClockSkewSeconds?: number;
   readonly now?: () => Date;
+}
+
+interface BrowserSessionIdentity {
+  readonly subjectId: string;
+  readonly requestId: string;
+  readonly tenantId: string | null;
+  readonly boundary: 'tenant' | 'platform';
 }
 
 export class GatewayRequestAuthenticator {
@@ -21,13 +31,19 @@ export class GatewayRequestAuthenticator {
   }
 
   async resolveTenantContext(request: Request): Promise<TenantContext> {
+    const browser = await this.browserSession(request, 'tenant');
+    if (browser) {
+      if (!browser.tenantId) throw new Error('AUTH_TENANT_CONTEXT_MISSING');
+      return { tenantId: browser.tenantId, subjectId: browser.subjectId, requestId: browser.requestId, authMethod: 'session', source: 'membership' };
+    }
     const identity = await this.verifyGatewayIdentity(request, 'tenant');
     const domain = await this.hostnameResolver.resolve(request, identity.requestId);
     return createTenantContextFromDomain({ domain, subjectId: identity.subjectId, requestId: identity.requestId, authMethod: identity.authMethod });
   }
 
   async resolvePlatformContext(request: Request): Promise<PlatformContext> {
-    const identity = await this.verifyGatewayIdentity(request, 'platform');
+    const browser = await this.browserSession(request, 'platform');
+    const identity = browser ?? await this.verifyGatewayIdentity(request, 'platform');
     const active = await this.controlDatabase.transaction(async (transaction) => transaction.query<{ readonly id: string }>(
       `select id from control.platform_subjects where id = $1 and status = 'active' limit 1`, [identity.subjectId],
     ));
@@ -42,6 +58,46 @@ export class GatewayRequestAuthenticator {
     ));
     const allowed = new Set<string>(PLATFORM_ROLES);
     return result.rows.map((row) => row.role_key).filter((role): role is PlatformRole => allowed.has(role));
+  }
+
+  private async browserSession(request: Request, boundary: 'tenant' | 'platform'): Promise<BrowserSessionIdentity | null> {
+    const token = sessionTokenFromRequest(request);
+    if (!token) return null;
+    const origin = request.headers.get('origin');
+    if (!origin) throw new Error('AUTH_ORIGIN_REQUIRED');
+    let originHostname: string;
+    try {
+      const parsed = new URL(origin);
+      if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port) throw new Error('invalid');
+      originHostname = canonicalHostname(parsed.hostname, { allowPlatformNamespace: true });
+    } catch {
+      throw new Error('AUTH_ORIGIN_INVALID');
+    }
+    const requestId = request.headers.get('x-request-id')?.trim() || crypto.randomUUID();
+    const tokenHash = await sha256Hex(token);
+    const mutating = ['POST','PATCH','PUT','DELETE'].includes(request.method.toUpperCase());
+    const csrf = request.headers.get('x-csrf-token')?.trim();
+    const csrfHash = csrf ? await sha256Hex(csrf) : null;
+    const result = await this.controlDatabase.transaction(async (transaction) => transaction.query<{
+      readonly tenant_id: string | null;
+      readonly boundary: 'tenant' | 'platform';
+      readonly hostname: string;
+      readonly subject_id: string;
+    }>(
+      `update control.host_bound_sessions
+          set last_seen_at=now()
+        where token_hash=decode($1,'hex')
+          and boundary=$2
+          and hostname=$3
+          and revoked_at is null
+          and expires_at>now()
+          and ($4::boolean=false or ($5::text is not null and csrf_token_hash=decode($5,'hex')))
+        returning tenant_id,boundary,hostname,subject_id`,
+      [tokenHash, boundary, originHostname, mutating, csrfHash],
+    ));
+    const row = result.rows[0];
+    if (!row) throw new Error(mutating && !csrf ? 'CSRF_TOKEN_REQUIRED' : 'AUTH_SESSION_INVALID');
+    return { subjectId: row.subject_id, requestId, tenantId: row.tenant_id, boundary: row.boundary };
   }
 
   private async verifyGatewayIdentity(request: Request, audience: 'tenant' | 'platform'): Promise<{ readonly subjectId: string; readonly requestId: string; readonly authMethod: AuthMethod }> {

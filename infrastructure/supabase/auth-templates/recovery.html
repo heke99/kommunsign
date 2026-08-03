@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="sv">
+  <body style="margin:0;background:#f4f7f6;color:#14231f;font-family:Arial,sans-serif">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding:32px 16px;background:#f4f7f6">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #d9e3df;border-radius:12px;padding:32px">
+          <tr><td><h1 style="margin:0 0 16px;font-size:24px">Återställ ditt lösenord i Kommunsign</h1></td></tr>
+          <tr><td><p style="line-height:1.6">En begäran om att återställa lösenordet har gjorts för ditt Kommunsign-konto.</p></td></tr>
+          <tr><td style="padding:16px 0"><a href="{{ .SiteURL }}/aterstall/?token_hash={{ .TokenHash }}&amp;type=recovery&amp;redirect_to={{ .RedirectTo }}" style="display:inline-block;background:#0b4d3c;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:8px;font-weight:700">Välj nytt lösenord</a></td></tr>
+          <tr><td><p style="line-height:1.6;font-size:14px;color:#52645f">Ignorera meddelandet om du inte gjorde begäran. Länken är personlig och tidsbegränsad.</p></td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>

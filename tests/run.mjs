@@ -7,6 +7,7 @@ import { validatePolicyUse } from '../dist/packages/signature-policy/src/index.j
 import {
   assertTicWebhookBinding, parseTicWebhookEnvelope, verifyTicWebhook, TicBankIdProvider,
 } from '../dist/packages/provider-adapters/src/tic-bankid.js';
+import { SupabaseAuthProvider, validatePassword } from '../dist/packages/provider-adapters/src/supabase-auth.js';
 import { bankIdEvidenceBytes } from '../dist/packages/provider-adapters/src/evidence-payload.js';
 import { createEvidenceManifest, verifyEvidenceFiles } from '../dist/packages/evidence/src/index.js';
 import { createEvidenceZip, verifyEvidenceZip } from '../dist/packages/evidence/src/zip.js';
@@ -22,6 +23,7 @@ import { normalizeTenantSlug, canonicalHostname as canonicalTenantHostname, crea
 import { TenantHostnameResolver, resolveTenantPublicUrl, isAllowedCredentialOrigin } from '../dist/packages/tenant-gateway/src/index.js';
 import { buildHostOnlySessionCookie, issueAuthorizationCode, exchangeAuthorizationCode } from '../dist/packages/auth-broker/src/index.js';
 import { createSensitiveDataAdapter } from '../dist/apps/api/src/adapters/aes-gcm-sensitive-data.js';
+import { expectedSupabaseAuthConfig, verifySupabaseAuthConfig } from '../scripts/supabase-auth-config-lib.mjs';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -49,6 +51,101 @@ const identityInput = {
   issuedAt: '2026-08-02T08:00:00.000Z', expiresAt: '2026-08-02T08:05:00.000Z', state: 'state', nonce: 'nonce',
 };
 
+
+
+test('managed account authentication is invite-only and supports password recovery', async () => {
+  validatePassword('Kommunsign!2026');
+  assert.throws(() => validatePassword('short'), /PASSWORD_POLICY_FAILED/);
+  const calls = [];
+  const provider = new SupabaseAuthProvider({
+    projectUrl: 'https://example.supabase.co',
+    anonKey: 'anon-key',
+    serviceRoleKey: 'service-role-key',
+    http: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).includes('/token?grant_type=password')) {
+        return new Response(JSON.stringify({
+          access_token: 'a'.repeat(64), expires_in: 3600,
+          user: { id: '11111111-1111-4111-8111-111111111111', email: 'admin@kommun.se', user_metadata: {} },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (String(url).includes('/recover?')) {
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+  });
+  const session = await provider.signInWithPassword('ADMIN@KOMMUN.SE', 'Kommunsign!2026');
+  assert.equal(session.user.email, 'admin@kommun.se');
+  await provider.sendPasswordRecovery('admin@kommun.se', 'https://auth.kommunsign.se/aterstall/?destination=admin.kommunsign.se');
+  assert.ok(calls.some((call) => call.url.includes('/auth/v1/recover?redirect_to=')));
+  assert.ok(calls.every((call) => !String(call.init?.body ?? '').includes('service-role-key')));
+});
+
+test('email action links are verified from token hashes only when the password form is submitted', async () => {
+  const calls = [];
+  const provider = new SupabaseAuthProvider({
+    projectUrl: 'https://example.supabase.co', anonKey: 'anon-key', serviceRoleKey: 'service-role-key',
+    http: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/auth/v1/verify')) {
+        const body = JSON.parse(String(init?.body));
+        assert.deepEqual(body, { token_hash: 'h'.repeat(64), type: 'invite' });
+        return new Response(JSON.stringify({ access_token: 'a'.repeat(64), expires_in: 3600, user: { id: '33333333-3333-4333-8333-333333333333', email: 'admin@kommun.se', user_metadata: {} } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+  });
+  const verified = await provider.verifyEmailOtp('h'.repeat(64), 'invite');
+  assert.equal(verified.user.email, 'admin@kommun.se');
+  assert.equal(verified.accessToken, 'a'.repeat(64));
+  assert.equal(calls.length, 1);
+  const portalSource = await readFile('apps/auth-portal/public/app.js', 'utf8');
+  assert.match(portalSource, /token_hash/);
+  assert.match(portalSource, /emailCredential\(\)/);
+  assert.match(portalSource, /history\.replaceState/);
+});
+
+test('an unconfirmed account receives a new activation link without a duplicate identity', async () => {
+  const calls = [];
+  const provider = new SupabaseAuthProvider({
+    projectUrl: 'https://example.supabase.co', anonKey: 'anon-key', serviceRoleKey: 'service-role-key',
+    http: async (url, init) => {
+      calls.push({ url: String(url), init });
+      if (String(url).includes('/admin/users?')) {
+        return new Response(JSON.stringify({ users: [{ id: '22222222-2222-4222-8222-222222222222', email: 'ny@kommun.se', user_metadata: {} }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (String(url).includes('/recover?')) return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      throw new Error(`unexpected ${url}`);
+    },
+  });
+  const result = await provider.inviteOrFindUser('ny@kommun.se', 'https://auth.kommunsign.se/aktivera/?destination=kommun.kommunsign.se', { displayName: 'Ny Admin' });
+  assert.equal(result.user.id, '22222222-2222-4222-8222-222222222222');
+  assert.equal(result.invited, true);
+  assert.ok(calls.some((call) => call.url.includes('/auth/v1/recover?redirect_to=')));
+  assert.ok(!calls.some((call) => call.url.includes('/auth/v1/invite?')));
+});
+
+test('Supabase Auth production configuration is machine-verifiable', async () => {
+  const expected = await expectedSupabaseAuthConfig({
+    SUPABASE_AUTH_SITE_URL: 'https://auth.kommunsign.se',
+    SUPABASE_AUTH_ALLOWED_REDIRECT_URLS: 'https://auth.kommunsign.se/aktivera/,https://auth.kommunsign.se/aterstall/',
+    AUTH_SMTP_PORT: '465', AUTH_SMTP_SENDER_EMAIL: 'konto@notify.kommunsign.se',
+    AUTH_SMTP_HOST: 'smtp.resend.com', AUTH_SMTP_USERNAME: 'resend', AUTH_SMTP_SENDER_NAME: 'Kommunsign',
+  });
+  assert.deepEqual(verifySupabaseAuthConfig({ ...expected }, expected), []);
+  assert.ok(verifySupabaseAuthConfig({ ...expected, disable_signup: false }, expected).some((problem) => problem.startsWith('disable_signup:')));
+  assert.match(expected.mailer_templates_invite_content, /TokenHash/);
+  assert.doesNotMatch(expected.mailer_templates_invite_content, /ConfirmationURL/);
+});
+
+test('organization provisioning never creates an applicant login automatically', async () => {
+  const source = await readFile('apps/api/src/production-adapters/postgres/provisioning-repository.ts', 'utf8');
+  assert.doesNotMatch(source, /pending-invite:/);
+  assert.doesNotMatch(source, /TENANT_ADMIN_INVITATION/);
+  assert.match(source, /create_first_organization_admin/);
+  assert.match(source, /applicantAccountCreated: false/);
+});
 
 test('onboarding state machine, reference and email tokens fail closed', async () => {
   assertApplicationTransition('email_verification_pending', 'email_verified');
@@ -415,11 +512,12 @@ test('database hardening migration includes lease recovery and same-case guards'
   assert.match(immutability, /require_trusted_cryptographic_service/);
 });
 
-test('public website is Vercel-buildable and does not overstate production status', async () => {
+test('public website is Vercel-buildable and uses customer-facing production language', async () => {
   const html = await readFile('apps/public-website/public/index.html', 'utf8');
   const config = JSON.parse(await readFile('vercel.json', 'utf8'));
-  assert.match(html, /Pilotplattform under utveckling/);
-  assert.match(html, /KommunSign/);
+  assert.match(html, /Säker signering med BankID/);
+  assert.doesNotMatch(html, /inte produktionsklar|under utveckling|tenantseparerad/i);
+  assert.match(html, /Kommunsign/i);
   assert.doesNotMatch(html, /\sstyle=/);
   assert.equal(config.buildCommand, 'npm run web:build');
   assert.equal(config.outputDirectory, 'build/public-site');

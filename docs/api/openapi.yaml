@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
   title: KommunSign API
-  version: '2026-08-03.1'
+  version: '2026-08-03.2'
   description: >-
-    Tenant is derived from the authenticated OAuth client, verified domain or mTLS identity and is never accepted from request payloads.
+    Organization context is derived from the authenticated account, verified domain or mTLS identity and is never accepted from request payloads.
     Runtime endpoints fail closed when signing, validation, archive or storage providers are not configured.
 servers:
   - url: https://api.kommunsign.se/v1
@@ -375,9 +375,89 @@ paths:
       security: [{platformOidc: []}]
       parameters: [{$ref: '#/components/parameters/ActivationRequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       responses: {'200': {description: Activation rejected}, default: {$ref: '#/components/responses/Error'}}
+  /auth/login:
+    post:
+      operationId: login
+      summary: Logga in med ett konto som har skapats eller bjudits in av Kommunsign
+      security: []
+      parameters: [{$ref: '#/components/parameters/RequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/LoginRequest'}}}}
+      responses:
+        '200': {description: Inloggad session, headers: {Set-Cookie: {schema: {type: string}}}, content: {application/json: {schema: {$ref: '#/components/schemas/AuthenticatedSession'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/password/forgot:
+    post:
+      operationId: requestPasswordReset
+      summary: Skicka en återställningslänk utan att avslöja om kontot finns
+      security: []
+      parameters: [{$ref: '#/components/parameters/RequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasswordRecoveryRequest'}}}}
+      responses:
+        '202': {description: Begäran accepterad}
+        '429': {$ref: '#/components/responses/Error'}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/password/complete:
+    post:
+      operationId: completePassword
+      summary: Sätt lösenord från en giltig inbjudnings- eller återställningslänk
+      security: []
+      parameters: [{$ref: '#/components/parameters/RequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CompletePasswordRequest'}}}}
+      responses:
+        '200': {description: Lösenord sparat och session skapad, headers: {Set-Cookie: {schema: {type: string}}}, content: {application/json: {schema: {$ref: '#/components/schemas/AuthenticatedSession'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /auth/session:
+    get:
+      operationId: getAuthenticatedSession
+      summary: Hämta och förnya CSRF-bindningen för aktuell sessionscookie
+      security: [{sessionCookie: []}]
+      parameters: [{$ref: '#/components/parameters/RequestId'}]
+      responses:
+        '200': {description: Aktiv session, content: {application/json: {schema: {$ref: '#/components/schemas/AuthenticatedSession'}}}}
+        '401': {$ref: '#/components/responses/Error'}
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Återkalla aktuell sessionscookie
+      security: [{sessionCookie: []}]
+      parameters: [{$ref: '#/components/parameters/RequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/CsrfToken'}]
+      responses:
+        '200': {description: Session avslutad, headers: {Set-Cookie: {schema: {type: string}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /platform/organizations/{organizationId}/users:
+    get:
+      operationId: listOrganizationUsers
+      summary: Lista konton som superadmin har bjudit in till organisationen
+      security: [{sessionCookie: []}]
+      parameters: [{$ref: '#/components/parameters/OrganizationId'}, {$ref: '#/components/parameters/RequestId'}]
+      responses:
+        '200': {description: Organisationskonton, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/OrganizationUser'}}}}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: inviteOrganizationUser
+      summary: Skapa eller bjud in ett organisationskonto
+      security: [{sessionCookie: []}]
+      parameters: [{$ref: '#/components/parameters/OrganizationId'}, {$ref: '#/components/parameters/RequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/CsrfToken'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/OrganizationUserInput'}}}}
+      responses:
+        '201': {description: Kontot har skapats eller inbjudan har skickats, content: {application/json: {schema: {$ref: '#/components/schemas/OrganizationUser'}}}}
+        default: {$ref: '#/components/responses/Error'}
+  /platform/organizations/{organizationId}/users/{accountId}:
+    patch:
+      operationId: setOrganizationUserStatus
+      summary: Stäng av eller återaktivera ett organisationskonto
+      security: [{sessionCookie: []}]
+      parameters: [{$ref: '#/components/parameters/OrganizationId'}, {$ref: '#/components/parameters/OrganizationAccountId'}, {$ref: '#/components/parameters/RequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/CsrfToken'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/OrganizationUserStatusInput'}}}}
+      responses:
+        '200': {description: Kontostatus uppdaterad, content: {application/json: {schema: {$ref: '#/components/schemas/OrganizationUser'}}}}
+        default: {$ref: '#/components/responses/Error'}
 components:
   securitySchemes:
     applicantToken: {type: http, scheme: bearer, bearerFormat: opaque-256-bit}
+    sessionCookie: {type: apiKey, in: cookie, name: __Host-ks_api_session}
     platformOidc: {type: openIdConnect, openIdConnectUrl: https://admin.kommunsign.se/.well-known/openid-configuration}
     oauth2:
       type: oauth2
@@ -402,6 +482,9 @@ components:
     ProvisioningRequestId: {name: requestId, in: path, required: true, schema: {type: string, format: uuid}}
     ActivationRequestId: {name: requestId, in: path, required: true, schema: {type: string, format: uuid}}
     TenantId: {name: tenantId, in: path, required: true, schema: {type: string, format: uuid}}
+    OrganizationId: {name: organizationId, in: path, required: true, schema: {type: string, format: uuid}}
+    OrganizationAccountId: {name: accountId, in: path, required: true, schema: {type: string, format: uuid}}
+    CsrfToken: {name: X-CSRF-Token, in: header, required: true, schema: {type: string, minLength: 32, maxLength: 512}}
     RequestId: {name: X-Request-Id, in: header, required: false, schema: {type: string, maxLength: 128}}
     IdempotencyKey: {name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 16, maxLength: 200}}
     IfMatch: {name: If-Match, in: header, required: false, description: Current positive statusVersion, schema: {type: string}}
@@ -413,6 +496,76 @@ components:
     IdempotencyConflict: {description: Idempotency key reused with different method, path or canonical payload, content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}}
     ProviderNotConfigured: {description: Required cryptographic provider is not configured, content: {application/json: {schema: {$ref: '#/components/schemas/ApiError'}}}}
   schemas:
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, destinationHostname]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        password: {type: string, minLength: 1, maxLength: 128, writeOnly: true}
+        destinationHostname: {type: string, format: hostname}
+        organizationSlug: {type: string, minLength: 1, maxLength: 63}
+    PasswordRecoveryRequest:
+      type: object
+      additionalProperties: false
+      required: [email, destinationHostname]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        destinationHostname: {type: string, format: hostname}
+        organizationSlug: {type: string, minLength: 1, maxLength: 63}
+    CompletePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [password, destinationHostname]
+      oneOf:
+        - required: [tokenHash, type]
+        - required: [accessToken]
+      properties:
+        tokenHash: {type: string, minLength: 32, maxLength: 1024, writeOnly: true, description: Prefetch-resistant Supabase email action token hash}
+        type: {type: string, enum: [invite, recovery]}
+        accessToken: {type: string, minLength: 32, maxLength: 8192, writeOnly: true, deprecated: true, description: Legacy implicit-flow compatibility}
+        password: {type: string, minLength: 12, maxLength: 128, writeOnly: true}
+        destinationHostname: {type: string, format: hostname}
+        organizationSlug: {type: string, minLength: 1, maxLength: 63}
+    AuthenticatedSession:
+      type: object
+      additionalProperties: false
+      required: [subjectId, boundary, destinationUrl, expiresAt, csrfToken]
+      properties:
+        subjectId: {type: string, format: uuid}
+        boundary: {type: string, enum: [platform, tenant]}
+        destinationUrl: {type: string, format: uri}
+        expiresAt: {type: string, format: date-time}
+        csrfToken: {type: string, minLength: 32, writeOnly: true}
+        tenantId: {type: string, format: uuid}
+        displayName: {type: string}
+    OrganizationUserInput:
+      type: object
+      additionalProperties: false
+      required: [displayName, email, roleKey]
+      properties:
+        displayName: {type: string, minLength: 2, maxLength: 200}
+        email: {type: string, format: email, maxLength: 254}
+        roleKey: {type: string, enum: [tenant_admin, tenant_security_admin, tenant_integration_admin, tenant_archive_admin, department_admin, document_creator, document_sender, approver, auditor, readonly]}
+    OrganizationUserStatusInput:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action: {type: string, enum: [disable, enable]}
+    OrganizationUser:
+      type: object
+      additionalProperties: false
+      required: [id, tenantId, providerSubjectId, displayName, maskedEmail, roleKey, status, invitedAt]
+      properties:
+        id: {type: string, format: uuid}
+        tenantId: {type: string, format: uuid}
+        providerSubjectId: {type: string}
+        displayName: {type: string}
+        maskedEmail: {type: string}
+        roleKey: {type: string, enum: [tenant_admin, tenant_security_admin, tenant_integration_admin, tenant_archive_admin, department_admin, document_creator, document_sender, approver, auditor, readonly]}
+        status: {type: string, enum: [invited, active, disabled, revoked, failed]}
+        invitedAt: {type: string, format: date-time}
     CreateOnboardingApplication:
       type: object
       additionalProperties: false
