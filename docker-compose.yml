@@ -31,12 +31,20 @@ services:
     volumes: ["minio-data:/data"]
     healthcheck: { test: ["CMD", "mc", "ready", "local"], interval: 10s, timeout: 5s, retries: 20 }
   clamav:
-    image: clamav/clamav:1.5-debian13-slim
+    image: clamav/clamav:1.5.3-debian13-slim
     ports: ["3310:3310"]
+    read_only: true
+    tmpfs: ["/tmp", "/var/log/clamav"]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck: { test: ["CMD-SHELL", "echo PING | nc 127.0.0.1 3310 | grep PONG"], interval: 15s, timeout: 5s, retries: 30 }
   gotenberg:
     image: gotenberg/gotenberg:8.34.0
     ports: ["3005:3000"]
-    command: ["gotenberg", "--api-disable-health-check-logging=true", "--chromium-disable-javascript=true"]
+    command: ["gotenberg", "--api-disable-health-check-logging=true", "--chromium-disable-javascript=true", "--api-timeout=120s"]
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck: { test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/health"], interval: 10s, timeout: 5s, retries: 20 }
   mailpit:
     image: axllent/mailpit:v1.27.8
     ports: ["1025:1025", "8025:8025"]

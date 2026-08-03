@@ -4,13 +4,15 @@ import { createPostgresDatabase } from '../../api/src/production-adapters/postgr
 import { loadProductionInfrastructure } from '../../api/src/production-adapters/postgres/infrastructure.js';
 import { createProvisioningRepository } from '../../api/src/production-adapters/postgres/provisioning-repository.js';
 import type { DurableJob, DurableJobRepository, DurableJobType } from './jobs.js';
+import { createProductionJobHandlers } from './production-handlers.js';
 
 const PLATFORM_JOB_TENANT_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 const supportedTypes: readonly DurableJobType[] = [
   'APPLICATION_NOTIFICATION', 'APPLICATION_DEADLINE', 'TENANT_PROVISION', 'TENANT_READINESS',
   'TENANT_ACTIVATION', 'CERTIFICATE_MONITOR', 'DOCUMENT_SCAN', 'DOCUMENT_CANONICALIZE',
-  'IDENTITY_STATUS_POLL', 'SIGNATURE_CREATE', 'SIGNATURE_VALIDATE', 'WEBHOOK_DELIVER',
+  'IDENTITY_STATUS_POLL', 'SIGNATURE_CREATE', 'SIGNATURE_VALIDATE', 'TIC_EVIDENCE_COLLECT',
+  'EVIDENCE_PACKAGE_BUILD', 'EMAIL_SEND', 'WEBHOOK_DELIVER',
   'REMINDER_SEND', 'CASE_EXPIRE', 'ARCHIVE_EXPORT', 'RETENTION_EXECUTE',
 ];
 
@@ -53,30 +55,19 @@ export async function createProductionWorkerAdapter(
       ],
     });
     const repository = createDurableJobRepository(controlDatabase, dataDatabase);
-    const unsupported = async (job: DurableJob): Promise<void> => {
-      throw new Error(`WORKER_HANDLER_NOT_IMPLEMENTED:${job.type}`);
-    };
+    const bankIdHandlers = createProductionJobHandlers({
+      controlDatabase,
+      dataDatabase,
+      infrastructure,
+      configuration,
+    });
     const handlers: Readonly<Record<DurableJobType, (job: DurableJob) => Promise<void>>> = {
-      APPLICATION_NOTIFICATION: unsupported,
-      APPLICATION_DEADLINE: unsupported,
+      ...bankIdHandlers,
       TENANT_PROVISION: async (job) => {
         const requestId = stringPayload(job.payload, 'provisioningRequestId');
         const result = await provisioning.run(requestId, `durable-job:${job.id}`);
         if (result.status === 'failed') throw new Error(result.blockingCode ?? 'TENANT_PROVISION_FAILED');
       },
-      TENANT_READINESS: unsupported,
-      TENANT_ACTIVATION: unsupported,
-      CERTIFICATE_MONITOR: unsupported,
-      DOCUMENT_SCAN: unsupported,
-      DOCUMENT_CANONICALIZE: unsupported,
-      IDENTITY_STATUS_POLL: unsupported,
-      SIGNATURE_CREATE: unsupported,
-      SIGNATURE_VALIDATE: unsupported,
-      WEBHOOK_DELIVER: unsupported,
-      REMINDER_SEND: unsupported,
-      CASE_EXPIRE: unsupported,
-      ARCHIVE_EXPORT: unsupported,
-      RETENTION_EXECUTE: unsupported,
     };
     return {
       repository,
@@ -179,6 +170,21 @@ function createDurableJobRepository(
         );
       });
       claimedTenants.delete(jobId);
+    },
+
+    async heartbeat(jobId, workerId, leaseSeconds) {
+      const tenantId = requiredClaimedTenant(claimedTenants, jobId);
+      validateClaim(workerId, 1, leaseSeconds);
+      await updateJob(dataDatabase, tenantId, jobId, workerId, async (transaction) => {
+        const result = await transaction.query<{ readonly id: string }>(
+          `update app.durable_jobs
+              set lease_expires_at=now()+make_interval(secs=>$4),updated_at=now()
+            where tenant_id=$1 and id=$2 and status='leased' and lease_owner=$3
+            returning id`,
+          [tenantId, jobId, workerId, leaseSeconds],
+        );
+        if (!result.rows[0]) throw new Error('WORKER_LEASE_LOST');
+      });
     },
   };
 }

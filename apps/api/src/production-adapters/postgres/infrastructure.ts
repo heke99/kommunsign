@@ -4,7 +4,10 @@ import type { TenantContext } from '../../../../../packages/contracts/src/index.
 export interface ObjectStorageAdapter {
   provisionTenantNamespaces(input: { readonly tenantId: string; readonly bucketNames: readonly string[]; readonly idempotencyKey: string }): Promise<{ readonly namespaceReference: string }>;
   createUploadGrant(context: TenantContext, input: UploadGrantInput & { readonly objectKey: string; readonly expiresAt: string }): Promise<{ readonly uploadUrl: string; readonly requiredHeaders: Readonly<Record<string, string>> }>;
+  headObject(context: TenantContext, objectKey: string): Promise<{ readonly byteSize: number; readonly contentType?: string; readonly sha256?: string }>;
   downloadObject(context: TenantContext, objectKey: string, metadata: { readonly contentType: string; readonly fileName: string; readonly sha256?: string }): Promise<DownloadArtifact>;
+  putObject?(context: TenantContext, objectKey: string, bytes: Uint8Array, contentType: string, immutable?: boolean): Promise<{ readonly byteSize: number; readonly sha256?: string }>;
+  deleteObject?(context: TenantContext, objectKey: string): Promise<void>;
 }
 export interface SensitiveDataAdapter {
   encryptText(value: string, purpose: string): Promise<Uint8Array>;

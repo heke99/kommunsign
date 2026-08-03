@@ -1,6 +1,8 @@
+declare const process: { readonly env: Readonly<Record<string, string | undefined>> };
 import type { ApplicantContext, PlatformContext } from '../../../../../packages/contracts/src/index.js';
 import { sha256Hex } from '../../../../../packages/crypto/src/hash.js';
 import { randomToken } from '../../../../../packages/crypto/src/tokens.js';
+import { base64Encode } from '../../../../../packages/crypto/src/base64.js';
 import { normalizeEmail, normalizeOrganizationNumber, assertDistinctApprovers } from '../../../../../packages/onboarding/src/index.js';
 import { evaluateReadiness, type ReadinessCheck, type ReadinessResult } from '../../../../../packages/readiness/src/index.js';
 import type { SqlDatabase, SqlTransaction } from '../../../../../packages/database/src/index.js';
@@ -73,7 +75,8 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
         const view=await applicationView(row,infrastructure);
         await saveApplicationVersion(transaction,view,'system',null);
         await appendControlAudit(transaction,null,null,'onboarding.application.created',{applicationId:row.id,possibleDuplicate:Boolean(duplicate.rows[0])});
-        await infrastructure.queue.enqueue({tenantId:'00000000-0000-0000-0000-000000000000',jobType:'APPLICATION_NOTIFICATION',idempotencyKey:`verify:${row.id}:${accessHash.slice(0,16)}`,payload:{applicationId:row.id,template:'email_verification',email:primaryEmail,verificationToken}});
+        const notificationPayload=await encryptNotificationPayload(infrastructure,{applicationId:row.id,template:'email_verification',email:primaryEmail,verificationToken});
+        await infrastructure.queue.enqueue({tenantId:'00000000-0000-0000-0000-000000000000',jobType:'APPLICATION_NOTIFICATION',idempotencyKey:`verify:${row.id}:${accessHash.slice(0,16)}`,payload:{encryptedPayload:notificationPayload}});
         const result:ApplicationCreatedView={application:view,accessToken,verificationRequired:true};
         return result;
       });
@@ -137,7 +140,8 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
         await transaction.query(`update control.onboarding_email_verifications set revoked_at=now() where application_id=$1 and used_at is null and revoked_at is null`,[applicationId]);
         const email=await infrastructure.sensitiveData.decryptText((await rawApplication(transaction,applicationId)).primary_email_ciphertext,'onboarding.primary_email');
         const verificationToken=await issueEmailVerification(transaction,infrastructure,applicationId,email);
-        await infrastructure.queue.enqueue({tenantId:'00000000-0000-0000-0000-000000000000',jobType:'APPLICATION_NOTIFICATION',idempotencyKey:`verify-resend:${applicationId}:${key}`,payload:{applicationId,template:'email_verification',email,verificationToken}});
+        const notificationPayload=await encryptNotificationPayload(infrastructure,{applicationId,template:'email_verification',email,verificationToken});
+        await infrastructure.queue.enqueue({tenantId:'00000000-0000-0000-0000-000000000000',jobType:'APPLICATION_NOTIFICATION',idempotencyKey:`verify-resend:${applicationId}:${key}`,payload:{encryptedPayload:notificationPayload}});
         return {accepted:true as const};
       });
     },
@@ -397,8 +401,16 @@ async function collectReadinessChecks(transaction:SqlTransaction,tenantId:string
   const domains=await transaction.query<{readonly domain_type:string;readonly status:string;readonly is_primary:boolean;readonly dns_verified_at:string|null;readonly certificate_issued_at:string|null;readonly certificate_expires_at:string|null;readonly last_health_status:string|null;readonly normalized_hostname:string}>(`select domain_type::text,status::text,is_primary,dns_verified_at,certificate_issued_at,certificate_expires_at,last_health_status,normalized_hostname from control.tenant_domains where tenant_id=$1 and environment_id=(select id from control.tenant_environments where tenant_id=$1 and environment='production') and status<>'removed'`,[tenantId]);
   const defaultDomain=domains.rows.find((row)=>row.domain_type==='platform_default');const primary=domains.rows.find((row)=>row.is_primary);const custom=domains.rows.find((row)=>row.domain_type==='customer_custom');
   const customRequired=await transaction.query<{readonly required:boolean}>(`select coalesce((configuration->>'customDomainRequired')::boolean,false) as required from control.tenant_features where tenant_id=$1 and feature_key='custom_domain'`,[tenantId]);
+  const emailProvider=(environmentValue('EMAIL_PROVIDER')??'').toLowerCase();
+  const ticApiKey=environmentValue('TIC_API_KEY');
+  const ticWebhookSecret=environmentValue('TIC_WEBHOOK_SECRET');
+  const privateStorageReady=environmentValue('STORAGE_PROVIDER')==='supabase'
+    && environmentPresent('SUPABASE_DATA_PROJECT_URL','SUPABASE_DATA_SERVICE_ROLE_KEY','STORAGE_DOCUMENT_QUARANTINE_BUCKET','STORAGE_CANONICAL_DOCUMENTS_BUCKET','STORAGE_VALIDATION_REPORTS_BUCKET','STORAGE_EVIDENCE_PACKAGES_BUCKET');
+  const pdfPipelineApproved=environmentFlag('PDF_PIPELINE_APPROVED');
   const checks:ReadinessCheck[]=[
     check('TENANT_DATABASE_NOT_READY',env?.data_plane_status==='ready','blocking',checkedAt,{dataPlaneStatus:env?.data_plane_status??'missing'}),
+    check('OBJECT_STORAGE_NOT_READY',privateStorageReady,'blocking',checkedAt,{provider:environmentValue('STORAGE_PROVIDER')??'missing'}),
+    check('OIDC_NOT_CONFIGURED',environmentPresent('AUTH_BROKER_URL','OIDC_CALLBACK_URL','OIDC_STATE_SIGNING_KEY','OIDC_SESSION_ENCRYPTION_KEY','AUTH_CODE_SIGNING_KEY','CSRF_SIGNING_KEY'),'blocking',checkedAt),
     check('DEFAULT_TENANT_DOMAIN_NOT_ACTIVE',defaultDomain?.status==='active','blocking',checkedAt,{hostname:defaultDomain?.normalized_hostname??null,status:defaultDomain?.status??'missing'}),
     check('PRIMARY_DOMAIN_NOT_SELECTED',Boolean(primary),'blocking',checkedAt,{hostname:primary?.normalized_hostname??null}),
     check('CUSTOM_DOMAIN_REQUIRED_BUT_MISSING',!customRequired.rows[0]?.required||Boolean(custom),'blocking',checkedAt),
@@ -406,6 +418,31 @@ async function collectReadinessChecks(transaction:SqlTransaction,tenantId:string
     check('CUSTOM_DOMAIN_CERTIFICATE_NOT_READY',!custom||Boolean(custom.certificate_issued_at),'blocking',checkedAt),
     check('CUSTOM_DOMAIN_ROUTING_FAILED',!custom||custom.last_health_status==='healthy','blocking',checkedAt),
     check('UNVERIFIED_HOSTNAME_CONFIGURED',domains.rows.every((row)=>row.status!=='active'||Boolean(row.dns_verified_at)),'blocking',checkedAt),
+    check('SIGN_SERVICE_NOT_CONFIGURED',environmentFlag('TIC_BANKID_ENABLED')&&!environmentFlag('TIC_GLOBAL_KILL_SWITCH')&&environmentValue('TIC_ENVIRONMENT')==='production'&&environmentPresent('TIC_BASE_URL','TIC_CALLBACK_URL','TIC_WEBHOOK_URL'),'blocking',checkedAt),
+    check('VALIDATION_SERVICE_NOT_CONFIGURED',environmentPresent('VALIDATION_SERVICE_URL','VALIDATION_SERVICE_TOKEN'),'blocking',checkedAt),
+    check('TIC_API_KEY_NOT_CONFIGURED',Boolean(ticApiKey),'blocking',checkedAt),
+    check('TIC_WEBHOOK_SECRET_NOT_CONFIGURED',Boolean(ticWebhookSecret),'blocking',checkedAt),
+    check('TIC_CALLBACK_NOT_VERIFIED',environmentFlag('TIC_CALLBACK_VERIFIED'),'blocking',checkedAt),
+    check('TIC_WEBHOOK_NOT_VERIFIED',environmentFlag('TIC_WEBHOOK_VERIFIED'),'blocking',checkedAt),
+    check('TRUSTED_PROXY_NOT_CONFIGURED',environmentFlag('TRUST_PROXY')&&environmentFlag('REQUIRE_VERIFIED_FORWARDED_HOST')&&['vercel','cloudflare'].includes(environmentValue('TRUSTED_PROXY_PROVIDER')??''),'blocking',checkedAt),
+    check('CLAMAV_NOT_READY',pdfPipelineApproved&&environmentPresent('CLAMAV_HOST','CLAMAV_PORT'),'blocking',checkedAt),
+    check('QPDF_NOT_READY',pdfPipelineApproved&&environmentPresent('QPDF_COMMAND'),'blocking',checkedAt),
+    check('GOTENBERG_NOT_READY',pdfPipelineApproved&&environmentPresent('GOTENBERG_URL'),'blocking',checkedAt),
+    check('VERAPDF_NOT_READY',pdfPipelineApproved&&environmentPresent('VERAPDF_URL','VERAPDF_VALIDATE_PATH'),'blocking',checkedAt),
+    check('EVIDENCE_VERIFIER_NOT_READY',environmentPresent('VALIDATION_SERVICE_URL','VALIDATION_SERVICE_TOKEN')&&environmentFlag('EVIDENCE_VERIFIER_VERIFIED'),'blocking',checkedAt),
+    check('EMAIL_PROVIDER_NOT_READY',emailProvider==='resend'&&!environmentFlag('EMAIL_GLOBAL_KILL_SWITCH')&&environmentPresent('RESEND_API_KEY','RESEND_WEBHOOK_SECRET','EMAIL_DEFAULT_FROM','EMAIL_DEFAULT_REPLY_TO','EMAIL_SENDING_DOMAIN'),'blocking',checkedAt,{provider:emailProvider||'missing'}),
+    check('EMAIL_DATA_RESIDENCY_NOT_APPROVED',emailProvider!=='resend'||environmentFlag('EMAIL_DATA_RESIDENCY_APPROVED'),'blocking',checkedAt,{provider:emailProvider||'missing'}),
+    check('WORKER_CONSUMERS_NOT_READY',environmentFlag('WORKER_CONSUMERS_READY'),'blocking',checkedAt),
+    check('WILDCARD_TLS_NOT_VERIFIED',environmentFlag('WILDCARD_TLS_VERIFIED')||environmentFlag('PLATFORM_WILDCARD_VERIFIED'),'blocking',checkedAt),
+    check('ENCRYPTION_KEYS_NOT_CONFIGURED',environmentPresent('SENSITIVE_DATA_ENCRYPTION_KEY_BASE64','SENSITIVE_DATA_BLIND_INDEX_KEY_BASE64','INTERNAL_GATEWAY_HMAC_KEY'),'blocking',checkedAt),
+    check('AUDIT_CHAIN_NOT_VERIFIED',environmentFlag('AUDIT_CHAIN_VERIFIED'),'blocking',checkedAt),
+    check('MIGRATIONS_NOT_CURRENT',environmentFlag('MIGRATIONS_CURRENT'),'blocking',checkedAt),
+    check('PRIVATE_STORAGE_NOT_READY',privateStorageReady,'blocking',checkedAt),
+    check('RETENTION_POLICY_NOT_APPROVED',environmentFlag('RETENTION_POLICY_APPROVED'),'blocking',checkedAt),
+    check('DPA_NOT_ACCEPTED',environmentFlag('DPA_ACCEPTED'),'blocking',checkedAt),
+    check('ACCEPTANCE_TEST_NOT_PASSED',environmentFlag('PRODUCTION_ACCEPTANCE_TEST_PASSED'),'blocking',checkedAt),
+    check('SOFTWARE_TEST_KEY_IN_PRODUCTION',!looksLikeTestCredential(ticApiKey)&&!looksLikeTestCredential(ticWebhookSecret),'blocking',checkedAt),
+    check('CERTIFICATE_EXPIRED',domains.rows.every((row)=>!row.certificate_expires_at||new Date(row.certificate_expires_at).getTime()>Date.now()),'blocking',checkedAt),
     check('DOMAIN_CERTIFICATE_EXPIRES_SOON',domains.rows.every((row)=>!row.certificate_expires_at||new Date(row.certificate_expires_at).getTime()>Date.now()+30*86400000),'warning',checkedAt),
   ];
   const requiredHealth=['auth_callback','same_origin_api','signer_flow','takeover_protection'] as const;
@@ -416,6 +453,11 @@ async function collectReadinessChecks(transaction:SqlTransaction,tenantId:string
   }
   return checks;
 }
+function environmentValue(name:string):string|undefined{const value=process.env[name]?.trim();return value||undefined;}
+function environmentPresent(...names:readonly string[]):boolean{return names.every((name)=>Boolean(environmentValue(name)));}
+function environmentFlag(name:string):boolean{return environmentValue(name)?.toLowerCase()==='true';}
+function looksLikeTestCredential(value:string|undefined):boolean{return Boolean(value&&/(sandbox|test|demo|example|dummy)/i.test(value));}
+
 function check(code:string,passed:boolean,severity:'blocking'|'warning',checkedAt:string,evidence:Readonly<Record<string,unknown>>={}):ReadinessCheck{return{code,passed,severity,checkedAt,evidence};}
 async function latestReadiness(transaction:SqlTransaction,tenantId:string):Promise<ReadinessResult|null>{const result=await transaction.query<{readonly ready:boolean;readonly blocking_checks:readonly ReadinessCheck[];readonly warning_checks:readonly ReadinessCheck[];readonly completed_checks:readonly ReadinessCheck[]}>(`select ready,blocking_checks,warning_checks,completed_checks from control.tenant_readiness_results where tenant_id=$1 and environment='production' order by checked_at desc limit 1`,[tenantId]);const row=result.rows[0];return row?{ready:row.ready,environment:'production',blockingChecks:row.blocking_checks,warningChecks:row.warning_checks,completedChecks:row.completed_checks}:null;}
 
@@ -460,6 +502,11 @@ async function applicationView(row:ApplicationRow,infrastructure:ProductionInfra
 async function transitionApplication(transaction:SqlTransaction,current:ApplicationView,status:ApplicationView['status'],expectedVersion?:number,extra:Readonly<Record<string,string>>={}):Promise<ApplicationRow>{assertVersion(current,expectedVersion);const fields=[`status=$3::control.onboarding_application_status`,`status_version=status_version+1`,`updated_at=now()`];if(status==='submitted')fields.push(`submitted_at=coalesce(submitted_at,now())`);if(status==='approved'||status==='rejected')fields.push(`decided_at=now()`);for(const[key,value]of Object.entries(extra))fields.push(`${key}=${value}`);const result=await transaction.query<ApplicationRow>(`update control.onboarding_applications set ${fields.join(',')} where id=$1 and status_version=$2 returning ${applicationColumns}`,[current.id,current.statusVersion,status]);return requireRow(result.rows[0],'RESOURCE_VERSION_CONFLICT');}
 async function issueEmailVerification(transaction:SqlTransaction,infrastructure:ProductionInfrastructure,applicationId:string,email:string):Promise<string>{const token=randomToken(32);const tokenHash=await sha256Hex(token);const emailIndex=await infrastructure.sensitiveData.blindIndex(email,'onboarding.primary_email');await transaction.query(`insert into control.onboarding_email_verifications(application_id,email_blind_index,token_hash,expires_at) values($1,$2,decode($3,'hex'),now()+interval '30 minutes')`,[applicationId,emailIndex,tokenHash]);return token;}
 async function saveApplicationVersion(transaction:SqlTransaction,view:ApplicationView,source:'applicant'|'platform'|'system',createdBy:string|null):Promise<void>{const snapshot=JSON.stringify(view);await transaction.query(`insert into control.onboarding_application_versions(application_id,version_number,source,snapshot,payload_sha256,created_by) values($1,$2,$3,$4::jsonb,$5,$6) on conflict(application_id,version_number) do nothing`,[view.id,view.statusVersion,source,snapshot,await sha256Hex(snapshot),createdBy]);}
+async function encryptNotificationPayload(infrastructure:ProductionInfrastructure,payload:Readonly<Record<string,unknown>>):Promise<string>{
+  const ciphertext=await infrastructure.sensitiveData.encryptText(JSON.stringify(payload),'onboarding.application_notification');
+  return base64Encode(ciphertext);
+}
+
 async function appendControlAudit(transaction:SqlTransaction,tenantId:string|null,actorId:string|null,eventType:string,payload:Readonly<Record<string,unknown>>):Promise<void>{await transaction.query(`select pg_advisory_xact_lock(hashtextextended('control-audit-chain',0))`);const previous=await transaction.query<{readonly event_hash:string}>(`select event_hash from control.control_audit_events order by occurred_at desc,id desc limit 1`);const previousHash=previous.rows[0]?.event_hash??'0'.repeat(64);const material=JSON.stringify({tenantId,actorId,eventType,payload,previousHash});const eventHash=await sha256Hex(material);await transaction.query(`insert into control.control_audit_events(tenant_id,actor_id,event_type,payload,previous_event_hash,event_hash) values($1,$2,$3,$4::jsonb,$5,$6)`,[tenantId,actorId,eventType,JSON.stringify(payload),previousHash,eventHash]);}
 function mergeProfile(current:ApplicationProfile,next:ApplicationProfile):ApplicationProfile{const deployment=next.deployment?{...current.deployment,...next.deployment}:current.deployment;return{...current,...next,...(deployment?{deployment}:{})};}
 function assertApplicationProfileComplete(profile:ApplicationProfile):void{if(!profile.officialEmailDomain)throw new Error('APPLICATION_OFFICIAL_EMAIL_DOMAIN_REQUIRED');if(!profile.deployment?.mode)throw new Error('APPLICATION_DEPLOYMENT_MODE_REQUIRED');}

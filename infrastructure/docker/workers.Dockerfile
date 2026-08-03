@@ -7,9 +7,13 @@ COPY apps ./apps
 COPY packages ./packages
 RUN npm run build
 
-FROM gcr.io/distroless/nodejs22-debian12:nonroot
+FROM node:22.16.0-bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends qpdf ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin kommunsign
 WORKDIR /app
-COPY --from=build /app/dist ./dist
-USER nonroot
+COPY --from=build --chown=10001:10001 /app/dist ./dist
+USER 10001
 ENV APP_ENV=production
 CMD ["dist/apps/workers/src/production-runner.js"]

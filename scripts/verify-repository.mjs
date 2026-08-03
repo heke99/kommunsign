@@ -72,7 +72,7 @@ if (!server.includes('x-kommunsign-application-token') || !server.includes('PATC
 const api = await readFile('docs/api/openapi.yaml', 'utf8');
 if (api.includes('tenantId:') && !api.includes('Tenant is derived')) throw new Error('OpenAPI may not accept arbitrary tenantId');
 if (!api.includes('additionalProperties: false')) throw new Error('Create payload must reject unknown fields');
-if ((api.match(/x-kommunsign-implementation-status: runtime/g) ?? []).length !== 16) throw new Error('OpenAPI must expose all sixteen required runtime operations');
+if ((api.match(/x-kommunsign-implementation-status: runtime/g) ?? []).length < 18) throw new Error('OpenAPI must expose all required runtime operations');
 if (api.includes('x-kommunsign-implementation-status: contract-only')) throw new Error('Required OpenAPI operations may not remain contract-only');
 for (const operation of ['createOnboardingApplication','submitOnboardingApplication','approveOnboardingApplication','provisionApprovedApplication','approveTenantActivation']) {
   if (!api.includes(`operationId: ${operation}`)) throw new Error(`OpenAPI onboarding operation missing: ${operation}`);

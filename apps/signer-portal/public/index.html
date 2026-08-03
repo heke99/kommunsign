@@ -1,1 +1,89 @@
-<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KommunSign – skriv under</title><link rel="stylesheet" href="app.css"><script src="app.js" defer></script></head><body><a class="skip-link" href="#content">Hoppa till innehåll</a><header><strong>Skriv under dokument</strong><span class="badge">Serververifierad status</span></header><main id="content"><section class="card"><h1>Öppna signeringsinbjudan</h1><p>Dokumentnamn och personuppgifter visas först efter att en tenant-, ärende- och signerarbunden engångstoken har verifierats av servern.</p><form id="invite-form"><label for="token">Inbjudningstoken</label><input id="token" type="password" autocomplete="one-time-code" minlength="64" required><label for="api-base">Signer-API</label><input id="api-base" value="http://127.0.0.1:8787"><button type="submit">Verifiera inbjudan</button></form><div id="status" class="status" aria-live="polite">Ingen token verifierad.</div><section id="signing" class="hidden" aria-labelledby="signing-title"><h2 id="signing-title">Signeringsavsikt</h2><p id="intent"></p><div class="actions"><button id="bankid" type="button" disabled>Starta BankID</button><button id="freja" type="button" disabled>Starta Freja</button><button id="decline" class="secondary" type="button">Avslå</button></div><p class="muted">Browsercallback får endast styra navigation. Statusen signed/completed sätts aldrig av den här sidan.</p></section></section></main></body></html>
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="light">
+  <title>Kommunsign – skriv under med BankID</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="qr.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#content">Hoppa till innehåll</a>
+<header><strong id="brand">Kommunsign</strong><span class="badge">BankID-baserad elektronisk underskrift</span></header>
+<main id="content">
+  <section class="card" id="loading-card">
+    <h1>Öppnar signeringsinbjudan</h1>
+    <p id="status" class="status" role="status" aria-live="polite">Inbjudan verifieras säkert.</p>
+  </section>
+
+  <section class="card hidden" id="invitation" aria-labelledby="case-title">
+    <p class="eyebrow" id="organization"></p>
+    <h1 id="case-title"></h1>
+    <dl class="summary">
+      <div><dt>Ärende</dt><dd id="case-reference"></dd></div>
+      <div><dt>Signerare</dt><dd id="signer-name"></dd></div>
+      <div><dt>Identitetsbindning</dt><dd id="binding-mode"></dd></div>
+      <div><dt>Inbjudan gäller till</dt><dd id="expires-at"></dd></div>
+    </dl>
+
+    <h2>Handlingar att granska</h2>
+    <p>Öppna varje handling och kontrollera innehållet innan BankID startas. Det är exakt dessa låsta PDF/A-2b-filer och deras SHA-256-hashar som binds till underskriften.</p>
+    <div id="documents" class="document-list"></div>
+
+    <details>
+      <summary>Visa exakt text som skickas till BankID</summary>
+      <pre id="visible-data"></pre>
+    </details>
+
+    <label class="check-row" for="reviewed">
+      <input id="reviewed" type="checkbox">
+      <span>Jag har granskat samtliga handlingar och vill underteckna dem elektroniskt.</span>
+    </label>
+    <div class="actions">
+      <button id="start" type="button" disabled>Starta BankID</button>
+      <button id="decline" class="secondary danger-text" type="button">Avböj underskrift</button>
+    </div>
+    <p id="action-status" class="status" role="status" aria-live="polite">Granska handlingarna och markera bekräftelsen.</p>
+  </section>
+
+  <section class="card hidden" id="bankid-panel" aria-labelledby="bankid-title">
+    <h2 id="bankid-title">Identifiera dig och skriv under</h2>
+    <div class="bankid-grid">
+      <div>
+        <h3>Annan enhet</h3>
+        <p>Öppna BankID i mobilen och skanna den animerade QR-koden.</p>
+        <div id="qr" class="qr" aria-live="off"></div>
+      </div>
+      <div>
+        <h3>Den här enheten</h3>
+        <p>Öppna BankID direkt på enheten där du läser handlingarna.</p>
+        <button id="same-device" type="button" disabled>Öppna BankID</button>
+        <div class="actions">
+          <button id="extend" class="secondary" type="button" disabled>Jag behöver mer tid</button>
+          <button id="cancel" class="secondary danger-text" type="button">Avbryt BankID</button>
+        </div>
+      </div>
+    </div>
+    <p id="bankid-status" class="status" role="status" aria-live="polite">BankID-session skapas.</p>
+  </section>
+
+  <section class="card hidden" id="completed" aria-labelledby="completed-title">
+    <h1 id="completed-title">Underskriften tas om hand</h1>
+    <p>BankID har slutförts. Kommunsign samlar nu in TIC:s XML-signatur och OCSP-svar, verifierar den signerade payloaden och bygger bevispaketet.</p>
+    <p class="status success">Stäng inte sidan förrän statusen är bekräftad. Ingen lokal knapp kan markera ärendet som signerat.</p>
+  </section>
+</main>
+<dialog id="decline-dialog">
+  <form method="dialog" id="decline-form">
+    <h2>Avböj underskrift</h2>
+    <p>Om du är obligatorisk signerare stoppas ärendet och senare signeringsgrupper aktiveras inte.</p>
+    <label for="decline-reason">Orsak, valfritt</label>
+    <textarea id="decline-reason" maxlength="1000"></textarea>
+    <div class="actions"><button value="confirm" class="danger">Bekräfta avböjning</button><button value="cancel" class="secondary">Gå tillbaka</button></div>
+  </form>
+</dialog>
+</body>
+</html>

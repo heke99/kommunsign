@@ -5,12 +5,24 @@ import { canonicalJson, type CanonicalJsonValue } from '../../../packages/crypto
 import { sha256Hex } from '../../../packages/crypto/src/hash.js';
 import { validateUploadMetadata } from '../../../packages/uploads/src/index.js';
 import { assertSafeWebhookUrl } from '../../../packages/webhooks/src/index.js';
+import { normalizeSwedishPersonalNumber, IDENTIFIER_BINDING_EXCEPTION_CODES } from '../../../packages/personal-number/src/index.js';
+declare const process: { readonly env: Readonly<Record<string, string | undefined>> };
+
 import type {
   AddDocumentInput, AddSignerInput, ApiDependencies, CreateCaseInput, DownloadArtifact,
   PageInput, TemplateInput, UploadGrantInput, WebhookEndpointInput,
 } from './ports.js';
 
 const MAX_JSON_BODY_BYTES = 128 * 1024;
+const MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
+const MAX_EVIDENCE_UPLOAD_BYTES = 250 * 1024 * 1024;
+const PUBLIC_SECURITY_HEADERS: Readonly<Record<string,string>> = {
+  'cache-control': 'no-store',
+  'content-security-policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  'x-content-type-options': 'nosniff',
+  'referrer-policy': 'no-referrer',
+  'cross-origin-resource-policy': 'same-site',
+};
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._~:+\/-]{16,200}$/;
@@ -118,6 +130,129 @@ async function readJson(request: Request, allowEmpty = false): Promise<unknown> 
   try { return JSON.parse(text); }
   catch { throw new ApiRequestError('INVALID_JSON', 'JSON payload is malformed', 400); }
 }
+async function readRawBody(request: Request, maximumBytes: number, requiredContentType?: string): Promise<Uint8Array> {
+  const contentLength = request.headers.get('content-length');
+  if (contentLength && Number(contentLength) > maximumBytes) throw new ApiRequestError('PAYLOAD_TOO_LARGE', 'Request payload is too large', 413);
+  if (requiredContentType) {
+    const actual = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+    if (actual !== requiredContentType) throw new ApiRequestError('UNSUPPORTED_MEDIA_TYPE', `Content-Type must be ${requiredContentType}`, 415);
+  }
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > maximumBytes) throw new ApiRequestError('PAYLOAD_TOO_LARGE', 'Request payload is too large', 413);
+  return bytes;
+}
+function publicJson(body: unknown, requestId: string, status = 200): Response {
+  return json(body, status, { ...PUBLIC_SECURITY_HEADERS, 'x-request-id': requestId });
+}
+function normalizedHeaders(request: Request): Readonly<Record<string,string|undefined>> {
+  const headers: Record<string,string> = {};
+  request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
+  return headers;
+}
+function requirePublicToken(value: string | undefined): string {
+  if (!value || !/^[A-Za-z0-9_-]{43,512}$/.test(value)) throw new ApiRequestError('INVITATION_INVALID', 'Signing invitation is invalid', 404);
+  return value;
+}
+function requirePublicSessionId(value: string | undefined): string {
+  if (!value || !/^[A-Za-z0-9._:-]{8,256}$/.test(value)) throw new ApiRequestError('TIC_SESSION_NOT_FOUND', 'BankID session was not found', 404);
+  return value;
+}
+function assertPublicHost(request: Request, category: 'sign'|'hooks'|'verify'): void {
+  if (process.env.APP_ENV !== 'production') return;
+  const hostname = new URL(request.url).hostname.toLowerCase();
+  const candidates = category === 'hooks'
+    ? [process.env.WEBHOOK_BASE_URL]
+    : category === 'verify'
+      ? [process.env.API_BASE_URL, process.env.VERIFICATION_PORTAL_URL]
+      : [process.env.API_BASE_URL, process.env.SIGNER_FALLBACK_URL];
+  const allowed = new Set(candidates.filter(Boolean).map((value) => new URL(value as string).hostname.toLowerCase()));
+  if (!allowed.has(hostname)) throw new ApiRequestError('HOST_NOT_ALLOWED', 'Host is not allowed for this endpoint', 421);
+}
+async function handlePublicRequest(dependencies: ApiDependencies, request: Request, requestId: string): Promise<Response | null> {
+  const url = new URL(request.url);
+  const invitationMatch = url.pathname.match(/^\/v1\/public\/signing-invitations\/([^/]+)$/);
+  if (invitationMatch?.[1]) {
+    assertPublicHost(request, 'sign');
+    if (!dependencies.publicSigning) throw new ApiRequestError('PUBLIC_SIGNING_NOT_CONFIGURED', 'Public signing is not configured', 503);
+    const token = requirePublicToken(invitationMatch[1]);
+    if (request.method === 'GET') return publicJson(await dependencies.publicSigning.getInvitation(token), requestId);
+  }
+  const openedMatch = url.pathname.match(/^\/v1\/public\/signing-invitations\/([^/]+)\/opened$/);
+  if (openedMatch?.[1] && request.method === 'POST') {
+    assertPublicHost(request, 'sign');
+    if (!dependencies.publicSigning) throw new ApiRequestError('PUBLIC_SIGNING_NOT_CONFIGURED', 'Public signing is not configured', 503);
+    await readJson(request, true);
+    return publicJson(await dependencies.publicSigning.markOpened(requirePublicToken(openedMatch[1])), requestId);
+  }
+  const documentMatch = url.pathname.match(/^\/v1\/public\/signing-invitations\/([^/]+)\/documents\/([^/]+)$/);
+  if (documentMatch?.[1] && documentMatch[2] && request.method === 'GET') {
+    assertPublicHost(request, 'sign');
+    if (!dependencies.publicSigning) throw new ApiRequestError('PUBLIC_SIGNING_NOT_CONFIGURED', 'Public signing is not configured', 503);
+    const artifact = await dependencies.publicSigning.document(requirePublicToken(documentMatch[1]), requireUuid(documentMatch[2], 'documentId'));
+    return artifactResponse(artifact, requestId);
+  }
+  const startMatch = url.pathname.match(/^\/v1\/public\/signing-invitations\/([^/]+)\/bankid\/start$/);
+  if (startMatch?.[1] && request.method === 'POST') {
+    assertPublicHost(request, 'sign');
+    if (!dependencies.publicSigning) throw new ApiRequestError('PUBLIC_SIGNING_NOT_CONFIGURED', 'Public signing is not configured', 503);
+    const body = await readJson(request); assertPlainObject(body); assertAllowedKeys(body, ['reviewAcknowledged']);
+    if (body.reviewAcknowledged !== true) throw new ApiRequestError('DOCUMENT_REVIEW_REQUIRED', 'Documents must be reviewed before BankID starts', 422);
+    const endUserIp = request.headers.get('x-kommunsign-end-user-ip');
+    if (!endUserIp) throw new ApiRequestError('TRUSTED_CLIENT_IP_REQUIRED', 'Trusted client IP is unavailable', 503);
+    const userAgent = request.headers.get('user-agent')?.slice(0, 512) || 'unknown';
+    return publicJson(await dependencies.publicSigning.startBankId(requirePublicToken(startMatch[1]), { reviewAcknowledged: true, endUserIp, userAgent }), requestId, 201);
+  }
+  const sessionMatch = url.pathname.match(/^\/v1\/public\/signing-invitations\/([^/]+)\/bankid\/sessions\/([^/]+)$/);
+  if (sessionMatch?.[1] && sessionMatch[2]) {
+    assertPublicHost(request, 'sign');
+    if (!dependencies.publicSigning) throw new ApiRequestError('PUBLIC_SIGNING_NOT_CONFIGURED', 'Public signing is not configured', 503);
+    const token = requirePublicToken(sessionMatch[1]); const sessionId = requirePublicSessionId(sessionMatch[2]);
+    if (request.method === 'GET') return publicJson(await dependencies.publicSigning.bankIdStatus(token, sessionId), requestId);
+    if (request.method === 'DELETE') return publicJson(await dependencies.publicSigning.cancelBankId(token, sessionId), requestId);
+  }
+  const extendMatch = url.pathname.match(/^\/v1\/public\/signing-invitations\/([^/]+)\/bankid\/sessions\/([^/]+)\/extend$/);
+  if (extendMatch?.[1] && extendMatch[2] && request.method === 'POST') {
+    assertPublicHost(request, 'sign');
+    if (!dependencies.publicSigning) throw new ApiRequestError('PUBLIC_SIGNING_NOT_CONFIGURED', 'Public signing is not configured', 503);
+    await readJson(request, true);
+    return publicJson(await dependencies.publicSigning.extendBankId(requirePublicToken(extendMatch[1]), requirePublicSessionId(extendMatch[2])), requestId);
+  }
+  const declineMatch = url.pathname.match(/^\/v1\/public\/signing-invitations\/([^/]+)\/decline$/);
+  if (declineMatch?.[1] && request.method === 'POST') {
+    assertPublicHost(request, 'sign');
+    if (!dependencies.publicSigning) throw new ApiRequestError('PUBLIC_SIGNING_NOT_CONFIGURED', 'Public signing is not configured', 503);
+    const body = await readJson(request, true); assertPlainObject(body); assertAllowedKeys(body, ['reason']);
+    const reason = body.reason === undefined ? undefined : requireString(body.reason, 'reason', 1, 1_000);
+    return publicJson(await dependencies.publicSigning.decline(requirePublicToken(declineMatch[1]), reason), requestId);
+  }
+  if (url.pathname === '/v1/provider-webhooks/tic/bankid' && request.method === 'POST') {
+    assertPublicHost(request, 'hooks');
+    if (!dependencies.providerWebhooks) throw new ApiRequestError('PROVIDER_WEBHOOKS_NOT_CONFIGURED', 'Provider webhooks are not configured', 503);
+    const rawBody = await readRawBody(request, MAX_WEBHOOK_BODY_BYTES, 'application/json');
+    return publicJson(await dependencies.providerWebhooks.tic({ rawBody, headers: normalizedHeaders(request), receivedAt: new Date().toISOString() }), requestId, 202);
+  }
+  if (url.pathname === '/v1/provider-webhooks/resend' && request.method === 'POST') {
+    assertPublicHost(request, 'hooks');
+    if (!dependencies.providerWebhooks) throw new ApiRequestError('PROVIDER_WEBHOOKS_NOT_CONFIGURED', 'Provider webhooks are not configured', 503);
+    const rawBody = await readRawBody(request, MAX_WEBHOOK_BODY_BYTES, 'application/json');
+    return publicJson(await dependencies.providerWebhooks.resend({ rawBody, headers: normalizedHeaders(request), receivedAt: new Date().toISOString() }), requestId, 202);
+  }
+  const verificationMatch = url.pathname.match(/^\/v1\/public\/verifications\/([^/]+)$/);
+  if (verificationMatch?.[1] && request.method === 'GET') {
+    assertPublicHost(request, 'verify');
+    if (!dependencies.publicVerification) throw new ApiRequestError('PUBLIC_VERIFICATION_NOT_CONFIGURED', 'Public verification is not configured', 503);
+    const result = await dependencies.publicVerification.get(verificationMatch[1]);
+    return result ? publicJson(result, requestId) : publicJson({ error: { code: 'NOT_FOUND', message: 'Verification was not found', requestId } }, requestId, 404);
+  }
+  if (url.pathname === '/v1/public/verifications/packages/verify' && request.method === 'POST') {
+    assertPublicHost(request, 'verify');
+    if (!dependencies.publicVerification) throw new ApiRequestError('PUBLIC_VERIFICATION_NOT_CONFIGURED', 'Public verification is not configured', 503);
+    const bytes = await readRawBody(request, MAX_EVIDENCE_UPLOAD_BYTES, 'application/zip');
+    return publicJson(await dependencies.publicVerification.verifyPackage(bytes), requestId);
+  }
+  return null;
+}
+
 function parseCreateCaseInput(value: unknown): CreateCaseInput {
   assertPlainObject(value);
   assertAllowedKeys(value, ['externalReference', 'title', 'decisionMode', 'signaturePolicyId']);
@@ -139,20 +274,33 @@ function parseAddDocumentInput(value: unknown): AddDocumentInput {
 }
 function parseAddSignerInput(value: unknown): AddSignerInput {
   assertPlainObject(value);
-  assertAllowedKeys(value, ['displayName', 'recipientReference', 'identifierType', 'required', 'signingOrder']);
-  const displayName = optionalString(value.displayName, 'displayName', 1, 200);
-  const signingOrder = optionalPositiveInteger(value.signingOrder, 'signingOrder');
-  const allowedIdentifierTypes = ['SSN', 'UPI', 'EMAIL', 'PHONE', 'INFERRED'];
-  if (value.identifierType !== undefined && (typeof value.identifierType !== 'string' || !allowedIdentifierTypes.includes(value.identifierType))) {
-    throw new ApiRequestError('VALIDATION_ERROR', 'identifierType is invalid', 422, { field: 'identifierType' });
+  assertAllowedKeys(value, ['displayName', 'email', 'personalNumber', 'requirePersonalNumberMatch', 'personalNumberException', 'required', 'signingOrder']);
+  const displayName = requireString(value.displayName, 'displayName', 1, 200);
+  const email = requireString(value.email, 'email', 3, 320).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ApiRequestError('VALIDATION_ERROR', 'email is invalid', 422, { field: 'email' });
+  const requirePersonalNumberMatch = requireBoolean(value.requirePersonalNumberMatch, 'requirePersonalNumberMatch');
+  let personalNumber: string | null = null;
+  if (value.personalNumber !== null && value.personalNumber !== undefined) {
+    try { personalNumber = normalizeSwedishPersonalNumber(requireString(value.personalNumber, 'personalNumber', 10, 14)); }
+    catch { throw new ApiRequestError('PERSONAL_NUMBER_INVALID', 'Personal number is invalid', 422, { field: 'personalNumber' }); }
   }
-  const identifierType = value.identifierType as 'SSN' | 'UPI' | 'EMAIL' | 'PHONE' | 'INFERRED' | undefined;
+  let personalNumberException: AddSignerInput['personalNumberException'] = null;
+  if (value.personalNumberException !== null && value.personalNumberException !== undefined) {
+    assertPlainObject(value.personalNumberException);
+    assertAllowedKeys(value.personalNumberException, ['code', 'reason']);
+    if (typeof value.personalNumberException.code !== 'string' || !IDENTIFIER_BINDING_EXCEPTION_CODES.includes(value.personalNumberException.code as never)) {
+      throw new ApiRequestError('PERSONAL_NUMBER_EXCEPTION_NOT_ALLOWED', 'Personal number exception code is invalid', 422);
+    }
+    const reason = value.personalNumberException.reason === null || value.personalNumberException.reason === undefined
+      ? undefined : requireString(value.personalNumberException.reason, 'reason', 1, 2_000);
+    personalNumberException = { code: value.personalNumberException.code as NonNullable<AddSignerInput['personalNumberException']>['code'], ...(reason ? { reason } : {}) };
+  }
+  if (personalNumber && (!requirePersonalNumberMatch || personalNumberException)) throw new ApiRequestError('PERSONAL_NUMBER_INVALID', 'Strict binding cannot include an exception', 422);
+  if (!personalNumber && (requirePersonalNumberMatch || !personalNumberException)) throw new ApiRequestError('PERSONAL_NUMBER_REQUIRED', 'A valid personal number or authorized exception is required', 422);
+  if (personalNumberException?.code === 'OTHER' && !personalNumberException.reason) throw new ApiRequestError('PERSONAL_NUMBER_EXCEPTION_REASON_REQUIRED', 'A reason is required for OTHER', 422);
   return {
-    recipientReference: requireString(value.recipientReference, 'recipientReference', 16, 300),
-    required: requireBoolean(value.required, 'required'),
-    ...(displayName ? { displayName } : {}),
-    ...(identifierType ? { identifierType } : {}),
-    ...(signingOrder ? { signingOrder } : {}),
+    displayName, email, personalNumber, requirePersonalNumberMatch, personalNumberException,
+    required: requireBoolean(value.required, 'required'), signingOrder: optionalPositiveInteger(value.signingOrder, 'signingOrder') ?? 1,
   };
 }
 function parseUploadInput(value: unknown): UploadGrantInput {
@@ -220,6 +368,29 @@ function mapKnownError(cause: unknown): ApiRequestError | null {
     VALIDATION_SERVICE_NOT_CONFIGURED: [503, 'VALIDATION_SERVICE_NOT_CONFIGURED'],
     EVIDENCE_PACKAGE_NOT_READY: [409, 'EVIDENCE_PACKAGE_NOT_READY'],
     NOT_FOUND: [404, 'NOT_FOUND'],
+    PERSONAL_NUMBER_REQUIRED: [422, 'PERSONAL_NUMBER_REQUIRED'],
+    PERSONAL_NUMBER_INVALID: [422, 'PERSONAL_NUMBER_INVALID'],
+    PERSONAL_NUMBER_EXCEPTION_NOT_ALLOWED: [403, 'PERSONAL_NUMBER_EXCEPTION_NOT_ALLOWED'],
+    PERSONAL_NUMBER_EXCEPTION_REASON_REQUIRED: [422, 'PERSONAL_NUMBER_EXCEPTION_REASON_REQUIRED'],
+    DOCUMENT_NOT_READY: [409, 'DOCUMENT_NOT_READY'],
+    CASE_SEND_EVIDENCE_INCOMPLETE: [409, 'CASE_SEND_EVIDENCE_INCOMPLETE'],
+    UPLOAD_NOT_CONFIRMED: [409, 'UPLOAD_NOT_CONFIRMED'],
+    UPLOAD_OBJECT_MISMATCH: [422, 'UPLOAD_OBJECT_MISMATCH'],
+    INVITATION_INVALID: [404, 'INVITATION_INVALID'],
+    INVITATION_EXPIRED: [410, 'INVITATION_EXPIRED'],
+    INVITATION_REVOKED: [410, 'INVITATION_REVOKED'],
+    DOCUMENT_REVIEW_REQUIRED: [422, 'DOCUMENT_REVIEW_REQUIRED'],
+    SIGNING_ORDER_BLOCKED: [409, 'SIGNING_ORDER_BLOCKED'],
+    SIGNING_INTENT_NOT_READY: [409, 'SIGNING_INTENT_NOT_READY'],
+    TIC_NOT_CONFIGURED: [503, 'TIC_NOT_CONFIGURED'],
+    TIC_SESSION_NOT_FOUND: [404, 'TIC_SESSION_NOT_FOUND'],
+    TIC_SESSION_EXTENSION_ALREADY_USED: [409, 'TIC_SESSION_EXTENSION_ALREADY_USED'],
+    TIC_WEBHOOK_SIGNATURE_INVALID: [401, 'TIC_WEBHOOK_SIGNATURE_INVALID'],
+    TIC_WEBHOOK_EVENT_UNSUPPORTED: [422, 'TIC_WEBHOOK_EVENT_UNSUPPORTED'],
+    TIC_WEBHOOK_TRANSACTION_NOT_FOUND: [404, 'TIC_WEBHOOK_TRANSACTION_NOT_FOUND'],
+    EMAIL_PROVIDER_NOT_CONFIGURED: [503, 'EMAIL_PROVIDER_NOT_CONFIGURED'],
+    EMAIL_MESSAGE_NOT_FOUND: [404, 'EMAIL_MESSAGE_NOT_FOUND'],
+    HOST_NOT_ALLOWED: [421, 'HOST_NOT_ALLOWED'],
   };
   const mapped = mappings[cause.message];
   return mapped ? new ApiRequestError(mapped[1], mapped[1].replace(/_/g, ' '), mapped[0]) : null;
@@ -229,6 +400,8 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
   return async (request: Request): Promise<Response> => {
     const requestId = requestIdFrom(request);
     try {
+      const publicResponse = await handlePublicRequest(dependencies, request, requestId);
+      if (publicResponse) return publicResponse;
       const onboardingResponse = await handleOnboardingRequest(dependencies, request, requestId);
       if (onboardingResponse) return onboardingResponse;
       const context = await dependencies.resolveContext(request);
@@ -249,6 +422,14 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
         const idempotencyKey = requireIdempotencyKey(request);
         const input = parseUploadInput(await readJson(request));
         return json(await dependencies.uploads.create(context, input, idempotencyKey, await canonicalPayloadHash(input)), 201, { 'x-request-id': requestId });
+      }
+      const uploadCompleteMatch = url.pathname.match(/^\/v1\/uploads\/([^/]+)\/complete$/);
+      if (request.method === 'POST' && uploadCompleteMatch?.[1]) {
+        await authorize(dependencies, context, 'upload:create');
+        const uploadId = requireUuid(uploadCompleteMatch[1], 'uploadId');
+        const idempotencyKey = requireIdempotencyKey(request);
+        const payload = { operation: 'complete', uploadId };
+        return json(await dependencies.uploads.complete(context, uploadId, idempotencyKey, await canonicalPayloadHash(payload)), 200, { 'x-request-id': requestId });
       }
       if (request.method === 'POST' && url.pathname === '/v1/webhook-endpoints') {
         await authorize(dependencies, context, 'webhook:manage');
@@ -286,8 +467,22 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
       if (id && request.method === 'POST' && url.pathname === `/v1/signature-cases/${id}/signers`) {
         await authorize(dependencies, context, 'signer:add');
         const key = requireIdempotencyKey(request);
-        const input = parseAddSignerInput(await readJson(request));
-        return json(await dependencies.cases.addSigner(context, id, input, key, await canonicalPayloadHash(input)), 201, { 'x-request-id': requestId });
+        const parsed = parseAddSignerInput(await readJson(request));
+        const input = parsed.personalNumberException
+          ? (await authorize(dependencies, context, 'signer:personnummer-binding-exempt'), { ...parsed, exceptionPermissionGranted: true as const })
+          : parsed;
+        return json(await dependencies.cases.addSigner(context, id, input, key, await canonicalPayloadHash(parsed)), 201, { 'x-request-id': requestId });
+      }
+      const signerPatchMatch = id ? url.pathname.match(new RegExp(`^/v1/signature-cases/${id}/signers/([^/]+)$`)) : null;
+      if (id && request.method === 'PATCH' && signerPatchMatch?.[1]) {
+        await authorize(dependencies, context, 'signer:add');
+        const signerId = requireUuid(signerPatchMatch[1], 'signerId');
+        const key = requireIdempotencyKey(request);
+        const parsed = parseAddSignerInput(await readJson(request));
+        const input = parsed.personalNumberException
+          ? (await authorize(dependencies, context, 'signer:personnummer-binding-exempt'), { ...parsed, exceptionPermissionGranted: true as const })
+          : parsed;
+        return json(await dependencies.cases.updateSigner(context, id, signerId, input, key, await canonicalPayloadHash(parsed), expectedVersion(request)), 200, { 'x-request-id': requestId });
       }
       if (id && request.method === 'POST' && url.pathname === `/v1/signature-cases/${id}/send`) {
         await authorize(dependencies, context, 'case:send');

@@ -1,0 +1,135 @@
+KOMMUNSIGN BANKID PRODUCTION — VERIFICATION RESULTS
+Date: 2026-08-03
+Node: v22.16.0
+TypeScript used for direct verification: 5.8.3
+
+PASS — direct compile, portal build and unit tests
+Command:
+  rm -rf dist && tsc -p tsconfig.json && node scripts/build-portals.mjs && node tests/run.mjs
+Result:
+  portal build: 5 portals
+  28 tests passed
+
+PASS — integration
+Command:
+  node tests/integration.mjs
+Result:
+  tenant-scoped API flow and transaction context passed
+  onboarding application, review, provisioning and fail-closed activation passed
+
+PASS — security
+Command:
+  node tests/security.mjs
+Result:
+  branding, SSRF, domains, uploads, invitations and OIDC passed
+
+PASS — SQL static migration verification
+Command:
+  node scripts/check-sql-migrations.mjs
+Result:
+  SQL migration verification: OK
+
+PASS — repository verification
+Command:
+  node scripts/verify-repository.mjs
+Result:
+  repository verification: OK
+
+PASS — provenance
+Command:
+  node scripts/check-provenance.mjs
+Result:
+  provenance verification: OK (0 donor LOC, 8 pinned donors, 0 mapped imports)
+
+PASS — secret scan
+Command:
+  node scripts/scan-secrets.mjs
+Result:
+  secret scan: OK
+
+PASS — SDK sync
+Command:
+  node scripts/verify-sdk-sync.mjs
+Result:
+  SDK sync verification: 2026-08-03.1
+
+PASS — Java boundary services and verifier self-test
+Command:
+  bash scripts/build-java.sh
+Result:
+  Freja JWS verifier self-test: OK
+  java boundary services and SDK: OK
+
+PASS — deterministic evidence fixture
+Command:
+  tsc -p tsconfig.json && node scripts/verify-evidence-fixtures.mjs
+Result:
+  evidence fixture verification: OK
+  package SHA-256: 097112812b6ff7ad54e73744091bbba6768f484050c76f52a546ad4d39d8fb92
+  modified archive rejected
+
+BLOCKED — clean dependency installation
+Command:
+  npm ci
+Exit:
+  1
+Reason:
+  Internal npm registry mirror returned HTTP 404 for the locked artifact:
+  postgres-3.4.7.tgz
+  This is an environment/registry blocker; the dependency was not changed to bypass the lock.
+
+BLOCKED — aggregate npm verification
+Command:
+  npm run verify
+Exit:
+  1
+Reason:
+  check-toolchain correctly stopped because local dependencies are absent after the blocked npm ci.
+  No claim is made that the clean-install aggregate command passed.
+
+BLOCKED — production service health
+Command:
+  node scripts/verify-production-services.mjs
+Exit:
+  2
+Result:
+  CLAMAV: connection refused / service not running
+  QPDF: executable missing
+  GOTENBERG: URL/service not configured in this execution environment
+  VERAPDF: health URL/service not configured
+  EVIDENCE_VERIFIER: URL/service not configured
+Environment facts:
+  docker: missing
+  psql: missing
+  qpdf: missing
+  clamdscan: missing
+  java/javac: available
+
+BLOCKED — browser E2E
+Command:
+  node scripts/test-category.mjs e2e
+Exit:
+  2
+Result:
+  E2E_TEST_ENVIRONMENT_NOT_CONFIGURED
+  The repository did not fabricate a passing result.
+
+BLOCKED — accessibility environment
+Command:
+  node scripts/test-category.mjs accessibility
+Exit:
+  2
+Result:
+  ACCESSIBILITY_TEST_ENVIRONMENT_NOT_CONFIGURED
+  The repository did not fabricate a passing result.
+
+NOT EXECUTED — external live checks
+- TIC production API/QR/same-device/collect/webhook with real credentials and consenting test participants.
+- Resend sender DNS, message delivery and webhook with real credentials.
+- Empty and upgraded PostgreSQL migration rehearsal.
+- ClamAV infected fixture, Gotenberg conversion and veraPDF pass/fail fixtures in containers.
+- Vercel wildcard/TLS and trusted proxy verification.
+- Supabase private bucket/RLS verification against a linked production-like project.
+
+FINAL LOCAL ASSESSMENT
+The executable repository checks available in this environment pass. External service, clean-registry, database/container and live-provider acceptance remain explicit fail-closed release blockers.

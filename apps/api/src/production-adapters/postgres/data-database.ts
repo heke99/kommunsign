@@ -1,6 +1,9 @@
 import type { TenantContext, DomainEvent, SignatureCaseStatus } from '../../../../../packages/contracts/src/index.js';
 import { withTenantTransaction, type SqlDatabase, type SqlTransaction } from '../../../../../packages/database/src/index.js';
 import { sha256Hex } from '../../../../../packages/crypto/src/hash.js';
+import { canonicalJson } from '../../../../../packages/crypto/src/canonical-json.js';
+import { randomToken } from '../../../../../packages/crypto/src/tokens.js';
+import { decideIdentifierBinding, maskSwedishPersonalNumber } from '../../../../../packages/personal-number/src/index.js';
 import { assertSafeWebhookUrl } from '../../../../../packages/webhooks/src/index.js';
 import type {
   AddDocumentInput, AddSignerInput, CaseRepository, CreateCaseInput, DocumentView, EventRepository,
@@ -96,36 +99,117 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
         const row = requireRow(version.rows[0], 'DOCUMENT_VERSION_INSERT_FAILED');
         const view: DocumentView = { id: documentId, signatureCaseId: id, displayName: input.displayName, status: normalizeDocumentStatus(row.status), sha256: row.sha256, byteSize: Number(row.byte_size), mimeType: row.mime_type };
         await appendOutbox(transaction, context.tenantId, 'document', documentId, 'document.quarantined', { signatureCaseId: id, documentId, documentVersionId: row.id });
+        await enqueueDurableJob(transaction, context.tenantId, 'DOCUMENT_SCAN', `document-scan:${row.id}`, { signatureCaseId:id,documentId,documentVersionId:row.id });
         return view;
       }));
     },
     async addSigner(context, id, input, key, payloadHash) {
       return tenantTx(database, context, async (transaction) => idempotent(transaction, context.tenantId, `case:${id}:signer`, key, payloadHash, async () => {
         await requireCase(transaction, context.tenantId, id, ['draft','preparing','ready']);
-        const inserted = await transaction.query<SignerRow>(
-          `insert into app.signers
-             (tenant_id, signature_case_id, display_name, recipient_reference, expected_identifier_type, status, signing_order, required)
-           values ($1,$2,$3,$4,$5,'pending',$6,$7)
-           returning id, signature_case_id, display_name, recipient_reference, status::text as status, signing_order, required`,
-          [context.tenantId, id, input.displayName ? cleanText(input.displayName, 1, 200) : null, cleanText(input.recipientReference, 8, 512), input.identifierType ?? null, input.signingOrder ?? null, input.required],
+        const view = await insertOrUpdateSigner(transaction, infrastructure, context, id, null, input);
+        await appendOutbox(transaction, context.tenantId, 'signer', view.id, 'signer.added', { signatureCaseId: id, signerId: view.id, identifierBindingMode: view.identifierBindingMode });
+        if (view.identifierBindingMode === 'BANKID_DISCOVERED') {
+          await appendOutbox(transaction, context.tenantId, 'signer', view.id, 'signer.identifier_binding_exception_used', { signatureCaseId: id, signerId: view.id, code: view.identifierBindingExceptionCode });
+        }
+        return view;
+      }));
+    },
+    async updateSigner(context, id, signerId, input, key, payloadHash, expectedVersion) {
+      return tenantTx(database, context, async (transaction) => idempotent(transaction, context.tenantId, `case:${id}:signer:${signerId}:update`, key, payloadHash, async () => {
+        await requireCase(transaction, context.tenantId, id, ['draft','preparing','ready']);
+        const current = await transaction.query<{ readonly status: string; readonly status_version: number|string }>(
+          `select status::text as status,status_version from app.signers where tenant_id=$1 and signature_case_id=$2 and id=$3 for update`,
+          [context.tenantId,id,signerId],
         );
-        const view = signerView(requireRow(inserted.rows[0], 'SIGNER_INSERT_FAILED'));
-        await appendOutbox(transaction, context.tenantId, 'signer', view.id, 'signer.added', { signatureCaseId: id, signerId: view.id });
+        const row = requireRow(current.rows[0], 'NOT_FOUND');
+        if (row.status !== 'pending') throw new Error('SIGNER_NOT_EDITABLE');
+        if (expectedVersion !== undefined && Number(row.status_version) !== expectedVersion) throw new Error('RESOURCE_VERSION_CONFLICT');
+        const view = await insertOrUpdateSigner(transaction, infrastructure, context, id, signerId, input);
+        await appendOutbox(transaction, context.tenantId, 'signer', view.id, 'signer.updated', { signatureCaseId: id, signerId: view.id, identifierBindingMode: view.identifierBindingMode });
         return view;
       }));
     },
     async send(context, id, key, payloadHash, expectedVersion) {
       return transitionCase(database, context, id, 'sent', key, payloadHash, expectedVersion, async (transaction, current) => {
         if (!['draft','ready'].includes(current.status)) throw new Error('CASE_NOT_SENDABLE');
-        const evidence = await transaction.query<{ readonly documents_ready: boolean; readonly signer_ready: boolean }>(
-          `select
-             exists(select 1 from app.documents d join app.document_versions v on v.tenant_id=d.tenant_id and v.document_id=d.id
-                     where d.tenant_id=$1 and d.signature_case_id=$2 and v.status='ready') as documents_ready,
-             exists(select 1 from app.signers s where s.tenant_id=$1 and s.signature_case_id=$2 and s.required) as signer_ready`,
-          [context.tenantId, id],
+        const details = await transaction.query<CaseSigningRow>(
+          `select c.id,c.external_reference,c.title,c.policy_id,c.policy_version,o.legal_name as organization_name
+             from app.signature_cases c
+             left join app.organizations o on o.tenant_id=c.tenant_id
+            where c.tenant_id=$1 and c.id=$2 order by o.created_at limit 1`, [context.tenantId,id],
         );
-        const row = requireRow(evidence.rows[0], 'CASE_SEND_EVIDENCE_FAILED');
-        if (!row.documents_ready || !row.signer_ready) throw new Error('CASE_SEND_EVIDENCE_INCOMPLETE');
+        const caseDetails = requireRow(details.rows[0], 'CASE_SEND_EVIDENCE_FAILED');
+        const documents = await transaction.query<SigningDocumentRow>(
+          `select d.id as document_id,v.id as document_version_id,d.display_name,v.sha256,v.mime_type,v.byte_size
+             from app.documents d join app.document_versions v on v.tenant_id=d.tenant_id and v.document_id=d.id
+            where d.tenant_id=$1 and d.signature_case_id=$2
+            order by d.created_at,d.id,v.version desc`, [context.tenantId,id],
+        );
+        if (!documents.rows.length || documents.rows.length > 20 || documents.rows.some((document) => !document.sha256 || document.mime_type!=='application/pdf')) throw new Error('DOCUMENT_NOT_READY');
+        const notReady = await transaction.query<{ readonly count: number|string }>(
+          `select count(*) as count from app.documents d join app.document_versions v on v.tenant_id=d.tenant_id and v.document_id=d.id
+            where d.tenant_id=$1 and d.signature_case_id=$2 and v.status<>'ready'`, [context.tenantId,id],
+        );
+        if (Number(notReady.rows[0]?.count ?? 0) !== 0) throw new Error('DOCUMENT_NOT_READY');
+        const signers = await transaction.query<SigningSignerRow>(
+          `select id,display_name,email_ciphertext,identifier_binding_mode,identifier_binding_exception_code,signing_order,required
+             from app.signers where tenant_id=$1 and signature_case_id=$2 order by signing_order,id for update`, [context.tenantId,id],
+        );
+        if (!signers.rows.some((signer) => signer.required) || signers.rows.some((signer) => !signer.email_ciphertext || !signer.identifier_binding_mode)) throw new Error('CASE_SEND_EVIDENCE_INCOMPLETE');
+        await transaction.query(
+          `update app.document_versions v set status='locked',locked_at=now()
+            from app.documents d where d.tenant_id=v.tenant_id and d.id=v.document_id and d.tenant_id=$1 and d.signature_case_id=$2 and v.status='ready'`,
+          [context.tenantId,id],
+        );
+        const firstGroup = Math.min(...signers.rows.map((signer) => signer.signing_order));
+        const issuedAt = new Date();
+        const expiresAt = new Date(issuedAt.getTime() + 60 * 60 * 1000);
+        for (const signer of signers.rows) {
+          const signingIntentId = crypto.randomUUID();
+          const snapshots = documents.rows.map((document, index) => ({
+            ordinal:index+1,documentId:document.document_id,documentVersionId:document.document_version_id,
+            displayName:document.display_name,mimeType:'application/pdf' as const,profile:'PDF/A-2b' as const,
+            byteSize:Number(document.byte_size),sha256:document.sha256,
+          }));
+          const visibleText = buildBankIdVisibleText(caseDetails, snapshots);
+          const payload = canonicalJson({
+            schema:'kommunsign.bankid-evidence.v2',tenantId:context.tenantId,signatureCaseId:id,signingIntentId,signerId:signer.id,
+            identifierBindingMode:signer.identifier_binding_mode,identifierBindingExceptionCode:signer.identifier_binding_exception_code ?? null,
+            signaturePolicyId:caseDetails.policy_id,signaturePolicyVersion:caseDetails.policy_version,documents:snapshots,
+            nonce:randomToken(32),issuedAt:issuedAt.toISOString(),expiresAt:expiresAt.toISOString(),
+          });
+          await transaction.query(
+            `insert into app.signing_intents(tenant_id,id,signature_case_id,signer_id,sequence_group,visible_text,visible_text_sha256,non_visible_payload,non_visible_payload_sha256,evidence_schema_version,identifier_binding_mode,status,issued_at,expires_at)
+             values($1,$2,$3,$4,$5,$6,$7,$8,$9,'kommunsign.bankid-evidence.v2',$10,'prepared',$11,$12)`,
+            [context.tenantId,signingIntentId,id,signer.id,signer.signing_order,visibleText,await sha256Hex(visibleText),payload,await sha256Hex(payload),signer.identifier_binding_mode,issuedAt.toISOString(),expiresAt.toISOString()],
+          );
+          for (const document of snapshots) await transaction.query(
+            `insert into app.signing_intent_documents(tenant_id,signing_intent_id,document_version_id,ordinal,document_sha256,display_name_snapshot,mime_type_snapshot,profile_snapshot,byte_size_snapshot)
+             values($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [context.tenantId,signingIntentId,document.documentVersionId,document.ordinal,document.sha256,document.displayName,document.mimeType,document.profile,document.byteSize],
+          );
+          if (signer.signing_order === firstGroup) {
+            const invitationId = crypto.randomUUID();
+            const token = randomToken(32);
+            const tokenHash = await infrastructure.sensitiveData.blindIndex(token, 'signer.invitation_token');
+            await transaction.query(
+              `insert into app.signer_invitations(tenant_id,id,signer_id,token_hash,expires_at) values($1,$2,$3,$4,$5)`,
+              [context.tenantId,invitationId,signer.id,tokenHash,expiresAt.toISOString()],
+            );
+            const messageId = crypto.randomUUID();
+            const messagePayload = JSON.stringify({ invitationToken:token,signerId:signer.id,signatureCaseId:id,tenantId:context.tenantId,expiresAt:expiresAt.toISOString() });
+            const encryptedPayload = await infrastructure.sensitiveData.encryptText(messagePayload, 'email.signature_invitation');
+            await transaction.query(
+              `insert into app.email_messages(tenant_id,id,signer_id,signature_case_id,template_key,template_version,locale,recipient_ciphertext,message_payload_ciphertext,payload_sha256,idempotency_key)
+               values($1,$2,$3,$4,'signature_invitation',1,'sv-SE',$5,$6,$7,$8)`,
+              [context.tenantId,messageId,signer.id,id,signer.email_ciphertext,encryptedPayload,await sha256Hex(messagePayload),`signature-invitation:${invitationId}`],
+            );
+            await enqueueDurableJob(transaction, context.tenantId, 'EMAIL_SEND', `email:${messageId}`, { emailMessageId:messageId });
+            await transaction.query(`update app.signers set status='invited',status_version=status_version+1 where tenant_id=$1 and id=$2`,[context.tenantId,signer.id]);
+            await appendOutbox(transaction,context.tenantId,'invitation',invitationId,'invitation.created',{signatureCaseId:id,signerId:signer.id,signingOrder:signer.signing_order});
+          }
+        }
+        await appendOutbox(transaction,context.tenantId,'document',id,'document.locked',{signatureCaseId:id,documentCount:documents.rows.length});
       });
     },
     async cancel(context, id, key, payloadHash, expectedVersion) {
@@ -134,7 +218,7 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
     async remind(context, id, key, payloadHash) {
       return tenantTx(database, context, async (transaction) => idempotent(transaction, context.tenantId, `case:${id}:remind`, key, payloadHash, async () => {
         await requireCase(transaction, context.tenantId, id, ['sent','in_progress','partially_signed']);
-        const queued = await infrastructure.queue.enqueue({ tenantId: context.tenantId, jobType: 'signature_case.reminder', idempotencyKey: key, payload: { signatureCaseId: id, requestedBy: context.subjectId } });
+        const queued = await enqueueDurableJob(transaction, context.tenantId, 'REMINDER_SEND', `case-reminder:${id}:${key}`, { signatureCaseId: id, requestedBy: context.subjectId });
         await appendOutbox(transaction, context.tenantId, 'signature_case', id, 'reminder.queued', { signatureCaseId: id, jobId: queued.jobId });
         return { jobId: queued.jobId, status: 'queued' as const };
       }));
@@ -169,6 +253,21 @@ export function createUploadRepository(database: SqlDatabase, infrastructure: Pr
           [context.tenantId, id, objectKey, safeFileName, input.mimeType, input.byteSize, input.sha256, expiresAt, userId],
         );
         return { id, fileName: safeFileName, mimeType: input.mimeType, byteSize: input.byteSize, sha256: input.sha256, uploadUrl: grant.uploadUrl, expiresAt, requiredHeaders: grant.requiredHeaders };
+      }));
+    },
+    async complete(context, uploadId, key, payloadHash) {
+      return tenantTx(database, context, async (transaction) => idempotent(transaction, context.tenantId, `upload:${uploadId}:complete`, key, payloadHash, async () => {
+        const result = await transaction.query<UploadRow>(`select id,object_key,file_name,mime_type,byte_size,expected_sha256,status from app.upload_grants where tenant_id=$1 and id=$2 for update`,[context.tenantId,uploadId]);
+        const grant = requireRow(result.rows[0],'UPLOAD_GRANT_NOT_FOUND');
+        if (grant.status === 'uploaded') return { id:grant.id,status:'uploaded' as const,sha256:grant.expected_sha256,byteSize:Number(grant.byte_size) };
+        if (grant.status !== 'issued') throw new Error('UPLOAD_GRANT_NOT_ACTIVE');
+        const object = await infrastructure.objectStorage.headObject(context, grant.object_key);
+        if (object.byteSize !== Number(grant.byte_size)) throw new Error('UPLOAD_OBJECT_MISMATCH');
+        const actualSha256 = object.sha256 ?? await sha256Hex((await infrastructure.objectStorage.downloadObject(context, grant.object_key, { contentType:grant.mime_type,fileName:grant.file_name })).bytes);
+        if (actualSha256 !== grant.expected_sha256) throw new Error('UPLOAD_OBJECT_MISMATCH');
+        await transaction.query(`update app.upload_grants set status='uploaded',uploaded_at=now() where tenant_id=$1 and id=$2`,[context.tenantId,uploadId]);
+        await appendOutbox(transaction,context.tenantId,'upload',uploadId,'document.uploaded',{uploadId,sha256:grant.expected_sha256,byteSize:Number(grant.byte_size)});
+        return { id:grant.id,status:'uploaded' as const,sha256:grant.expected_sha256,byteSize:Number(grant.byte_size) };
       }));
     },
   };
@@ -302,6 +401,96 @@ async function downloadCaseArtifact(database: SqlDatabase, infrastructure: Produ
   });
 }
 
+async function insertOrUpdateSigner(
+  transaction: SqlTransaction,
+  infrastructure: ProductionInfrastructure,
+  context: TenantContext,
+  signatureCaseId: string,
+  signerId: string | null,
+  input: AddSignerInput,
+): Promise<SignerView> {
+  const settingsResult = await transaction.query<{ readonly allow_identifier_binding_exceptions: boolean }>(
+    `select allow_identifier_binding_exceptions from app.tenant_signing_settings where tenant_id=$1`, [context.tenantId],
+  );
+  const decision = decideIdentifierBinding({
+    personalNumber: input.personalNumber,
+    requirePersonalNumberMatch: input.requirePersonalNumberMatch,
+    exception: input.personalNumberException,
+    tenantAllowsException: settingsResult.rows[0]?.allow_identifier_binding_exceptions ?? false,
+    actorHasExceptionPermission: input.exceptionPermissionGranted === true,
+  });
+  const actorId = await requireUserId(transaction, context);
+  const email = input.email.trim().toLowerCase();
+  const emailCiphertext = await infrastructure.sensitiveData.encryptText(email, 'signer.email');
+  const emailBlindIndex = await infrastructure.sensitiveData.blindIndex(email, 'signer.email');
+  const expectedCiphertext = decision.normalizedPersonalNumber
+    ? await infrastructure.sensitiveData.encryptText(decision.normalizedPersonalNumber, 'signer.expected_personal_number') : null;
+  const expectedBlindIndex = decision.normalizedPersonalNumber
+    ? await infrastructure.sensitiveData.blindIndex(decision.normalizedPersonalNumber, 'signer.expected_personal_number') : null;
+  const exceptionReasonCiphertext = decision.exception?.reason
+    ? await infrastructure.sensitiveData.encryptText(decision.exception.reason, 'signer.identifier_binding_exception_reason') : null;
+  const id = signerId ?? crypto.randomUUID();
+  const parameters = [
+    context.tenantId,id,signatureCaseId,cleanText(input.displayName,1,200),`signer-${id}`,emailCiphertext,emailBlindIndex,
+    expectedCiphertext,expectedBlindIndex,decision.mode,decision.exception?.code ?? null,exceptionReasonCiphertext,
+    decision.mode === 'BANKID_DISCOVERED' ? actorId : null,decision.mode === 'BANKID_DISCOVERED' ? new Date().toISOString() : null,
+    input.signingOrder,input.required,
+  ];
+  if (signerId) {
+    const updated = await transaction.query<{ readonly id:string }>(
+      `update app.signers set display_name=$4,recipient_reference=$5,email_ciphertext=$6,email_blind_index=$7,
+        expected_identifier_ciphertext=$8,expected_identifier_blind_index=$9,expected_identifier_type=case when $10='STRICT_PREBOUND' then 'SSN' else null end,
+        identifier_binding_mode=$10,identifier_binding_exception_code=$11,identifier_binding_exception_reason_ciphertext=$12,
+        identifier_binding_exception_approved_by=$13,identifier_binding_exception_at=$14,signing_order=$15,required=$16,status_version=status_version+1
+       where tenant_id=$1 and id=$2 and signature_case_id=$3 and status='pending' returning id`, parameters,
+    );
+    requireRow(updated.rows[0], 'SIGNER_NOT_EDITABLE');
+  } else {
+    await transaction.query(
+      `insert into app.signers(tenant_id,id,signature_case_id,display_name,recipient_reference,email_ciphertext,email_blind_index,
+        expected_identifier_ciphertext,expected_identifier_blind_index,expected_identifier_type,identifier_binding_mode,
+        identifier_binding_exception_code,identifier_binding_exception_reason_ciphertext,identifier_binding_exception_approved_by,
+        identifier_binding_exception_at,status,signing_order,required)
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9,case when $10='STRICT_PREBOUND' then 'SSN' else null end,$10,$11,$12,$13,$14,'pending',$15,$16)`, parameters,
+    );
+  }
+  return {
+    id,signatureCaseId,displayName:input.displayName,maskedEmail:maskEmail(email),identifierBindingMode:decision.mode,
+    ...(decision.normalizedPersonalNumber ? { maskedPersonalNumber:maskSwedishPersonalNumber(decision.normalizedPersonalNumber) } : {}),
+    ...(decision.exception ? { identifierBindingExceptionCode:decision.exception.code } : {}),
+    status:'pending',required:input.required,signingOrder:input.signingOrder,
+  };
+}
+
+function buildBankIdVisibleText(caseDetails: CaseSigningRow, documents: readonly { readonly displayName:string; readonly sha256:string }[]): string {
+  const lines = documents.map((document) => `+ ${document.displayName} — SHA-256: ${document.sha256.slice(0,8)}…${document.sha256.slice(-4)}`);
+  return [
+    '# Elektronisk underskrift','',
+    'Jag undertecknar följande handlingar i Kommunsign:','',...lines,'',
+    `Ärende: ${caseDetails.external_reference ?? caseDetails.id}`,
+    `Organisation: ${caseDetails.organization_name ?? 'Kommunsign-tenant'}`,
+    `Antal handlingar: ${documents.length}`,'',
+    'Jag bekräftar att jag har granskat handlingarna och avser att underteckna dem elektroniskt.',
+  ].join('\n');
+}
+
+async function enqueueDurableJob(
+  transaction: SqlTransaction, tenantId: string, jobType: string, idempotencyKey: string, payload: Readonly<Record<string, unknown>>,
+): Promise<{ readonly jobId:string }> {
+  const result = await transaction.query<{ readonly id:string }>(
+    `insert into app.durable_jobs(tenant_id,job_type,payload,idempotency_key,status,available_at,maximum_attempts)
+     values($1,$2,$3::jsonb,$4,'pending',now(),10)
+     on conflict(tenant_id,job_type,idempotency_key) do update set updated_at=app.durable_jobs.updated_at
+     returning id`, [tenantId,jobType,JSON.stringify(payload),idempotencyKey],
+  );
+  return { jobId:requireRow(result.rows[0],'JOB_ENQUEUE_FAILED').id };
+}
+
+function maskEmail(email: string): string {
+  const [local='',domain=''] = email.split('@');
+  return `${local.slice(0,1)}${local.length>1?'•••':''}@${domain}`;
+}
+
 async function idempotent<T>(transaction: SqlTransaction, tenantId: string, operation: string, key: string, payloadHash: string, work: () => Promise<T>): Promise<T> {
   if (!/^[A-Za-z0-9._:-]{8,200}$/.test(key)) throw new Error('IDEMPOTENCY_KEY_INVALID');
   if (!/^[0-9a-f]{64}$/.test(payloadHash)) throw new Error('PAYLOAD_HASH_INVALID');
@@ -379,13 +568,15 @@ function normalizeDocumentStatus(value: string): DocumentView['status'] {
 
 interface CaseRow { readonly id:string; readonly tenant_id:string; readonly status:SignatureCaseStatus; readonly status_version:number|string; readonly decision_mode:CreateCaseInput['decisionMode']; readonly title:string; readonly external_reference:string|null; readonly created_at:string|Date; }
 interface DocumentRow { readonly id:string; readonly document_id:string; readonly status:string; readonly sha256:string; readonly byte_size:number|string; readonly mime_type:string; }
-interface SignerRow { readonly id:string; readonly signature_case_id:string; readonly display_name:string|null; readonly recipient_reference:string; readonly status:SignerView['status']; readonly signing_order:number|null; readonly required:boolean; }
+interface SignerRow { readonly id:string; readonly signature_case_id:string; readonly display_name:string; readonly status:SignerView['status']; readonly signing_order:number; readonly required:boolean; readonly identifier_binding_mode:'STRICT_PREBOUND'|'BANKID_DISCOVERED'; }
+interface CaseSigningRow { readonly id:string; readonly external_reference:string|null; readonly title:string; readonly policy_id:string; readonly policy_version:number; readonly organization_name:string|null; }
+interface SigningDocumentRow { readonly document_id:string; readonly document_version_id:string; readonly display_name:string; readonly sha256:string; readonly mime_type:string; readonly byte_size:number|string; }
+interface SigningSignerRow { readonly id:string; readonly display_name:string; readonly email_ciphertext:Uint8Array; readonly identifier_binding_mode:'STRICT_PREBOUND'|'BANKID_DISCOVERED'; readonly identifier_binding_exception_code:string|null; readonly signing_order:number; readonly required:boolean; }
 interface UploadRow { readonly id:string; readonly object_key:string; readonly file_name:string; readonly mime_type:string; readonly byte_size:number|string; readonly expected_sha256:string; readonly status:string; }
 interface WebhookRow { readonly id:string; readonly url:string; readonly subscribed_events:readonly string[]; readonly active:boolean; readonly created_at:string|Date; }
 interface OutboxRow { readonly id:string; readonly event_type:string; readonly payload:Readonly<Record<string,unknown>>; readonly occurred_at:string|Date; }
 interface TemplateRow { readonly id:string; readonly template_key:string; readonly version:number; readonly locale:string; readonly subject_template:string; readonly body_template:string; readonly active:boolean; }
 const caseSelect = `select id,tenant_id,status::text as status,status_version,decision_mode::text as decision_mode,title,external_reference,created_at from app.signature_cases`;
 function caseView(row: CaseRow): SignatureCaseView { return { id:row.id,tenantId:row.tenant_id,status:row.status,statusVersion:Number(row.status_version),decisionMode:row.decision_mode,title:row.title,createdAt:iso(row.created_at),...(row.external_reference ? {externalReference:row.external_reference}:{}) }; }
-function signerView(row: SignerRow): SignerView { return { id:row.id,signatureCaseId:row.signature_case_id,recipientReference:row.recipient_reference,status:row.status,required:row.required,...(row.display_name?{displayName:row.display_name}:{}),...(row.signing_order===null?{}:{signingOrder:row.signing_order}) }; }
 function webhookView(row: WebhookRow): WebhookEndpointView { return { id:row.id,url:row.url,subscribedEvents:row.subscribed_events,active:row.active,createdAt:iso(row.created_at) }; }
 function templateView(row: TemplateRow): TemplateView { return { id:row.id,templateKey:row.template_key,version:row.version,locale:row.locale,subjectTemplate:row.subject_template,bodyTemplate:row.body_template,active:row.active }; }

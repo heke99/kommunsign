@@ -1,90 +1,83 @@
-# Produktionschecklista – KommunSign
+# Kommunsign BankID production checklist
 
-En punkt får endast markeras klar när ett sparat verifieringsbevis finns.
+No item may be marked complete from assumption. Attach environment-specific evidence outside Git.
 
-## Repository och release
+## Build and database
 
-- [x] TypeScript strict build grön.
-- [x] Java 21 build och self-test grön.
-- [x] Repository/migration/proveniens/secret/SDK-grind grön.
-- [x] Publik webb och fem portalbyggen gröna.
-- [ ] Git-remote, branch och clean working tree verifierade i `/Users/hekmath/Projects/kommunsign`.
-- [ ] `npm ci` grön mot ordinarie registry/CI.
-- [ ] C#-SDK kompilerad och kontraktstestad.
-- [ ] SAST, dependency-, container- och licensscan utan blockerande fynd.
+- [ ] `npm ci` succeeds against the approved npm registry.
+- [ ] `npm run verify` passes from a clean checkout.
+- [ ] `npm run verify:evidence-fixtures` passes and a modified package is rejected.
+- [ ] `npm run verify:container-health` passes from the production worker network.
+- [ ] Control migrations run in numeric order and `tests/sql/onboarding-control.sql` passes.
+- [ ] Data migrations run in numeric order, including `0013_bankid_production_foundation.sql`, and `migrations/data/verify.sql` passes.
+- [ ] Empty-database and upgrade-database rehearsals both pass.
+- [ ] Generated SDK/OpenAPI contract version is `2026-08-03.1`.
 
-## Ansökan och control plane
+## Domains and ingress
 
-- [x] Statusmaskin och otillåtna övergångar testade.
-- [x] Applicant-, platform- och tenantrouter separerade.
-- [x] Ansökningsnummer och tokenkärna unittestade.
-- [x] Review, beslut, provisioning och blockerad aktivering integrationstestade i devruntime.
-- [ ] Migration `0006` körd på tom och uppgraderad live PostgreSQL.
-- [ ] Parallell referensnumrering verifierad utan dubblett.
-- [ ] Applicant A kan inte läsa applicant B i live databas.
-- [ ] Interna notes/risk/reviews är osynliga för applicant på DB- och API-nivå.
-- [ ] Magic-linkmail, HttpOnly-cookie, CSRF, revoke och rate limit verifierade.
-- [ ] Bilagor går via presigned upload, quarantine, antivirus och PDF-sandbox.
-- [ ] Dubblettsignal och organisationsregisterprovider verifierade.
+- [ ] `kommunsign.se` and every system subdomain resolve to the intended Vercel/ingress projects.
+- [ ] `*.kommunsign.se` wildcard and automatic TLS are verified.
+- [ ] `www` redirects to the root.
+- [ ] Unknown Host headers are rejected.
+- [ ] Forwarded host/IP is accepted only from the configured trusted proxy.
+- [ ] Callback/redirect allowlists use fixed verified URLs.
+- [ ] `notify` and all system names are reserved tenant slugs.
 
-## Provisioning, readiness och aktivering
+## Data protection and storage
 
-- [x] Provisioningdatamodell och fail-closed produktionsworker finns.
-- [x] Tenant skapas inte före godkännande och lämnas i `onboarding` i verifierat devflöde.
-- [x] Databasguard blockerar aktiveringsinitiator som approver.
-- [ ] Varje provisioningsteg är durable, idempotent och återupptagningsbart i live miljö.
-- [ ] Databas, storage, queue/cache, KMS, policies, roller, domän och admininbjudan provisioneras.
-- [ ] Aktiva readinesskontroller för DB/storage/DNS/TLS/providers/webhook/archive/mail är gröna.
-- [ ] Acceptanstest sparat och verifierat.
-- [ ] Två distinkta personer har godkänt aktivering atomiskt.
-- [ ] Konfigurationssnapshot och aktiveringsrapport skapad.
+- [ ] Encryption and blind-index keys are generated, backed up and rotation-tested.
+- [ ] Service-role keys and provider keys exist only in the approved secret manager.
+- [ ] All document/evidence buckets are private.
+- [ ] Signed URL TTL is at most five minutes and download responses are `private, no-store`.
+- [ ] RLS is enabled and forced on every tenant table.
+- [ ] Tenant-composite foreign keys and tenant-isolation tests pass.
+- [ ] Person numbers, tokens and provider payloads are absent from logs and fixtures.
 
-## Databas och tenantisolering
+## Document pipeline
 
-- [ ] Control/data migrationer körda på tom och realistisk fler-tenantdatabas.
-- [ ] RLS/tenant-escape-test grönt med NOBYPASSRLS-roll.
-- [ ] Produktionsrepositories använder verifierad tenanttransaktion.
-- [ ] Shared, dedicated och customer-hosted data plane verifierade.
+- [ ] ClamAV 1.5.3 health and signature database freshness are verified.
+- [ ] qpdf exists in the worker runtime and its version is recorded.
+- [ ] Gotenberg 8.34.0 health, no-JavaScript mode and outbound-network block are verified.
+- [ ] Approved veraPDF image/service version and digest are recorded; PDF/A-2b pass/fail fixtures work.
+- [ ] Malware, JavaScript, Launch/OpenAction, embedded executable, XFA, encryption and limit fixtures fail closed.
+- [ ] Final canonical SHA-256 is computed after PDF/A validation and remains immutable.
 
-## Identitet och eID
+## TIC BankID
 
-- [ ] Platform OIDC/WebAuthn/MFA/session revoke verifierat.
-- [ ] Entra OIDC och SAML verifierat per tenant.
-- [ ] SCIM users/groups/deactivation verifierat.
-- [ ] TIC start/QR/same-device/webhook/collect/cancel/expiry verifierat i testtenant.
-- [ ] BankID XML-DSig, certifikatkedja och OCSP verifierat oberoende.
-- [ ] Freja officiell klient, mTLS, JWS och rotation verifierat.
+- [ ] TIC account has production signing enabled.
+- [ ] API key and webhook secret are resolved into runtime only.
+- [ ] Exact callback and webhook URLs are approved and verified.
+- [ ] `TIC_BANKID_ENABLED=false` remains default until smoke testing.
+- [ ] Internal tenant and test subject allowlist are configured.
+- [ ] QR and same-device flows pass with harmless production-test documents.
+- [ ] Poll cadence, rate-limit handling, one-time extension and idempotent cancel are observed.
+- [ ] Raw-body webhook HMAC, timestamp window, state/session binding and duplicate handling pass.
+- [ ] XML-DSig, payload, document hashes, identity and OCSP validation pass independently.
+- [ ] A modified PDF, wrong person number and missing OCSP all fail.
 
-## Dokument, signering och validation
+## Email
 
-- [ ] Presigned single-use upload mot objektlagring.
-- [ ] ClamAV, magic bytes, PDF actions, embedded files och bombgränser verifierade.
-- [ ] Canonical PDF/PDF-A och immutable versioner verifierade.
-- [ ] PDF.js-fältbyggare och tangentbordsalternativ godkända.
-- [ ] Sekventiell och parallell signering verifierad.
-- [ ] PAdES B/T/LT/LTA och multipla inkrementella signaturer verifierade.
-- [ ] EU DSS med LOTL/TSL, OCSP, CRL och timestamps verifierat.
-- [ ] Completion kräver accepterat DSS-resultat.
-- [ ] HSM/PKCS#11 verifierat och mjuk testnyckel spärrad.
+- [ ] `notify.kommunsign.se` sender DNS is verified.
+- [ ] Resend API/webhook secrets are configured through secret references.
+- [ ] Svix raw-body verification and duplicate events pass.
+- [ ] Bounce and complaint suppress future reminders.
+- [ ] Messages contain no attachments or personal numbers; tracking is disabled.
+- [ ] `EMAIL_DATA_RESIDENCY_APPROVED=true` only after written approval, or another adapter is selected.
 
-## Evidence, integration och drift
+## Workers and evidence
 
-- [ ] Evidence package komplett med signerat/tidsstämplat manifest.
-- [ ] Offline verifier upptäcker tillagd, borttagen och ändrad fil.
-- [ ] Durable HMAC-webhooks med retry, DLQ, replay och DNS-rebindingkontroll.
-- [ ] E-post med DKIM/SPF/DMARC, bounce och complaint events.
-- [ ] E-arkivexport med checksumma och delivery receipt.
-- [ ] Retention/legal hold/deletion certificate/tenantoffboarding verifierat.
-- [ ] OpenTelemetry, dashboards och certifikatlarm aktiva.
-- [ ] Backup, tenant-only restore, rollback och incidentrunbooks testade.
-- [ ] Penetrationstest utan blockerande fynd.
-- [ ] Belastningsmål verifierade.
-- [ ] WCAG 2.2 AA verifierat.
+- [ ] All phase-1 durable job handlers are installed and consumers are healthy.
+- [ ] Lease heartbeat, retry, permanent dead-letter and replay recovery are verified.
+- [ ] No UI/API path can set `signed` or `completed` manually.
+- [ ] Per-signer and case evidence packages are deterministic, append-only and offline-verifiable.
+- [ ] Public verification shows no personal number.
+- [ ] Audit chain verification passes before activation.
 
-## Produktionsbeslut
+## Operations and acceptance
 
-- [ ] Säkerhetsansvarig har godkänt.
-- [ ] Juridik/DPIA/biträdesavtal/underbiträden har godkänts.
-- [ ] Produktägare har godkänt signatur- och retentionpolicy.
-- [ ] Drift har godkänt RPO/RTO/SLA/SLO och incidentprocess.
-- [ ] Activation approver är en annan person än initiatorn.
+- [ ] TIC, webhook, document processor and email runbooks are rehearsed.
+- [ ] Secret rotation runbooks are rehearsed.
+- [ ] Backup/restore and evidence retention decisions are approved.
+- [ ] Accessibility tests target WCAG 2.2 AA.
+- [ ] Production acceptance record in `docs/verification/bankid-production-acceptance.md` is completed.
+- [ ] External tenants remain disabled until every blocking item is evidenced.

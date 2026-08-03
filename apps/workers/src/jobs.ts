@@ -10,6 +10,9 @@ export type DurableJobType =
   | 'IDENTITY_STATUS_POLL'
   | 'SIGNATURE_CREATE'
   | 'SIGNATURE_VALIDATE'
+  | 'TIC_EVIDENCE_COLLECT'
+  | 'EVIDENCE_PACKAGE_BUILD'
+  | 'EMAIL_SEND'
   | 'WEBHOOK_DELIVER'
   | 'REMINDER_SEND'
   | 'CASE_EXPIRE'
@@ -33,6 +36,7 @@ export interface DurableJobRepository {
   complete(jobId: string, workerId: string): Promise<void>;
   retry(jobId: string, workerId: string, nextAvailableAt: string, safeErrorCode: string): Promise<void>;
   deadLetter(jobId: string, workerId: string, safeErrorCode: string): Promise<void>;
+  heartbeat?(jobId: string, workerId: string, leaseSeconds: number): Promise<void>;
 }
 
 export function retryDelaySeconds(attemptsIncludingCurrentClaim: number): number {
@@ -54,15 +58,23 @@ export async function processClaimedJob(
 ): Promise<void> {
   if (!workerId.trim()) throw new Error('Worker identity is required');
   if (job.attempts < 1) throw new Error('Claimed jobs must include the current attempt');
+  const leaseSeconds = 60;
+  const heartbeat = repository.heartbeat
+    ? setInterval(() => { void repository.heartbeat?.(job.id, workerId, leaseSeconds); }, 20_000)
+    : undefined;
   try {
+    await repository.heartbeat?.(job.id, workerId, leaseSeconds);
     await handlers[job.type](job);
     await repository.complete(job.id, workerId);
   } catch (cause) {
-    const code = safeWorkerErrorCode(cause);
-    if (job.attempts >= job.maximumAttempts) await repository.deadLetter(job.id, workerId, code);
+    const messageCode = cause instanceof Error && /^[A-Z][A-Z0-9_]{2,79}$/.test(cause.message) ? cause.message : undefined;
+    const code = messageCode ?? safeWorkerErrorCode(cause);
+    if ((cause instanceof Error && cause.name === 'PermanentWorkerError') || job.attempts >= job.maximumAttempts) await repository.deadLetter(job.id, workerId, code);
     else {
       const delaySeconds = retryDelaySeconds(job.attempts);
       await repository.retry(job.id, workerId, new Date(Date.now() + delaySeconds * 1000).toISOString(), code);
     }
+  } finally {
+    if (heartbeat !== undefined) clearInterval(heartbeat);
   }
 }

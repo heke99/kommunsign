@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: KommunSign API
-  version: '2026-08-02.3'
+  version: '2026-08-03.1'
   description: >-
     Tenant is derived from the authenticated OAuth client, verified domain or mTLS identity and is never accepted from request payloads.
     Runtime endpoints fail closed when signing, validation, archive or storage providers are not configured.
@@ -86,6 +86,97 @@ paths:
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateUploadGrant'}}}}
       responses: {'201': {description: Short-lived single-use tenant-bound grant, content: {application/json: {schema: {$ref: '#/components/schemas/UploadGrant'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /uploads/{uploadId}/complete:
+    post:
+      operationId: completeUpload
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/UploadId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CompleteUpload'}}}}
+      responses: {'202': {description: Upload verified server-side and document scan queued, content: {application/json: {schema: {$ref: '#/components/schemas/UploadCompleted'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /signature-cases/{id}/signers/{signerId}:
+    patch:
+      operationId: updateSigner
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/CaseId'}, {$ref: '#/components/parameters/SignerId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/IfMatch'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AddSigner'}}}}
+      responses: {'200': {description: Draft signer replaced using optimistic concurrency, content: {application/json: {schema: {$ref: '#/components/schemas/Signer'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /public/signing-invitations/{token}:
+    get:
+      operationId: getPublicSigningInvitation
+      security: []
+      parameters: [{$ref: '#/components/parameters/InvitationToken'}]
+      responses: {'200': {description: Non-sensitive signer view with immutable document manifest, headers: {Cache-Control: {schema: {type: string, const: 'no-store'}}}, content: {application/json: {schema: {$ref: '#/components/schemas/PublicSigningInvitation'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /public/signing-invitations/{token}/opened:
+    post:
+      operationId: markPublicSigningInvitationOpened
+      security: []
+      parameters: [{$ref: '#/components/parameters/InvitationToken'}]
+      responses: {'200': {description: Idempotently marked opened}, default: {$ref: '#/components/responses/Error'}}
+  /public/signing-invitations/{token}/documents/{documentId}:
+    get:
+      operationId: downloadPublicSigningDocument
+      security: []
+      parameters: [{$ref: '#/components/parameters/InvitationToken'}, {$ref: '#/components/parameters/DocumentId'}]
+      responses: {'200': {description: Exact locked canonical PDF/A-2b bytes, content: {application/pdf: {schema: {type: string, contentEncoding: binary}}}}, default: {$ref: '#/components/responses/Error'}}
+  /public/signing-invitations/{token}/bankid/start:
+    post:
+      operationId: startPublicBankIdSigning
+      security: []
+      parameters: [{$ref: '#/components/parameters/InvitationToken'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object, additionalProperties: false, required: [reviewAcknowledged], properties: {reviewAcknowledged: {type: boolean, const: true}}}}}}
+      responses: {'201': {description: TIC production session started, content: {application/json: {schema: {$ref: '#/components/schemas/BankIdSession'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /public/signing-invitations/{token}/bankid/sessions/{sessionId}:
+    get:
+      operationId: getPublicBankIdSession
+      security: []
+      parameters: [{$ref: '#/components/parameters/InvitationToken'}, {$ref: '#/components/parameters/ProviderSessionId'}]
+      responses: {'200': {description: Normalized BankID session status, content: {application/json: {schema: {$ref: '#/components/schemas/BankIdSession'}}}}, default: {$ref: '#/components/responses/Error'}}
+    delete:
+      operationId: cancelPublicBankIdSession
+      security: []
+      parameters: [{$ref: '#/components/parameters/InvitationToken'}, {$ref: '#/components/parameters/ProviderSessionId'}]
+      responses: {'200': {description: Session cancelled idempotently}, default: {$ref: '#/components/responses/Error'}}
+  /public/signing-invitations/{token}/bankid/sessions/{sessionId}/extend:
+    post:
+      operationId: extendPublicBankIdSession
+      security: []
+      parameters: [{$ref: '#/components/parameters/InvitationToken'}, {$ref: '#/components/parameters/ProviderSessionId'}]
+      responses: {'200': {description: Session extended once where TIC permits}, default: {$ref: '#/components/responses/Error'}}
+  /public/signing-invitations/{token}/decline:
+    post:
+      operationId: declinePublicSigningInvitation
+      security: []
+      parameters: [{$ref: '#/components/parameters/InvitationToken'}]
+      requestBody: {required: false, content: {application/json: {schema: {type: object, additionalProperties: false, properties: {reason: {type: string, maxLength: 1000}}}}}}
+      responses: {'200': {description: Required signer decline terminates the case flow}, default: {$ref: '#/components/responses/Error'}}
+  /provider-webhooks/tic/bankid:
+    post:
+      operationId: receiveTicBankIdWebhook
+      security: []
+      parameters:
+        - {in: header, name: X-Ormeo-Signature, required: true, schema: {type: string}}
+        - {in: header, name: X-Ormeo-Timestamp, required: true, schema: {type: string}}
+        - {in: header, name: X-Ormeo-Event, required: true, schema: {type: string, const: sign.completed}}
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses: {'202': {description: Raw-body signature verified and event durably persisted}, default: {$ref: '#/components/responses/Error'}}
+  /provider-webhooks/resend:
+    post:
+      operationId: receiveResendWebhook
+      security: []
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses: {'202': {description: Svix signature verified and event durably persisted}, default: {$ref: '#/components/responses/Error'}}
+  /public/verifications/{verificationId}:
+    get:
+      operationId: getPublicVerification
+      security: []
+      parameters: [{$ref: '#/components/parameters/VerificationId'}]
+      responses: {'200': {description: Non-sensitive verification summary, content: {application/json: {schema: {$ref: '#/components/schemas/PublicVerification'}}}}, '404': {$ref: '#/components/responses/NotFound'}, default: {$ref: '#/components/responses/Error'}}
+  /public/verifications/packages/verify:
+    post:
+      operationId: verifyUploadedEvidencePackage
+      security: []
+      requestBody: {required: true, content: {application/zip: {schema: {type: string, contentEncoding: binary}}}}
+      responses: {'200': {description: Offline deterministic package verification result, content: {application/json: {schema: {$ref: '#/components/schemas/PackageVerification'}}}}, default: {$ref: '#/components/responses/Error'}}
   /webhook-endpoints:
     post:
       operationId: createWebhookEndpoint
@@ -300,6 +391,12 @@ components:
             webhooks:manage: Manage webhook endpoints
   parameters:
     CaseId: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    UploadId: {name: uploadId, in: path, required: true, schema: {type: string, format: uuid}}
+    SignerId: {name: signerId, in: path, required: true, schema: {type: string, format: uuid}}
+    DocumentId: {name: documentId, in: path, required: true, schema: {type: string, format: uuid}}
+    InvitationToken: {name: token, in: path, required: true, schema: {type: string, minLength: 43, maxLength: 512, pattern: '^[A-Za-z0-9_-]+$'}}
+    ProviderSessionId: {name: sessionId, in: path, required: true, schema: {type: string, minLength: 8, maxLength: 256}}
+    VerificationId: {name: verificationId, in: path, required: true, schema: {type: string, minLength: 16, maxLength: 100}}
     ApplicationId: {name: applicationId, in: path, required: true, schema: {type: string, format: uuid}}
     InformationRequestId: {name: requestId, in: path, required: true, schema: {type: string, format: uuid}}
     ProvisioningRequestId: {name: requestId, in: path, required: true, schema: {type: string, format: uuid}}
@@ -408,21 +505,40 @@ components:
       additionalProperties: false
       required: [id, signatureCaseId, displayName, status, sha256, byteSize, mimeType]
       properties: {id: {type: string, format: uuid}, signatureCaseId: {type: string, format: uuid}, displayName: {type: string}, status: {type: string}, sha256: {type: string, pattern: '^[0-9a-f]{64}$'}, byteSize: {type: integer}, mimeType: {type: string}}
+    PersonalNumberException:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code: {type: string, enum: [UNKNOWN_AT_INVITATION, DATA_MINIMIZATION, PROTECTED_PERSONAL_DATA_WORKFLOW, RECIPIENT_SELECTED_BY_SECURE_CHANNEL, OTHER]}
+        reason: {type: [string, 'null'], maxLength: 2000, description: Required for OTHER and tenant-encrypted at rest}
     AddSigner:
       type: object
       additionalProperties: false
-      required: [recipientReference, required]
+      required: [displayName, email, requirePersonalNumberMatch, required, signingOrder]
       properties:
-        displayName: {type: string, maxLength: 200}
-        recipientReference: {type: string, minLength: 16, maxLength: 300, description: Opaque encrypted or tokenized recipient reference; never a tenant selector}
-        identifierType: {type: string, enum: [SSN, UPI, EMAIL, PHONE, INFERRED]}
+        displayName: {type: string, minLength: 1, maxLength: 200}
+        email: {type: string, format: email, maxLength: 320}
+        personalNumber: {type: [string, 'null'], pattern: '^[0-9]{12}$', description: Normalized Swedish YYYYMMDDNNNN; tenant-encrypted and never logged}
+        requirePersonalNumberMatch: {type: boolean}
+        personalNumberException: {oneOf: [{$ref: '#/components/schemas/PersonalNumberException'}, {type: 'null'}]}
         required: {type: boolean}
         signingOrder: {type: integer, minimum: 1}
     Signer:
       type: object
       additionalProperties: false
-      required: [id, signatureCaseId, recipientReference, status, required]
-      properties: {id: {type: string, format: uuid}, signatureCaseId: {type: string, format: uuid}, displayName: {type: string}, recipientReference: {type: string}, status: {type: string}, required: {type: boolean}, signingOrder: {type: integer}}
+      required: [id, signatureCaseId, displayName, maskedEmail, identifierBindingMode, status, required, signingOrder]
+      properties:
+        id: {type: string, format: uuid}
+        signatureCaseId: {type: string, format: uuid}
+        displayName: {type: string}
+        maskedEmail: {type: string}
+        maskedPersonalNumber: {type: [string, 'null']}
+        identifierBindingMode: {type: string, enum: [STRICT_PREBOUND, BANKID_DISCOVERED]}
+        identifierBindingExceptionCode: {type: [string, 'null']}
+        status: {type: string}
+        required: {type: boolean}
+        signingOrder: {type: integer}
     CreateUploadGrant:
       type: object
       additionalProperties: false
@@ -430,6 +546,48 @@ components:
       properties: {fileName: {type: string, maxLength: 200}, mimeType: {type: string, enum: [application/pdf]}, byteSize: {type: integer, minimum: 1, maximum: 104857600}, sha256: {type: string, pattern: '^[0-9a-f]{64}$'}}
     UploadGrant:
       allOf: [{$ref: '#/components/schemas/CreateUploadGrant'}, {type: object, required: [id, uploadUrl, expiresAt, requiredHeaders], properties: {id: {type: string, format: uuid}, uploadUrl: {type: string, format: uri}, expiresAt: {type: string, format: date-time}, requiredHeaders: {type: object, additionalProperties: {type: string}}}}]
+    CompleteUpload:
+      type: object
+      additionalProperties: false
+      required: [sha256]
+      properties: {sha256: {type: string, pattern: '^[0-9a-f]{64}$'}}
+    UploadCompleted:
+      type: object
+      additionalProperties: false
+      required: [id, status]
+      properties: {id: {type: string, format: uuid}, status: {type: string, enum: [uploaded]}}
+    PublicSigningInvitation:
+      type: object
+      additionalProperties: false
+      required: [invitationId, signerId, signatureCaseId, organizationName, caseReference, caseTitle, signerDisplayName, status, expiresAt, identifierBindingMode, visibleText, documents]
+      properties:
+        invitationId: {type: string, format: uuid}
+        signerId: {type: string, format: uuid}
+        signatureCaseId: {type: string, format: uuid}
+        organizationName: {type: string}
+        caseReference: {type: string}
+        caseTitle: {type: string}
+        signerDisplayName: {type: string}
+        status: {type: string}
+        expiresAt: {type: string, format: date-time}
+        identifierBindingMode: {type: string, enum: [STRICT_PREBOUND, BANKID_DISCOVERED]}
+        visibleText: {type: string}
+        documents: {type: array, maxItems: 20, items: {type: object, additionalProperties: false, required: [id, displayName, sha256, byteSize, mimeType, profile, ordinal], properties: {id: {type: string, format: uuid}, displayName: {type: string}, sha256: {type: string, pattern: '^[0-9a-f]{64}$'}, byteSize: {type: integer}, mimeType: {type: string, const: application/pdf}, profile: {type: string, const: PDF/A-2b}, ordinal: {type: integer, minimum: 1}}}}
+    BankIdSession:
+      type: object
+      additionalProperties: true
+      required: [sessionId, status]
+      properties: {sessionId: {type: string}, status: {type: string}, qrCodeData: {type: string}, autoStartToken: {type: string}, expiresAt: {type: string, format: date-time}, retryAfterSeconds: {type: integer, minimum: 2}, canExtend: {type: boolean}}
+    PublicVerification:
+      type: object
+      additionalProperties: false
+      required: [verified, organization, caseReference, documents, signerCount, signedAt, verifierEngine, verifierPolicyVersion, packageSha256]
+      properties: {verified: {type: boolean, const: true}, organization: {type: string}, caseReference: {type: string}, documents: {type: array, items: {type: object, required: [displayName, sha256], properties: {displayName: {type: string}, sha256: {type: string}}}}, signerCount: {type: integer}, signedAt: {type: string, format: date-time}, verifierEngine: {type: string}, verifierPolicyVersion: {type: string}, packageSha256: {type: string}}
+    PackageVerification:
+      type: object
+      additionalProperties: false
+      required: [verified, packageSha256, failures]
+      properties: {verified: {type: boolean}, packageSha256: {type: string, pattern: '^[0-9a-f]{64}$'}, failures: {type: array, items: {type: string}}, manifest: {type: object}}
     CreateWebhookEndpoint:
       type: object
       additionalProperties: false

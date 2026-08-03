@@ -21,7 +21,7 @@ export type PlatformPermission =
 
 export type Permission =
   | 'case:create' | 'case:send' | 'case:cancel' | 'case:read' | 'case:remind'
-  | 'document:add' | 'document:download' | 'signer:add' | 'upload:create'
+  | 'document:add' | 'document:download' | 'signer:add' | 'signer:personnummer-binding-exempt' | 'upload:create'
   | 'validation:read' | 'evidence:download'
   | 'policy:manage' | 'integration:manage' | 'webhook:manage'
   | 'event:read' | 'template:read' | 'template:manage'
@@ -30,7 +30,7 @@ export type Permission =
 const permissions: Readonly<Record<TenantRole, readonly Permission[]>> = {
   tenant_admin: [
     'case:create', 'case:send', 'case:cancel', 'case:read', 'case:remind',
-    'document:add', 'document:download', 'signer:add', 'upload:create',
+    'document:add', 'document:download', 'signer:add', 'signer:personnummer-binding-exempt', 'upload:create',
     'validation:read', 'evidence:download', 'policy:manage', 'integration:manage',
     'webhook:manage', 'event:read', 'template:read', 'template:manage',
     'audit:read', 'archive:manage', 'tenant:manage',

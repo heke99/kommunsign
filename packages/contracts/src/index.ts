@@ -35,6 +35,25 @@ export type IdentityStatus =
   | 'EXPIRED'
   | 'FAILED';
 
+export type IdentifierBindingMode = 'STRICT_PREBOUND' | 'BANKID_DISCOVERED';
+export type IdentifierBindingExceptionCode =
+  | 'UNKNOWN_AT_INVITATION'
+  | 'DATA_MINIMIZATION'
+  | 'PROTECTED_PERSONAL_DATA_WORKFLOW'
+  | 'RECIPIENT_SELECTED_BY_SECURE_CHANNEL'
+  | 'OTHER';
+
+export interface SigningIntentDocumentSnapshot {
+  readonly ordinal: number;
+  readonly documentId: UUID;
+  readonly documentVersionId: UUID;
+  readonly displayName: string;
+  readonly mimeType: 'application/pdf';
+  readonly profile: 'PDF/A-2b';
+  readonly byteSize: number;
+  readonly sha256: string;
+}
+
 export type AuthMethod = 'oidc' | 'saml' | 'oauth2_client_credentials' | 'mtls' | 'session' | 'magic_link' | 'worker' | 'trusted_service' | 'development';
 
 export interface TenantContext {
@@ -60,13 +79,14 @@ export interface PlatformContext {
 export interface StartIdentitySignature {
   readonly tenantId: UUID;
   readonly signatureCaseId: UUID;
-  readonly documentId: UUID;
-  readonly documentVersionId: UUID;
-  readonly documentSha256: string;
+  readonly signingIntentId: UUID;
+  readonly signerId: UUID;
   readonly signaturePolicyId: UUID;
   readonly signaturePolicyVersion: number;
-  readonly signerId: UUID;
-  readonly expectedSubject?: string;
+  readonly identifierBindingMode: IdentifierBindingMode;
+  readonly identifierBindingExceptionCode?: IdentifierBindingExceptionCode;
+  readonly expectedPersonalNumber?: string;
+  readonly documents: readonly SigningIntentDocumentSnapshot[];
   readonly visibleText: string;
   readonly endUserIp: string;
   readonly userAgent: string;
@@ -86,6 +106,7 @@ export interface IdentitySession {
   readonly qrStartSecret?: string;
   readonly subscriptionToken?: string;
   readonly orderReference?: string;
+  readonly qrCodeData?: string;
   readonly expiresAt: IsoDateTime;
 }
 
@@ -100,9 +121,14 @@ export interface VerifiedIdentityEvidence {
   readonly provider: IdentityProviderName;
   readonly providerReference: string;
   readonly subject: string;
+  readonly personalNumber?: string;
   readonly displayName?: string;
   readonly assuranceLevel: string;
   readonly signedPayloadSha256: string;
+  readonly visibleDataSha256?: string;
+  readonly signatureXmlSha256?: string;
+  readonly ocspSha256?: string;
+  readonly verificationChecks?: readonly Readonly<Record<string, unknown>>[];
   readonly verifiedAt: IsoDateTime;
   readonly originalEvidence: IdentityEvidence;
 }
@@ -112,6 +138,7 @@ export interface ElectronicIdentityProvider {
   getStatus(sessionId: string): Promise<IdentityStatus>;
   collectEvidence(sessionId: string): Promise<IdentityEvidence>;
   cancel(sessionId: string): Promise<void>;
+  extend?(sessionId: string): Promise<IdentitySession>;
   verifyEvidence(evidence: IdentityEvidence): Promise<VerifiedIdentityEvidence>;
 }
 

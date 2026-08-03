@@ -1,4 +1,4 @@
-export const KOMMUNSIGN_OPENAPI_VERSION = '2026-08-02.3';
+export const KOMMUNSIGN_OPENAPI_VERSION = '2026-08-03.1';
 
 export interface KommunSignClientOptions {
   readonly baseUrl: string;
@@ -26,14 +26,18 @@ export class KommunSignClient {
   createSignatureCase(input: unknown, idempotencyKey: string) { return this.#request('POST', '/signature-cases', input, idempotencyKey); }
   addDocument(id: string, input: unknown, idempotencyKey: string) { return this.#request('POST', `/signature-cases/${encodeURIComponent(id)}/documents`, input, idempotencyKey); }
   addSigner(id: string, input: unknown, idempotencyKey: string) { return this.#request('POST', `/signature-cases/${encodeURIComponent(id)}/signers`, input, idempotencyKey); }
+  updateSigner(id: string, signerId: string, input: unknown, idempotencyKey: string, version?: number) { return this.#request('PATCH', `/signature-cases/${encodeURIComponent(id)}/signers/${encodeURIComponent(signerId)}`, input, idempotencyKey, version); }
   sendSignatureCase(id: string, idempotencyKey: string, version?: number) { return this.#request('POST', `/signature-cases/${encodeURIComponent(id)}/send`, undefined, idempotencyKey, version); }
   cancelSignatureCase(id: string, idempotencyKey: string, version?: number) { return this.#request('POST', `/signature-cases/${encodeURIComponent(id)}/cancel`, undefined, idempotencyKey, version); }
   remindSigners(id: string, idempotencyKey: string) { return this.#request('POST', `/signature-cases/${encodeURIComponent(id)}/remind`, undefined, idempotencyKey); }
   createUpload(input: unknown, idempotencyKey: string) { return this.#request('POST', '/uploads', input, idempotencyKey); }
+  completeUpload(uploadId: string, sha256: string, idempotencyKey: string) { return this.#request('POST', `/uploads/${encodeURIComponent(uploadId)}/complete`, { sha256 }, idempotencyKey); }
   createWebhookEndpoint(input: unknown, idempotencyKey: string) { return this.#request('POST', '/webhook-endpoints', input, idempotencyKey); }
   listEvents(limit = 50) { return this.#request('GET', `/events?limit=${limit}`); }
   listTemplates(limit = 50) { return this.#request('GET', `/templates?limit=${limit}`); }
   createTemplate(input: unknown, idempotencyKey: string) { return this.#request('POST', '/templates', input, idempotencyKey); }
+  downloadEvidencePackage(id: string) { return this.download(`/signature-cases/${encodeURIComponent(id)}/evidence-package`); }
+  downloadValidationReport(id: string) { return this.download(`/signature-cases/${encodeURIComponent(id)}/validation-report`); }
   async download(path: string): Promise<Uint8Array> {
     const response = await this.#raw('GET', path);
     if (!response.ok) await this.#throw(response);

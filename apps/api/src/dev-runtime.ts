@@ -92,14 +92,24 @@ const caseRepository: CaseRepository = {
     requireCase(context, id);
     return idempotent(context.tenantId, `case:${id}:signer`, key, payloadHash, () => {
       const value: SignerView = {
-        id: crypto.randomUUID(), signatureCaseId: id, recipientReference: input.recipientReference,
-        status: 'pending', required: input.required,
-        ...(input.displayName ? { displayName: input.displayName } : {}),
-        ...(input.signingOrder ? { signingOrder: input.signingOrder } : {}),
+        id: crypto.randomUUID(), signatureCaseId: id, displayName: input.displayName,
+        maskedEmail: input.email.replace(/^(.).*@/, '$1•••@'),
+        identifierBindingMode: input.personalNumber ? 'STRICT_PREBOUND' : 'BANKID_DISCOVERED',
+        ...(input.personalNumber ? { maskedPersonalNumber: `${input.personalNumber.slice(0,4)}••••-${input.personalNumber.slice(8)}` } : {}),
+        ...(input.personalNumberException ? { identifierBindingExceptionCode: input.personalNumberException.code } : {}),
+        status: 'pending', required: input.required, signingOrder: input.signingOrder,
       };
       signers.set(tenantKey(context.tenantId, value.id), value);
       addEvent(context.tenantId, 'signer.added', { signatureCaseId: id, signerId: value.id });
       return value;
+    });
+  },
+  async updateSigner(context, id, signerId, input, key, payloadHash) {
+    requireCase(context,id);
+    return idempotent(context.tenantId, `case:${id}:signer:${signerId}:update`, key, payloadHash, () => {
+      const current=signers.get(tenantKey(context.tenantId,signerId)); if(!current||current.signatureCaseId!==id) throw new Error('NOT_FOUND');
+      const value: SignerView={id:current.id,signatureCaseId:id,displayName:input.displayName,maskedEmail:input.email.replace(/^(.).*@/,'$1•••@'),identifierBindingMode:input.personalNumber?'STRICT_PREBOUND':'BANKID_DISCOVERED',status:current.status,required:input.required,signingOrder:input.signingOrder,...(input.personalNumber?{maskedPersonalNumber:`${input.personalNumber.slice(0,4)}••••-${input.personalNumber.slice(8)}`}:{ }),...(input.personalNumberException?{identifierBindingExceptionCode:input.personalNumberException.code}:{ })};
+      signers.set(tenantKey(context.tenantId,signerId),value); return value;
     });
   },
   async send(context, id, key, payloadHash, expectedVersion) {
@@ -140,6 +150,12 @@ const uploadRepository: UploadRepository = {
       uploads.set(tenantKey(context.tenantId, id), value);
       addEvent(context.tenantId, 'upload.grant_created', { uploadId: id });
       return value;
+    });
+  },
+  async complete(context, uploadId, key, payloadHash) {
+    return idempotent(context.tenantId, `upload:${uploadId}:complete`, key, payloadHash, () => {
+      const upload=uploads.get(tenantKey(context.tenantId,uploadId)); if(!upload) throw new Error('NOT_FOUND');
+      return { id:uploadId,status:'uploaded' as const,sha256:upload.sha256,byteSize:upload.byteSize };
     });
   },
 };

@@ -66,6 +66,20 @@ export function createObjectStorageAdapter(
       };
     },
 
+    async headObject(context, objectKey) {
+      assertTenantObject(context, objectKey);
+      const resolved = resolveBucket(settings, objectKey);
+      const response = await fetch(
+        `${settings.baseUrl}/storage/v1/object/authenticated/${encodePath(`${resolved.bucket}/${resolved.path}`)}`,
+        { method: 'HEAD', headers: authorizationHeaders(settings) },
+      );
+      if (!response.ok) throw await storageError(response, 'STORAGE_HEAD_FAILED');
+      const length = Number(response.headers.get('content-length'));
+      if (!Number.isSafeInteger(length) || length < 0) throw new Error('STORAGE_CONTENT_LENGTH_MISSING');
+      const checksum = response.headers.get('x-checksum-sha256') ?? response.headers.get('x-amz-meta-sha256') ?? undefined;
+      return { byteSize: length, ...(response.headers.get('content-type') ? { contentType: response.headers.get('content-type')! } : {}), ...(checksum && /^[0-9a-f]{64}$/.test(checksum) ? { sha256: checksum } : {}) };
+    },
+
     async downloadObject(context, objectKey, metadata): Promise<DownloadArtifact> {
       assertTenantObject(context, objectKey);
       const resolved = resolveBucket(settings, objectKey);
@@ -81,6 +95,28 @@ export function createObjectStorageAdapter(
         fileName: metadata.fileName,
         ...(metadata.sha256 ? { sha256: metadata.sha256 } : {}),
       };
+    },
+
+    async putObject(context, objectKey, bytes, contentType, immutable = true) {
+      assertTenantObject(context, objectKey);
+      const resolved = resolveBucket(settings, objectKey);
+      await ensurePrivateBucket(settings, resolved.bucket);
+      const response = await fetch(`${settings.baseUrl}/storage/v1/object/${encodePath(`${resolved.bucket}/${resolved.path}`)}`, {
+        method: 'POST',
+        headers: { ...authorizationHeaders(settings), 'content-type': contentType, 'x-upsert': immutable ? 'false' : 'true' },
+        body: bytes,
+      });
+      if (!response.ok) throw await storageError(response, 'STORAGE_UPLOAD_FAILED');
+      return { byteSize: bytes.byteLength };
+    },
+
+    async deleteObject(context, objectKey) {
+      assertTenantObject(context, objectKey);
+      const resolved = resolveBucket(settings, objectKey);
+      const response = await fetch(`${settings.baseUrl}/storage/v1/object/${encodePath(`${resolved.bucket}/${resolved.path}`)}`, {
+        method: 'DELETE', headers: authorizationHeaders(settings),
+      });
+      if (!response.ok && response.status !== 404) throw await storageError(response, 'STORAGE_DELETE_FAILED');
     },
   };
 }

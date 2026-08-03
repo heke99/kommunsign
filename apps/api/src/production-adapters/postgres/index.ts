@@ -7,6 +7,7 @@ import { createDataRepositories } from './data-database.js';
 import { createDomainRepository } from './domain-repository.js';
 import { loadProductionInfrastructure } from './infrastructure.js';
 import { createOnboardingRepository } from './onboarding-repository.js';
+import { createPublicRepositories } from './public-signing-repository.js';
 import { GatewayRequestAuthenticator } from './request-auth.js';
 import { createPostgresDatabase } from './sql-database.js';
 import { createTenantRepository } from './tenant-repository.js';
@@ -17,6 +18,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
   try {
     const infrastructure = await loadProductionInfrastructure(process.env);
     const data = createDataRepositories(dataDatabase, infrastructure);
+    const publicRepositories = createPublicRepositories(dataDatabase, infrastructure, process.env);
     const domains = createDomainRepository(controlDatabase);
     const resolver = new TenantHostnameResolver(domains, {
       trustProxy: booleanEnvironment('TRUST_PROXY', true),
@@ -31,14 +33,16 @@ export async function createProductionDependencies(configuration: ProductionRunt
     const tenants = createTenantRepository(dataDatabase);
     return {
       ...data,
+      ...publicRepositories,
       onboarding: createOnboardingRepository(controlDatabase, infrastructure),
       resolveContext: (request) => authenticator.resolveTenantContext(request),
       authorize: async (context, permission) => requirePermission(await tenants.rolesForSubject(context), permission),
       resolvePlatformContext: (request) => authenticator.resolvePlatformContext(request),
       authorizePlatform: async (context, permission) => requirePlatformPermission(await authenticator.platformRoles(context), permission),
       reportError(cause, requestId) {
-        const error = cause instanceof Error ? { name: cause.name, message: cause.message } : { name: 'UnknownError', message: String(cause) };
-        console.error(JSON.stringify({ level: 'error', service: 'kommunsign-api', requestId, ...error }));
+        const name = cause instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,79}$/.test(cause.name) ? cause.name : 'UnknownError';
+        const code = cause instanceof Error && /^[A-Z][A-Z0-9_]{2,79}$/.test(cause.message) ? cause.message : 'INTERNAL_REQUEST_FAILURE';
+        console.error(JSON.stringify({ level: 'error', service: 'kommunsign-api', requestId, name, code }));
       },
     };
   } catch (cause) {
@@ -85,3 +89,5 @@ export { createEventRepository } from './event-repository.js';
 export { createWebhookRepository } from './webhook-repository.js';
 export { createReadinessRepository } from './readiness-repository.js';
 export { createActivationRepository } from './activation-repository.js';
+
+export { createPublicRepositories } from './public-signing-repository.js';

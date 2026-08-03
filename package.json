@@ -54,7 +54,9 @@
     "verify:sdk": "node scripts/verify-sdk-sync.mjs",
     "dev:onboarding": "node scripts/serve-static.mjs apps/onboarding-portal/public 3005",
     "start:api": "APP_ENV=production KOMMUNSIGN_API_BOOTSTRAP_MODULE=../../dist/apps/api/src/production-runtime.js node apps/api/server.mjs",
-    "start:workers": "APP_ENV=production node dist/apps/workers/src/production-runner.js"
+    "start:workers": "APP_ENV=production node dist/apps/workers/src/production-runner.js",
+    "verify:evidence-fixtures": "npm run build && node scripts/verify-evidence-fixtures.mjs",
+    "verify:container-health": "node scripts/verify-production-services.mjs"
   },
   "packageManager": "npm@10.9.2",
   "devDependencies": {

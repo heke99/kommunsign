@@ -7,9 +7,9 @@ import java.net.http.HttpResponse;
 import java.util.Objects;
 import java.util.function.Supplier;
 
-/** OpenAPI version 2026-08-02.3. */
+/** OpenAPI version 2026-08-03.1. */
 public final class KommunSignClient {
-  public static final String OPENAPI_VERSION = "2026-08-02.3";
+  public static final String OPENAPI_VERSION = "2026-08-03.1";
   private final HttpClient http;
   private final URI baseUri;
   private final Supplier<String> accessToken;
@@ -19,6 +19,11 @@ public final class KommunSignClient {
   public HttpResponse<String> listSignatureCases() throws Exception { return send("GET", "signature-cases", null, null, null); }
   public HttpResponse<String> getSignatureCase(String id) throws Exception { return send("GET", "signature-cases/" + id, null, null, null); }
   public HttpResponse<String> createSignatureCase(String json, String key) throws Exception { return send("POST", "signature-cases", json, key, null); }
+  public HttpResponse<String> addDocument(String id, String json, String key) throws Exception { return send("POST", "signature-cases/" + id + "/documents", json, key, null); }
+  public HttpResponse<String> addSigner(String id, String json, String key) throws Exception { return send("POST", "signature-cases/" + id + "/signers", json, key, null); }
+  public HttpResponse<String> updateSigner(String id, String signerId, String json, String key, Long version) throws Exception { return send("PATCH", "signature-cases/" + id + "/signers/" + signerId, json, key, version); }
+  public HttpResponse<String> createUpload(String json, String key) throws Exception { return send("POST", "uploads", json, key, null); }
+  public HttpResponse<String> completeUpload(String uploadId, String json, String key) throws Exception { return send("POST", "uploads/" + uploadId + "/complete", json, key, null); }
   public HttpResponse<String> sendSignatureCase(String id, String key, Long version) throws Exception { return send("POST", "signature-cases/" + id + "/send", null, key, version); }
   private HttpResponse<String> send(String method, String path, String json, String key, Long version) throws Exception {
     var builder = HttpRequest.newBuilder(baseUri.resolve(path)).header("Authorization", "Bearer " + accessToken.get());

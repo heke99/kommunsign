@@ -24,7 +24,7 @@ function assertProductionDependencies(dependencies: ApiDependencies): void {
   if (!dependencies.onboarding) throw new Error('PRODUCTION_ONBOARDING_REPOSITORY_MISSING');
   if (!dependencies.resolvePlatformContext || !dependencies.authorizePlatform) throw new Error('PRODUCTION_PLATFORM_AUTH_MISSING');
   if (!dependencies.resolveContext || !dependencies.authorize) throw new Error('PRODUCTION_TENANT_AUTH_MISSING');
-  for (const key of ['cases','uploads','webhooks','events','templates'] as const) {
+  for (const key of ['cases','uploads','webhooks','events','templates','publicSigning','providerWebhooks','publicVerification'] as const) {
     if (!dependencies[key]) throw new Error(`PRODUCTION_${key.toUpperCase()}_REPOSITORY_MISSING`);
   }
 }

@@ -54,7 +54,7 @@ assert.equal((await request(`/v1/signature-cases/${signatureCase.id}/documents`,
   uploadId: upload.id, displayName: 'Delegationsbeslut.pdf',
 }, { 'idempotency-key': key() })).status, 202);
 assert.equal((await request(`/v1/signature-cases/${signatureCase.id}/signers`, 'POST', {
-  displayName: 'Beslutsfattare', recipientReference: 'opaque-recipient-reference-001', required: true, signingOrder: 1,
+  displayName: 'Beslutsfattare', email: 'beslutsfattare@testkommunen.se', personalNumber: '199001010009', requirePersonalNumberMatch: true, personalNumberException: null, required: true, signingOrder: 1,
 }, { 'idempotency-key': key() })).status, 201);
 const sendResponse = await request(`/v1/signature-cases/${signatureCase.id}/send`, 'POST', undefined, {
   'idempotency-key': key(), 'if-match': '1',

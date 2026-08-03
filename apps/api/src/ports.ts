@@ -32,21 +32,32 @@ export interface DocumentView {
   readonly byteSize: number;
   readonly mimeType: string;
 }
+export interface PersonalNumberExceptionInput {
+  readonly code: 'UNKNOWN_AT_INVITATION' | 'DATA_MINIMIZATION' | 'PROTECTED_PERSONAL_DATA_WORKFLOW' | 'RECIPIENT_SELECTED_BY_SECURE_CHANNEL' | 'OTHER';
+  readonly reason?: string | null;
+}
 export interface AddSignerInput {
-  readonly displayName?: string;
-  readonly recipientReference: string;
-  readonly identifierType?: 'SSN' | 'UPI' | 'EMAIL' | 'PHONE' | 'INFERRED';
+  readonly displayName: string;
+  readonly email: string;
+  readonly personalNumber: string | null;
+  readonly requirePersonalNumberMatch: boolean;
+  readonly personalNumberException: PersonalNumberExceptionInput | null;
   readonly required: boolean;
-  readonly signingOrder?: number;
+  readonly signingOrder: number;
+  /** Set by the API boundary only after authorization; never accepted from JSON. */
+  readonly exceptionPermissionGranted?: true;
 }
 export interface SignerView {
   readonly id: string;
   readonly signatureCaseId: string;
-  readonly displayName?: string;
-  readonly recipientReference: string;
+  readonly displayName: string;
+  readonly maskedEmail: string;
+  readonly identifierBindingMode: 'STRICT_PREBOUND' | 'BANKID_DISCOVERED';
+  readonly maskedPersonalNumber?: string;
+  readonly identifierBindingExceptionCode?: PersonalNumberExceptionInput['code'];
   readonly status: 'pending' | 'invited' | 'opened' | 'identity_started' | 'identity_verified' | 'signing' | 'signed' | 'declined' | 'expired' | 'cancelled' | 'failed';
   readonly required: boolean;
-  readonly signingOrder?: number;
+  readonly signingOrder: number;
 }
 export interface UploadGrantInput {
   readonly fileName: string;
@@ -101,6 +112,7 @@ export interface CaseRepository {
   list(context: TenantContext, page: PageInput): Promise<Page<SignatureCaseView>>;
   addDocument(context: TenantContext, id: string, input: AddDocumentInput, idempotencyKey: string, payloadHash: string): Promise<DocumentView>;
   addSigner(context: TenantContext, id: string, input: AddSignerInput, idempotencyKey: string, payloadHash: string): Promise<SignerView>;
+  updateSigner(context: TenantContext, id: string, signerId: string, input: AddSignerInput, idempotencyKey: string, payloadHash: string, expectedVersion?: number): Promise<SignerView>;
   send(context: TenantContext, id: string, idempotencyKey: string, payloadHash: string, expectedVersion?: number): Promise<SignatureCaseView>;
   cancel(context: TenantContext, id: string, idempotencyKey: string, payloadHash: string, expectedVersion?: number): Promise<SignatureCaseView>;
   remind(context: TenantContext, id: string, idempotencyKey: string, payloadHash: string): Promise<{ readonly jobId: string; readonly status: 'queued' }>;
@@ -110,6 +122,7 @@ export interface CaseRepository {
 }
 export interface UploadRepository {
   create(context: TenantContext, input: UploadGrantInput, idempotencyKey: string, payloadHash: string): Promise<UploadGrantView>;
+  complete(context: TenantContext, uploadId: string, idempotencyKey: string, payloadHash: string): Promise<{ readonly id: string; readonly status: 'uploaded'; readonly sha256: string; readonly byteSize: number }>;
 }
 export interface WebhookRepository {
   createEndpoint(context: TenantContext, input: WebhookEndpointInput, idempotencyKey: string, payloadHash: string): Promise<WebhookEndpointView>;
@@ -266,12 +279,76 @@ export interface OnboardingRepository {
   decideActivation(context: PlatformContext, requestId: string, decision: 'approve' | 'reject', reason: string, idempotencyKey: string, payloadHash: string): Promise<ActivationRequestView>;
 }
 
+
+export interface PublicSigningDocumentView {
+  readonly id: string;
+  readonly displayName: string;
+  readonly sha256: string;
+  readonly byteSize: number;
+  readonly mimeType: 'application/pdf';
+  readonly profile: 'PDF/A-2b';
+  readonly ordinal: number;
+}
+export interface PublicSigningInvitationView {
+  readonly invitationId: string;
+  readonly signerId: string;
+  readonly signatureCaseId: string;
+  readonly organizationName: string;
+  readonly caseReference: string;
+  readonly caseTitle: string;
+  readonly signerDisplayName: string;
+  readonly status: SignerView['status'];
+  readonly expiresAt: string;
+  readonly identifierBindingMode: 'STRICT_PREBOUND' | 'BANKID_DISCOVERED';
+  readonly visibleText: string;
+  readonly documents: readonly PublicSigningDocumentView[];
+}
+export interface PublicBankIdSessionView {
+  readonly sessionId: string;
+  readonly status: 'PENDING' | 'USER_ACTION_REQUIRED' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED' | 'FAILED';
+  readonly expiresAt: string;
+  readonly autoStartToken?: string;
+  readonly qrCodeData?: string;
+  readonly canExtend: boolean;
+}
+export interface PublicSigningRepository {
+  getInvitation(token: string): Promise<PublicSigningInvitationView>;
+  markOpened(token: string): Promise<{ readonly opened: true }>;
+  document(token: string, documentId: string): Promise<DownloadArtifact>;
+  startBankId(token: string, input: { readonly reviewAcknowledged: true; readonly endUserIp: string; readonly userAgent: string }): Promise<PublicBankIdSessionView>;
+  bankIdStatus(token: string, sessionId: string): Promise<PublicBankIdSessionView>;
+  extendBankId(token: string, sessionId: string): Promise<PublicBankIdSessionView>;
+  cancelBankId(token: string, sessionId: string): Promise<{ readonly cancelled: true }>;
+  decline(token: string, reason?: string): Promise<{ readonly declined: true }>;
+}
+export interface ProviderWebhookRepository {
+  tic(input: { readonly rawBody: Uint8Array; readonly headers: Readonly<Record<string,string|undefined>>; readonly receivedAt: string }): Promise<{ readonly accepted: true; readonly duplicate: boolean }>;
+  resend(input: { readonly rawBody: Uint8Array; readonly headers: Readonly<Record<string,string|undefined>>; readonly receivedAt: string }): Promise<{ readonly accepted: true; readonly duplicate: boolean }>;
+}
+export interface PublicVerificationSummary {
+  readonly verified: boolean;
+  readonly organization: string;
+  readonly caseReference: string;
+  readonly documents: readonly { readonly displayName: string; readonly sha256: string }[];
+  readonly signerCount: number;
+  readonly signedAt: string;
+  readonly verifierEngine: string;
+  readonly verifierPolicyVersion: string;
+  readonly packageSha256: string;
+}
+export interface PublicVerificationRepository {
+  get(verificationId: string): Promise<PublicVerificationSummary | null>;
+  verifyPackage(bytes: Uint8Array): Promise<{ readonly verified: boolean; readonly packageSha256: string; readonly failures: readonly string[] }>;
+}
 export interface ApiDependencies {
   readonly cases: CaseRepository;
   readonly uploads: UploadRepository;
   readonly webhooks: WebhookRepository;
   readonly events: EventRepository;
   readonly templates: TemplateRepository;
+  readonly publicSigning?: PublicSigningRepository;
+  readonly providerWebhooks?: ProviderWebhookRepository;
+  readonly publicVerification?: PublicVerificationRepository;
   readonly resolveContext: (request: Request) => Promise<TenantContext>;
   readonly authorize: (context: TenantContext, permission: Permission) => Promise<void> | void;
   readonly onboarding?: OnboardingRepository;

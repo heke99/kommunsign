@@ -1,1 +1,53 @@
-<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KommunSign – verifiera</title><link rel="stylesheet" href="app.css"><script src="app.js" defer></script></head><body><a class="skip-link" href="#content">Hoppa till innehåll</a><header><strong>Verifiera underskrift</strong><span class="badge">Ingen permanent lagring</span></header><main id="content"><section class="card"><h1>Verifiera signerad PDF</h1><form id="verify-form"><label for="pdf">Signerad PDF</label><input id="pdf" type="file" accept="application/pdf" required><label for="endpoint">Valideringstjänst</label><input id="endpoint" value="http://127.0.0.1:8082/validate"><button type="submit">Förhandskontrollera och validera</button></form><div id="status" class="status" aria-live="polite">Ingen fil vald.</div><dl id="result"></dl><p class="muted">Lokal kontroll av PDF-magic bytes och SHA-256 är inte en signaturvalidering. Endast en verifierad DSS-rapport får ge TOTAL_PASSED.</p></section></main></body></html>
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Kommunsign – verifiera bevis</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Hoppa till innehåll</a>
+  <header>
+    <strong>Kommunsign verifiering</strong>
+    <span class="badge">Inga personnummer visas</span>
+  </header>
+  <main id="content">
+    <section class="intro">
+      <h1>Verifiera en elektronisk underskrift</h1>
+      <p>Kontrollera ett verifierings-ID eller verifiera ett komplett Kommunsign-evidenspaket lokalt mot dess manifest och kontrollsummor.</p>
+    </section>
+
+    <div class="grid">
+      <section class="card" aria-labelledby="id-heading">
+        <h2 id="id-heading">Verifierings-ID</h2>
+        <form id="id-form">
+          <label for="verification-id">Verifierings-ID</label>
+          <input id="verification-id" name="verificationId" autocomplete="off" maxlength="160" required>
+          <button type="submit">Hämta verifiering</button>
+        </form>
+        <div id="id-status" class="status" aria-live="polite">Ange det verifierings-ID som står på kvittot.</div>
+        <dl id="id-result" class="result-list"></dl>
+        <div id="documents" class="documents hidden">
+          <h3>Handlingar</h3>
+          <ul id="document-list"></ul>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="package-heading">
+        <h2 id="package-heading">Evidenspaket</h2>
+        <form id="package-form">
+          <label for="package">Kommunsign-paket (.zip)</label>
+          <input id="package" name="package" type="file" accept="application/zip,.zip" required>
+          <button type="submit">Verifiera paket</button>
+        </form>
+        <div id="package-status" class="status" aria-live="polite">Ingen fil vald.</div>
+        <dl id="package-result" class="result-list"></dl>
+        <p class="muted">Paketet skickas till verifieringstjänsten för strukturell kontroll av manifest, SHA-256 och verifieringsrapporter. Resultatet är inte ett påstående om PAdES eller kvalificerad underskrift.</p>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

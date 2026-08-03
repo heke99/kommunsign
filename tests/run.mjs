@@ -9,6 +9,8 @@ import {
 } from '../dist/packages/provider-adapters/src/tic-bankid.js';
 import { bankIdEvidenceBytes } from '../dist/packages/provider-adapters/src/evidence-payload.js';
 import { createEvidenceManifest, verifyEvidenceFiles } from '../dist/packages/evidence/src/index.js';
+import { createEvidenceZip, verifyEvidenceZip } from '../dist/packages/evidence/src/zip.js';
+import { normalizeSwedishPersonalNumber, maskSwedishPersonalNumber, decideIdentifierBinding } from '../dist/packages/personal-number/src/index.js';
 import { calculateAuditEventHash, createAuditHashMaterial, verifyAuditChain } from '../dist/packages/audit/src/index.js';
 import { processClaimedJob, retryDelaySeconds } from '../dist/apps/workers/src/jobs.js';
 import { createApiHandler } from '../dist/apps/api/src/router.js';
@@ -36,9 +38,14 @@ const completionEvidence = (overrides = {}) => ({
 });
 
 const identityInput = {
-  tenantId: 't1', signatureCaseId: 'c1', documentId: 'd1', documentVersionId: 'v1',
-  documentSha256: 'a'.repeat(64), signaturePolicyId: 'p1', signaturePolicyVersion: 4,
-  signerId: 's1', visibleText: 'Jag skriver under', endUserIp: '127.0.0.1', userAgent: 'test',
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  signatureCaseId: '22222222-2222-4222-8222-222222222222',
+  signingIntentId: '33333333-3333-4333-8333-333333333333',
+  signerId: '44444444-4444-4444-8444-444444444444',
+  signaturePolicyId: '55555555-5555-4555-8555-555555555555', signaturePolicyVersion: 4,
+  identifierBindingMode: 'STRICT_PREBOUND', expectedPersonalNumber: '199001010009',
+  documents: [{ ordinal: 1, documentId: '66666666-6666-4666-8666-666666666666', documentVersionId: '77777777-7777-4777-8777-777777777777', displayName: 'Beslut.pdf', mimeType: 'application/pdf', profile: 'PDF/A-2b', byteSize: 1200, sha256: 'a'.repeat(64) }],
+  visibleText: 'Jag skriver under', endUserIp: '127.0.0.1', userAgent: 'test',
   issuedAt: '2026-08-02T08:00:00.000Z', expiresAt: '2026-08-02T08:05:00.000Z', state: 'state', nonce: 'nonce',
 };
 
@@ -158,6 +165,15 @@ test('readiness separates blocking, warnings and completed checks', () => {
   assert.deepEqual(result.warningChecks.map((item) => item.code), ['ARCHIVE_OPTIONAL']);
 });
 
+test('Swedish personal number policy validates, masks and authorizes exceptions', () => {
+  assert.equal(normalizeSwedishPersonalNumber('1990-01-01-0009'), '199001010009');
+  assert.equal(maskSwedishPersonalNumber('199001010009'), '1990••••-0009');
+  assert.throws(() => normalizeSwedishPersonalNumber('199001011234'), /PERSONAL_NUMBER_INVALID/);
+  assert.deepEqual(decideIdentifierBinding({ personalNumber: '199001010009', requirePersonalNumberMatch: true, tenantAllowsException: false, actorHasExceptionPermission: false }), { mode: 'STRICT_PREBOUND', normalizedPersonalNumber: '199001010009' });
+  assert.throws(() => decideIdentifierBinding({ personalNumber: null, requirePersonalNumberMatch: false, exception: { code: 'UNKNOWN_AT_INVITATION' }, tenantAllowsException: true, actorHasExceptionPermission: false }), /PERSONAL_NUMBER_EXCEPTION_NOT_ALLOWED/);
+  assert.deepEqual(decideIdentifierBinding({ personalNumber: null, requirePersonalNumberMatch: false, exception: { code: 'UNKNOWN_AT_INVITATION' }, tenantAllowsException: true, actorHasExceptionPermission: true }), { mode: 'BANKID_DISCOVERED', exception: { code: 'UNKNOWN_AT_INVITATION' } });
+});
+
 test('canonical JSON is deterministic', async () => {
   assert.equal(canonicalJson({ z: 1, a: { y: true, x: null } }), '{"a":{"x":null,"y":true},"z":1}');
   assert.equal(await sha256Hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
@@ -212,7 +228,7 @@ test('BankID evidence bytes are reproducible and verifier fails closed', async (
   await assert.rejects(() => provider.verifyEvidence({ provider: 'TIC_BANKID', providerReference: 'r', rawPayload: {}, collectedAt: identityInput.issuedAt }));
 });
 
-test('TIC adapter uses operation-specific methods, paths and Base64 evidence', async () => {
+test('TIC adapter uses operation-specific methods, paths and canonical evidence', async () => {
   const calls = [];
   const http = async (url, init) => {
     calls.push({ url: String(url), init });
@@ -236,7 +252,7 @@ test('TIC adapter uses operation-specific methods, paths and Base64 evidence', a
   assert.equal(session.subscriptionToken, 'subscription');
   assert.equal(session.expiresAt, '2026-08-02T08:04:00.000Z');
   const startBody = JSON.parse(calls[0].init.body);
-  assert.equal(startBody.userNonVisibleData, base64Encode(bankIdEvidenceBytes(identityInput)));
+  assert.equal(startBody.userNonVisibleData, new TextDecoder().decode(bankIdEvidenceBytes(identityInput)));
   assert.equal(Array.isArray(startBody.userNonVisibleData), false);
   assert.equal(await provider.getStatus('session-1'), 'COMPLETED');
   await provider.collectEvidence('session-1');
@@ -257,11 +273,8 @@ test('TIC adapter rejects mismatched collect sessions and unsafe base URLs', asy
 test('HMAC verification, timestamp window and webhook binding', async () => {
   const rawBody = new TextEncoder().encode('{"event":"auth.completed","data":{"sessionId":"s1","state":"state","status":"completed"}}');
   const timestamp = '1000';
-  const prefix = new TextEncoder().encode(`${timestamp}.`);
-  const combined = new Uint8Array(prefix.length + rawBody.length);
-  combined.set(prefix); combined.set(rawBody, prefix.length);
-  const signature = await hmacSha256Hex('secret', combined);
-  assert.equal(await verifyHmacSha256Hex('secret', combined, signature), true);
+  const signature = await hmacSha256Hex('secret', rawBody);
+  assert.equal(await verifyHmacSha256Hex('secret', rawBody, signature), true);
   assert.equal(await verifyTicWebhook({ rawBody, timestamp, signature, secret: 'secret', nowEpochSeconds: 1100 }), true);
   assert.equal(await verifyTicWebhook({ rawBody, timestamp, signature, secret: 'secret', nowEpochSeconds: 1401 }), false);
   const envelope = parseTicWebhookEnvelope(rawBody);
@@ -374,6 +387,19 @@ test('evidence manifest detects modified file', async () => {
   assert.deepEqual(await verifyEvidenceFiles(manifest, original), []);
   const failures = await verifyEvidenceFiles(manifest, [{ ...original[0], bytes: new TextEncoder().encode('pdf-b') }]);
   assert.ok(failures.some((failure) => failure.includes('Hash mismatch')));
+});
+
+test('evidence ZIP is deterministic and rejects modified archive bytes', async () => {
+  const file = { path: 'documents/001-beslut.pdf', bytes: new TextEncoder().encode('%PDF-test'), mediaType: 'application/pdf' };
+  const manifest = await createEvidenceManifest('case-zip', [file], { packageType: 'case' }, '2026-08-03T00:00:00.000Z');
+  const manifestBytes = new TextEncoder().encode(canonicalJson(manifest));
+  const checksums = new TextEncoder().encode(`${manifest.entries[0].sha256}  ${manifest.entries[0].path}\n`);
+  const first = createEvidenceZip([{ path: file.path, bytes: file.bytes }, { path: 'manifest.json', bytes: manifestBytes }, { path: 'checksums.sha256', bytes: checksums }]);
+  const second = createEvidenceZip([{ path: 'checksums.sha256', bytes: checksums }, { path: 'manifest.json', bytes: manifestBytes }, { path: file.path, bytes: file.bytes }]);
+  assert.deepEqual(first, second);
+  assert.equal((await verifyEvidenceZip(first)).verified, true);
+  const changed = first.slice(); changed[Math.floor(changed.length / 3)] ^= 1;
+  assert.equal((await verifyEvidenceZip(changed)).verified, false);
 });
 
 test('database hardening migration includes lease recovery and same-case guards', async () => {
