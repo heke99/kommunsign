@@ -1,0 +1,21 @@
+KOMMUNSIGN UNIFIED DEPLOYMENT / ENV VERIFICATION
+Date: 2026-08-04
+
+PASS  TypeScript 5.8.3 compilation
+PASS  Portal build: 6 portal packages
+PASS  Unified Vercel build: 7 portals
+PASS  Unit tests: 33/33
+PASS  Integration tests
+PASS  Security tests
+PASS  Repository verification
+PASS  SQL migration verification
+PASS  ENV contract: 184 declared variables / 26 direct runtime references
+PASS  SDK sync: 2026-08-03.2
+PASS  Secret scan
+PASS  Java verifier self-test
+PASS  .env.local initialization
+PASS  Account-bootstrap ENV staged validator
+PASS  verify_accounts.sql hotfix uses encode(token_hash, 'hex')
+
+EXTERNAL ENVIRONMENT BLOCKER
+npm ci could not fetch postgres@3.4.7 because the execution environment's internal npm mirror returned 404. No dependency or lockfile version was changed to conceal this external registry failure.

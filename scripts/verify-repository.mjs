@@ -91,8 +91,14 @@ if (/:latest\b/.test(kubernetes)) throw new Error('Production manifests may not 
 if (!kubernetes.includes('registry.invalid/')) throw new Error('Provider-neutral manifest must remain fail-closed until release digest injection');
 
 const vercelConfig = JSON.parse(await readFile('vercel.json', 'utf8'));
-if (vercelConfig.buildCommand !== 'npm run web:build') throw new Error('Vercel must use the isolated public website build');
-if (vercelConfig.outputDirectory !== 'build/public-site') throw new Error('Vercel output directory is incorrect');
+if (vercelConfig.buildCommand !== 'npm run build:vercel') throw new Error('Vercel must use the unified portal build');
+if (vercelConfig.outputDirectory !== 'build/vercel') throw new Error('Vercel unified output directory is incorrect');
+const requiredPortalHosts = ['kommunsign.se','apply.kommunsign.se','admin.kommunsign.se','auth.kommunsign.se','app.kommunsign.se','sign.kommunsign.se','verify.kommunsign.se'];
+for (const host of requiredPortalHosts) {
+  if (!vercelConfig.rewrites?.some((entry) => entry.has?.some((condition) => condition.type === 'host' && condition.value === host))) {
+    throw new Error(`Vercel unified routing is missing ${host}`);
+  }
+}
 const website = await readFile('apps/public-website/public/index.html', 'utf8');
 if (!website.includes('Säker signering med BankID')) throw new Error('Public website must describe the production product clearly');
 if (/Pilotplattform under utveckling|inte produktionsklar|ej redo|under utveckling/i.test(website)) throw new Error('Public website contains obsolete development messaging');

@@ -116,3 +116,7 @@ Detaljer:
 - `docs/operations/supabase-auth-email.md`
 - `docs/security/password-authentication.md`
 - `PRODUCTION_CHECKLIST.md`
+
+## Deployment
+
+Kommunsign använder ett gemensamt Vercel-projekt för samtliga webportaler och en separat containerbaserad runtime för API, webhooks, workers och dokumenttjänster. Lokalt används en enda `.env.local`; skapa den med `npm run env:local:init`. Se `docs/operations/deployment-topology.md`.

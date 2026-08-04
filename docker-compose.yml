@@ -39,7 +39,7 @@ services:
     healthcheck: { test: ["CMD-SHELL", "echo PING | nc 127.0.0.1 3310 | grep PONG"], interval: 15s, timeout: 5s, retries: 30 }
   gotenberg:
     image: gotenberg/gotenberg:8.34.0
-    ports: ["3005:3000"]
+    ports: ["3007:3000"]
     command: ["gotenberg", "--api-disable-health-check-logging=true", "--chromium-disable-javascript=true", "--api-timeout=120s"]
     read_only: true
     tmpfs: ["/tmp"]

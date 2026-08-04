@@ -1,91 +1,30 @@
 {
-  "version": 2,
+  "version": 3,
   "projects": [
     {
-      "name": "kommunsign-public",
+      "name": "kommunsign-web",
+      "source": ".",
+      "deploymentModel": "single-project-host-routing",
       "domains": [
         "kommunsign.se",
-        "www.kommunsign.se"
-      ],
-      "source": "apps/public-website"
-    },
-    {
-      "name": "kommunsign-onboarding",
-      "domains": [
-        "apply.kommunsign.se"
-      ],
-      "source": "apps/onboarding-portal"
-    },
-    {
-      "name": "kommunsign-platform-admin",
-      "domains": [
-        "admin.kommunsign.se"
-      ],
-      "source": "apps/platform-admin"
-    },
-    {
-      "name": "kommunsign-auth",
-      "domains": [
-        "auth.kommunsign.se"
-      ],
-      "source": "apps/auth-portal"
-    },
-    {
-      "name": "kommunsign-organization-portal",
-      "domains": [
+        "www.kommunsign.se",
+        "apply.kommunsign.se",
+        "admin.kommunsign.se",
+        "auth.kommunsign.se",
         "app.kommunsign.se",
+        "sign.kommunsign.se",
+        "verify.kommunsign.se",
         "*.kommunsign.se"
       ],
-      "source": "apps/tenant-portal",
-      "acceptsVerifiedCustomDomains": true
-    },
-    {
-      "name": "kommunsign-signer",
-      "domains": [
-        "sign.kommunsign.se"
-      ],
-      "source": "apps/signer-portal"
-    },
-    {
-      "name": "kommunsign-verification",
-      "domains": [
-        "verify.kommunsign.se"
-      ],
-      "source": "apps/verification-portal"
-    },
-    {
-      "name": "kommunsign-docs",
-      "domains": [
-        "docs.kommunsign.se"
-      ],
-      "source": "docs"
+      "notes": "Alla statiska portaler byggs och deployas tillsammans. Host-baserade rewrites väljer portal."
     }
   ],
-  "externalServices": [
-    {
-      "domains": [
-        "api.kommunsign.se",
-        "hooks.kommunsign.se"
-      ],
-      "service": "api-runtime"
-    },
-    {
-      "domains": [
-        "status.kommunsign.se"
-      ],
-      "service": "status-page"
-    },
-    {
-      "domains": [
-        "support.kommunsign.se"
-      ],
-      "service": "support-portal"
-    },
-    {
-      "domains": [
-        "notify.kommunsign.se"
-      ],
-      "service": "email-sending-domain"
-    }
-  ]
+  "runtimeDeployment": {
+    "name": "kommunsign-runtime",
+    "type": "container-stack",
+    "domains": ["api.kommunsign.se", "hooks.kommunsign.se"],
+    "processes": ["api", "workers", "validation-service", "clamav", "gotenberg", "verapdf"],
+    "notes": "En separat runtime-deployment krävs för långlivade workers och isolerade dokumenttjänster."
+  },
+  "managedExternalServices": ["Supabase PostgreSQL/Auth/Storage", "TIC BankID", "Resend"]
 }

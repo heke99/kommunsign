@@ -50,8 +50,8 @@ Kör först i en tom eller stagingklassad databas. Ändra inte redan körda migr
 set -euo pipefail
 cd /Users/hekmath/Projects/kommunsign
 
-test -f .env || cp .env.example .env
 npm ci
+npm run env:local:init
 npm run db:up
 npm run db:migrate
 npm run db:verify
@@ -70,54 +70,36 @@ npm run package:release
 sha256sum release/kommunsign-source.zip
 ```
 
-## Vercel – projekt, statiska portaler och domäner
-
-Installera eller använd aktuell Vercel CLI via `npx`. Kommandona nedan skapar/länkar projekt; de ska köras med rätt team-scope.
+## Vercel – ett projekt för alla portaler
 
 ```bash
+set -euo pipefail
 cd /Users/hekmath/Projects/kommunsign
+
 npm ci
-npm run web:build
-npm run portal:build
+npm run build:vercel
 
-npx vercel project add kommunsign-public
-npx vercel link --yes --project kommunsign-public
+# Skapar projektet interaktivt om det inte redan finns.
+npx vercel project add
+npx vercel link --yes --project kommunsign-web
 npx vercel deploy --prod
-npx vercel domains add kommunsign.se kommunsign-public
-npx vercel domains add www.kommunsign.se kommunsign-public
+
+for domain in \
+  kommunsign.se \
+  www.kommunsign.se \
+  apply.kommunsign.se \
+  admin.kommunsign.se \
+  auth.kommunsign.se \
+  app.kommunsign.se \
+  sign.kommunsign.se \
+  verify.kommunsign.se \
+  '*.kommunsign.se'
+do
+  npx vercel domains add "$domain" kommunsign-web
+done
 ```
 
-Statiska portaler:
-
-```bash
-cd /Users/hekmath/Projects/kommunsign
-
-npx vercel project add kommunsign-onboarding
-(
-  cd build/portals/onboarding-portal
-  npx vercel link --yes --project kommunsign-onboarding
-  npx vercel deploy --prod
-)
-npx vercel domains add apply.kommunsign.se kommunsign-onboarding
-
-npx vercel project add kommunsign-platform-admin
-(
-  cd build/portals/platform-admin
-  npx vercel link --yes --project kommunsign-platform-admin
-  npx vercel deploy --prod
-)
-npx vercel domains add admin.kommunsign.se kommunsign-platform-admin
-
-npx vercel project add kommunsign-verification
-(
-  cd build/portals/verification-portal
-  npx vercel link --yes --project kommunsign-verification
-  npx vercel deploy --prod
-)
-npx vercel domains add verify.kommunsign.se kommunsign-verification
-```
-
-Skapa inte `kommunsign-auth` eller `kommunsign-tenant-gateway` som skarpa projekt förrän respektive HTTP-entrypoint, callbackroutes och same-origin BFF är färdigställda. Manifestet i `infrastructure/vercel/projects.json` beskriver den avsedda slutstrukturen men är inte i sig en deployment.
+Kör `npx vercel domains inspect <domän>` för att få korrekt DNS-instruktion för varje domän. Wildcarddomänen kan kräva Vercels nameservers. `api.kommunsign.se` och `hooks.kommunsign.se` läggs inte i webprojektet utan pekas mot runtime-deploymenten.
 
 ## Git och merge till main
 

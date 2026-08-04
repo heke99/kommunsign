@@ -512,15 +512,17 @@ test('database hardening migration includes lease recovery and same-case guards'
   assert.match(immutability, /require_trusted_cryptographic_service/);
 });
 
-test('public website is Vercel-buildable and uses customer-facing production language', async () => {
+test('unified Vercel deployment builds all portals and uses customer-facing production language', async () => {
   const html = await readFile('apps/public-website/public/index.html', 'utf8');
   const config = JSON.parse(await readFile('vercel.json', 'utf8'));
   assert.match(html, /Säker signering med BankID/);
   assert.doesNotMatch(html, /inte produktionsklar|under utveckling|tenantseparerad/i);
   assert.match(html, /Kommunsign/i);
   assert.doesNotMatch(html, /\sstyle=/);
-  assert.equal(config.buildCommand, 'npm run web:build');
-  assert.equal(config.outputDirectory, 'build/public-site');
+  assert.equal(config.buildCommand, 'npm run build:vercel');
+  assert.equal(config.outputDirectory, 'build/vercel');
+  assert.ok(config.rewrites.some((entry) => entry.has?.some((condition) => condition.type === 'host' && condition.value === 'admin.kommunsign.se')));
+  assert.ok(config.rewrites.some((entry) => entry.destination === '/__portals/tenant/:path*'));
   assert.ok(config.headers.some((entry) => entry.headers?.some((header) => header.key === 'Content-Security-Policy')));
 });
 

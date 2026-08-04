@@ -18,8 +18,8 @@
 6. Kör control-migrationer i nummerordning.
 7. Kör data-migrationer i nummerordning.
 8. Kör `npm run db:verify`.
-9. Deploya auth-, admin-, ansöknings-, organisations-, signer- och verifieringsportaler.
-10. Deploya API, workers, dokumenttjänster och valideringstjänst i privat nät.
+9. Deploya ett gemensamt Vercel-projekt med `npm run build:vercel` och koppla samtliga portal- och wildcarddomäner till projektet.
+10. Deploya den separata runtime-stacken med API, workers, dokumenttjänster och valideringstjänst i privat nät.
 11. Kör `npm run auth:bootstrap-superadmin`.
 12. Verifiera första superadmininloggningen.
 13. Verifiera kontoinbjudan, glömt lösenord, e-post, TIC, PDF-pipeline och evidensfixtures.
@@ -56,4 +56,22 @@ Varje nyckel ska genereras separat. Dokumentera referensen i secrets manager, in
 
 ## Vercel
 
-Varje statisk portal har en egen `vercel.json` med CSP, HSTS, `nosniff`, `frame-ancestors 'none'`, `Referrer-Policy: no-referrer` och kontrollerad `connect-src` till API:t. `infrastructure/vercel/projects.json` anger vilken domän som hör till vilken portal. API och webhooks körs i separat backendruntime.
+Alla statiska portaler byggs i ett gemensamt Vercel-projekt. Rootens `vercel.json` använder host-baserade rewrites för att välja rätt portal och applicerar CSP, HSTS, `nosniff`, `frame-ancestors 'none'` och `Referrer-Policy: no-referrer`. API, webhooks och dokumentworkers körs i den separata runtime-stacken. Se `docs/operations/deployment-topology.md`.
+
+## En gemensam lokal ENV-fil
+
+Skapa `.env.local` med:
+
+```bash
+npm run env:local:init
+```
+
+`npm run dev`, databasverifiering och konto-/Auth-scripts läser automatiskt `.env.local` när filen finns. Den riktiga filen är ignorerad av Git. `.env.local.example` är den säkra mallen.
+
+För att kontrollera endast konfigurationen som krävs för första superadminkontot:
+
+```bash
+npm run verify:env:account-bootstrap
+```
+
+Den fullständiga `npm run verify:env` används först när hela BankID-, e-post-, PDF-, worker-, DNS- och evidensmiljön har verifierats.

@@ -5,6 +5,7 @@ build/
 .env.*
 !.env.example
 !.env.production.template
+!.env.local.example
 *.log
 *.pem
 *.key

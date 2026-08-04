@@ -1,15 +1,29 @@
 # Vercelprojekt och domäner
 
-Planerade projekt finns i `infrastructure/vercel/projects.json`:
+Kommunsign använder ett enda Vercel-projekt för samtliga statiska portaler:
 
-- kommunsign-public: `kommunsign.se`, `www.kommunsign.se`
-- kommunsign-onboarding: `apply.kommunsign.se`
-- kommunsign-platform-admin: `admin.kommunsign.se`
-- kommunsign-auth: `auth.kommunsign.se`
-- kommunsign-tenant-gateway: `app.kommunsign.se`, `sign.kommunsign.se`, `*.kommunsign.se` och verifierade kunddomäner
-- kommunsign-verification: `verify.kommunsign.se`
-- kommunsign-docs: `docs.kommunsign.se`
+```text
+kommunsign-web
+```
 
-`VercelDomainProvider` använder backend-token och projekt/team-ID. Providerresultat får inte ensamt markera readiness grön; DNS, TLS och tenantbindande health endpoint ska också passera.
+Projektet byggs från repositoryroten med `npm run build:vercel`. Rootens `vercel.json` väljer rätt portal utifrån Host-headern.
 
-Exempelkommandon finns i slutleveransrapporten. Kommandona skapar inte DNS hos kundens namnserver; det steget är alltid externt.
+## Domäner i Vercelprojektet
+
+- `kommunsign.se`
+- `www.kommunsign.se`
+- `apply.kommunsign.se`
+- `admin.kommunsign.se`
+- `auth.kommunsign.se`
+- `app.kommunsign.se`
+- `sign.kommunsign.se`
+- `verify.kommunsign.se`
+- `*.kommunsign.se`
+
+`api.kommunsign.se` och `hooks.kommunsign.se` ska peka på den separata runtime-deploymenten. Explicit DNS för dessa två värdar ska överstyra wildcardposten.
+
+## Custom domains
+
+Verifierade kunddomäner kopplas till samma Vercelprojekt. Den statiska portalen är inte en säkerhetsgräns; API:t måste fortfarande verifiera domänen mot control-databasen innan organisationskontext skapas.
+
+`VercelDomainProvider` använder backend-token och `VERCEL_WEB_PROJECT_ID`. Providerresultatet får inte ensamt markera domänen verifierad. DNS, TLS och organisationsbindning ska också passera.
