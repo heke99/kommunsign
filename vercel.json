@@ -39,6 +39,22 @@
       "source": "/:path*",
       "has": [{ "type": "host", "value": "admin.kommunsign.se" }],
       "destination": "/__portals/admin/:path*"
+    },
+    {
+      "source": "/ansok/:path*",
+      "destination": "/__portals/apply/:path*"
+    },
+    {
+      "source": "/signera/:path*",
+      "destination": "/__portals/sign/:path*"
+    },
+    {
+      "source": "/verifiera/:path*",
+      "destination": "/__portals/verify/:path*"
+    },
+    {
+      "source": "/:path*",
+      "destination": "/__portals/public/:path*"
     }
   ],
   "headers": [

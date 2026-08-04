@@ -21,25 +21,18 @@ async function validatePortal(name, source) {
 }
 
 await rm(outputRoot, { recursive: true, force: true });
-await mkdir(outputRoot, { recursive: true });
+await mkdir(`${outputRoot}/__portals`, { recursive: true });
 await Promise.all(Object.entries(sources).map(([name, source]) => validatePortal(name, source)));
 
-// The public website is copied to the deployment root. This guarantees that
-// both the generated *.vercel.app URL and kommunsign.se have a real index.html
-// without depending on a Host rewrite.
-await cp(sources.public, outputRoot, { recursive: true });
-
-// Public flows share kommunsign.se and use explicit paths.
-await rm(`${outputRoot}/ansok`, { recursive: true, force: true });
-await cp(sources.apply, `${outputRoot}/ansok`, { recursive: true });
-await cp(sources.sign, `${outputRoot}/signera`, { recursive: true });
-await cp(sources.verify, `${outputRoot}/verifiera`, { recursive: true });
-
-// Authenticated boundaries retain separate hostnames for host-bound cookies.
-await mkdir(`${outputRoot}/__portals`, { recursive: true });
-await cp(sources.admin, `${outputRoot}/__portals/admin`, { recursive: true });
-await cp(sources.auth, `${outputRoot}/__portals/auth`, { recursive: true });
-await cp(sources.tenant, `${outputRoot}/__portals/tenant`, { recursive: true });
+// Keep every portal below an internal, non-public path. No index.html or shared
+// assets are written to the deployment root. This is intentional: Vercel checks
+// the filesystem before applying rewrites, so a root index.html would otherwise
+// override hostname-based routing for app.kommunsign.se and admin.kommunsign.se.
+await Promise.all(
+  Object.entries(sources).map(([name, source]) =>
+    cp(source, `${outputRoot}/__portals/${name}`, { recursive: true }),
+  ),
+);
 
 await writeFile(
   `${outputRoot}/deployment.json`,
@@ -50,9 +43,10 @@ await writeFile(
     publicPaths: ['/ansok/', '/signera/', '/verifiera/'],
     authenticatedHosts: ['app.kommunsign.se', 'admin.kommunsign.se'],
     portals: Object.keys(sources),
+    routingInvariant: 'deployment-root-must-not-contain-index-html',
   }, null, 2)}\n`,
   'utf8',
 );
 
-console.log(`Vercel unified build: ${Object.keys(sources).length} portaler i ${outputRoot}`);
-console.log('Vercel root fallback: build/vercel/index.html');
+console.log(`Vercel unified build: ${Object.keys(sources).length} portaler i ${outputRoot}/__portals`);
+console.log('Vercel routing invariant: ingen root index.html; all trafik väljs av rewrites');
