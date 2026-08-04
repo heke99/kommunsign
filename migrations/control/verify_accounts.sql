@@ -1,5 +1,5 @@
 -- Managed authentication and account provisioning invariants. Every query returns zero rows on success.
-SELECT 'active_browser_session_without_csrf' AS violation, id::text AS resource_id
+SELECT 'active_browser_session_without_csrf' AS violation, encode(token_hash, 'hex') AS resource_id
 FROM control.host_bound_sessions
 WHERE revoked_at IS NULL
   AND authentication_method='session'
