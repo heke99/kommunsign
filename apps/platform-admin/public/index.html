@@ -15,8 +15,30 @@
 <main id="content">
   <div class="page-heading"><div><h1>Organisationer och ansökningar</h1><p>Granska ansökningar, skapa organisationsmiljön och bjud därefter in behöriga administratörer.</p></div></div>
   <div class="layout">
-    <nav class="card" aria-label="Administrationsfunktioner"><a href="#applications" aria-current="page">Ansökningar</a><a href="#organization-users">Organisationskonton</a><a href="#health">Driftstatus</a><a href="#domains">Organisationsdomäner</a></nav>
+    <nav class="card" aria-label="Administrationsfunktioner"><a href="#organizations" aria-current="page">Organisationer</a><a href="#applications">Ansökningar</a><a href="#organization-users">Organisationskonton</a><a href="#health">Driftstatus</a><a href="#domains">Organisationsdomäner</a></nav>
     <div>
+      <section class="card" id="organizations">
+        <h2>Organisationer</h2>
+        <p>Skapa en organisation direkt, följ provisioneringen och bjud in huvudadministratören när domänen och tenantmiljön är klara.</p>
+        <form id="organization-create-form" class="grid">
+          <label>Organisationsnamn<input name="organizationName" required maxlength="300" autocomplete="organization"></label>
+          <label>Organisationsnummer<input name="organizationNumber" required inputmode="numeric" placeholder="2120000000" minlength="10" maxlength="12"></label>
+          <label>Organisationstyp<select name="organizationType" required><option value="municipality">Kommun</option><option value="region">Region</option><option value="municipal_federation">Kommunalförbund</option><option value="municipal_company">Kommunalt bolag</option><option value="authority">Myndighet</option><option value="public_supplier">Offentlig leverantör</option><option value="other_public_body">Annan offentlig organisation</option></select></label>
+          <label>Huvudadministratör<input name="primaryAdminName" required maxlength="200" autocomplete="name"></label>
+          <label>Administratörens e-post<input name="primaryAdminEmail" type="email" required maxlength="254" autocomplete="email"></label>
+          <label>Befattning<input name="primaryAdminTitle" required maxlength="200" value="Organisationsadministratör"></label>
+          <label>Driftform<select name="deploymentMode" required><option value="shared_saas">Kommunsign molntjänst</option><option value="dedicated_data_plane">Dedikerad miljö</option><option value="customer_hosted">Kunddrift</option></select></label>
+          <label>Region<input name="region" required value="se-central" maxlength="100"></label>
+          <div class="actions"><button type="submit">Skapa organisation</button></div>
+        </form>
+        <form id="organization-filter-form" class="grid">
+          <label>Status<select name="status"><option value="">Alla</option><option value="queued">Köad</option><option value="running">Skapas</option><option value="waiting_for_external_dependency">Väntar på extern kontroll</option><option value="completed">Provisionerad</option><option value="onboarding">Onboarding</option><option value="active">Aktiv</option><option value="failed">Fel</option></select></label>
+          <label>Sök<input name="search" autocomplete="off" placeholder="Namn eller organisationsnummer"></label>
+          <div class="actions"><button type="submit">Filtrera</button><button id="refresh-organizations" type="button" class="secondary">Uppdatera</button></div>
+        </form>
+        <div class="status" id="organization-status" role="status">Hämtar organisationer…</div>
+        <div class="table-wrap"><table><thead><tr><th>Organisation</th><th>Organisationsnummer</th><th>Status</th><th>Domän</th><th>Huvudadministratör</th><th>Åtgärd</th></tr></thead><tbody id="organization-rows"></tbody></table></div>
+      </section>
       <section class="card" id="applications">
         <h2>Ansökningar</h2>
         <form id="filter-form" class="grid"><label>Status<select name="status"><option value="">Alla</option><option value="submitted">Inskickad</option><option value="under_initial_review">Under granskning</option><option value="additional_information_requested">Komplettering begärd</option><option value="commercial_review">Kommersiell granskning</option><option value="legal_review">Juridisk granskning</option><option value="security_review">Säkerhetsgranskning</option><option value="technical_review">Teknisk granskning</option><option value="approved">Godkänd</option><option value="provisioning">Organisation skapas</option><option value="onboarding">Konfiguration pågår</option><option value="active">Aktiv</option></select></label><label>Sök organisation<input name="search" autocomplete="off"></label><div class="actions"><button type="submit">Visa</button></div></form>

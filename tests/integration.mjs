@@ -37,6 +37,15 @@ async function request(path, method = 'GET', body, headers = {}) {
   }));
 }
 
+const policiesResponse=await request('/v1/signature-policies');
+assert.equal(policiesResponse.status,200);
+const policyViews=await policiesResponse.json();
+assert.equal(policyViews.length,2);
+assert.ok(policyViews.some((item)=>item.decisionMode==='ELECTRONIC_SIGNATURE'));
+const mismatchedPolicy=await request('/v1/signature-cases','POST',{title:'Fel policy',decisionMode:'DIGITAL_APPROVAL',signaturePolicyId:'33333333-3333-4333-8333-333333333333'},{'idempotency-key':key()});
+assert.equal(mismatchedPolicy.status,422);
+assert.equal((await mismatchedPolicy.json()).error.code,'SIGNATURE_POLICY_DECISION_MODE_MISMATCH');
+
 const uploadResponse = await request('/v1/uploads', 'POST', {
   fileName: 'beslut.pdf', mimeType: 'application/pdf', byteSize: 1200, sha256: 'a'.repeat(64),
 }, { 'idempotency-key': key() });
@@ -44,7 +53,7 @@ assert.equal(uploadResponse.status, 201);
 const upload = await uploadResponse.json();
 
 const caseResponse = await request('/v1/signature-cases', 'POST', {
-  title: 'Delegationsbeslut', decisionMode: 'DIGITAL_APPROVAL', signaturePolicyId: '33333333-3333-4333-8333-333333333333',
+  title: 'Delegationsbeslut', decisionMode: 'DIGITAL_APPROVAL', signaturePolicyId: '44444444-4444-4444-8444-444444444444',
 }, { 'idempotency-key': key() });
 assert.equal(caseResponse.status, 201);
 const signatureCase = await caseResponse.json();
@@ -139,3 +148,36 @@ assert.equal(activationBlocked.status, 409);
 assert.equal((await activationBlocked.json()).error.code, 'TENANT_NOT_READY_FOR_ACTIVATION');
 
 console.log('integration tests: onboarding application, review, provisioning and fail-closed activation passed');
+
+const unauthorizedDirectOrganization=await onboardingRequest('/v1/platform/organizations','POST',{
+  organizationName:'Otillåten direktkommun',organizationNumber:'2120007777',organizationType:'municipality',
+  primaryAdminEmail:'admin@otillaten.se',primaryAdminName:'Olle Operatör',primaryAdminTitle:'Driftoperatör',
+  deploymentMode:'shared_saas',region:'se-central',
+},{'x-kommunsign-platform-subject-id':'88888888-8888-4888-8888-888888888888','x-kommunsign-platform-roles':'platform_operations'});
+assert.equal(unauthorizedDirectOrganization.status,403);
+assert.equal((await unauthorizedDirectOrganization.json()).error.code,'FORBIDDEN');
+
+const directOrganization=await onboardingRequest('/v1/platform/organizations','POST',{
+  organizationName:'Direktkommunen',organizationNumber:'2120008888',organizationType:'municipality',
+  primaryAdminEmail:'admin@direktkommunen.se',primaryAdminName:'Anna Admin',primaryAdminTitle:'Kanslichef',
+  deploymentMode:'shared_saas',region:'se-central',
+},platformHeaders);
+assert.equal(directOrganization.status,202);
+const directView=await directOrganization.json();
+assert.equal(directView.provisioningStatus,'completed');
+assert.equal(directView.domainReady,true);
+assert.ok(directView.tenantId);
+const organizationList=await onboardingRequest('/v1/platform/organizations?search=Direktkommunen','GET',undefined,platformHeaders);
+assert.equal(organizationList.status,200);
+const listedOrganizations=await organizationList.json();
+assert.equal(listedOrganizations.data.length,1);
+assert.equal(listedOrganizations.data[0].primaryAdminEmail,'admin@direktkommunen.se');
+const duplicateOrganization=await onboardingRequest('/v1/platform/organizations','POST',{
+  organizationName:'Direktkommunen igen',organizationNumber:'2120008888',organizationType:'municipality',
+  primaryAdminEmail:'annan@direktkommunen.se',primaryAdminName:'Annan Admin',primaryAdminTitle:'Administratör',
+  deploymentMode:'shared_saas',region:'se-central',
+},platformHeaders);
+assert.equal(duplicateOrganization.status,409);
+assert.equal((await duplicateOrganization.json()).error.code,'ORGANIZATION_ALREADY_EXISTS');
+
+console.log('integration tests: direct superadmin organization creation, listing and duplicate protection passed');

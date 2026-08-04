@@ -17,7 +17,7 @@ export type PlatformPermission =
   | 'onboarding:read' | 'onboarding:assign' | 'onboarding:review'
   | 'onboarding:request_information' | 'onboarding:decide' | 'onboarding:provision'
   | 'tenant:readiness' | 'tenant:activation_request' | 'tenant:activation_approve'
-  | 'organization:user_manage' | 'platform:audit_read';
+  | 'organization:read' | 'organization:create' | 'organization:user_manage' | 'platform:audit_read';
 
 export type Permission =
   | 'case:create' | 'case:send' | 'case:cancel' | 'case:read' | 'case:remind'
@@ -56,18 +56,18 @@ export function requirePermission(roles: readonly TenantRole[], permission: Perm
 
 
 const platformPermissions: Readonly<Record<PlatformRole, readonly PlatformPermission[]>> = {
-  platform_super_admin: ['onboarding:read','onboarding:assign','onboarding:review','onboarding:request_information','onboarding:decide','onboarding:provision','tenant:readiness','tenant:activation_request','tenant:activation_approve','organization:user_manage','platform:audit_read'],
+  platform_super_admin: ['onboarding:read','onboarding:assign','onboarding:review','onboarding:request_information','onboarding:decide','onboarding:provision','tenant:readiness','tenant:activation_request','tenant:activation_approve','organization:read','organization:create','organization:user_manage','platform:audit_read'],
   platform_security_admin: ['onboarding:read','onboarding:review','tenant:readiness','tenant:activation_approve','platform:audit_read'],
-  platform_operations: ['onboarding:read','onboarding:assign','onboarding:provision','tenant:readiness','tenant:activation_request','platform:audit_read'],
+  platform_operations: ['onboarding:read','onboarding:assign','onboarding:provision','tenant:readiness','tenant:activation_request','organization:read','platform:audit_read'],
   platform_support: ['onboarding:read','onboarding:request_information'],
   platform_auditor: ['onboarding:read','platform:audit_read'],
-  onboarding_manager: ['onboarding:read','onboarding:assign','onboarding:review','onboarding:request_information','onboarding:decide','onboarding:provision','tenant:readiness','tenant:activation_request','platform:audit_read'],
+  onboarding_manager: ['onboarding:read','onboarding:assign','onboarding:review','onboarding:request_information','onboarding:decide','onboarding:provision','tenant:readiness','tenant:activation_request','organization:read','platform:audit_read'],
   onboarding_case_worker: ['onboarding:read','onboarding:assign','onboarding:review','onboarding:request_information'],
   commercial_reviewer: ['onboarding:read','onboarding:review'],
   legal_reviewer: ['onboarding:read','onboarding:review'],
   security_reviewer: ['onboarding:read','onboarding:review','tenant:readiness'],
   technical_reviewer: ['onboarding:read','onboarding:review','tenant:readiness'],
-  provisioning_operator: ['onboarding:read','onboarding:provision','tenant:readiness','tenant:activation_request'],
+  provisioning_operator: ['onboarding:read','onboarding:provision','tenant:readiness','tenant:activation_request','organization:read'],
   activation_approver: ['onboarding:read','tenant:readiness','tenant:activation_approve'],
 };
 

@@ -9,9 +9,9 @@ import {
 import { evaluateReadiness, type ReadinessCheck, type ReadinessResult } from '../../../packages/readiness/src/index.js';
 import type {
   ActivationRequestView, ApplicationCreatedView, ApplicationDocumentInput, ApplicationDocumentView,
-  ApplicationView, CreateApplicationInput, DecisionInput, ExternalMessageInput, ExternalMessageView,
+  ApplicationView, CreateApplicationInput, CreateOrganizationInput, DecisionInput, ExternalMessageInput, ExternalMessageView,
   InformationRequestInput, InformationRequestView, InformationResponseInput, OnboardingRepository,
-  Page, PageInput, ProvisioningRequestView, ReviewInput, UpdateApplicationInput,
+  Page, PageInput, PlatformOrganizationView, ProvisioningRequestView, ReviewInput, UpdateApplicationInput,
 } from './ports.js';
 
 interface StoredAccess { readonly applicationId: string; readonly tokenHash: string; readonly expiresAt: string; readonly subjectId: string; }
@@ -27,6 +27,7 @@ const messages = new Map<string, ExternalMessageView[]>();
 const informationRequests = new Map<string, InformationRequestView>();
 const reviews = new Map<string, StoredReview[]>();
 const provisioning = new Map<string, ProvisioningRequestView>();
+const platformOrganizations = new Map<string, PlatformOrganizationView>();
 const readiness = new Map<string, ReadinessResult>();
 const activation = new Map<string, ActivationRequestView>();
 const audit = new Map<string, Readonly<Record<string, unknown>>[]>();
@@ -95,6 +96,28 @@ function maximumRisk(applicationId: string): 'low'|'medium'|'high'|'critical' {
 }
 
 export const devOnboardingRepository: OnboardingRepository = {
+  async platformOrganizations(_context,page,filters) {
+    let rows=[...platformOrganizations.values()].sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+    if(filters.search){const search=filters.search.toLowerCase();rows=rows.filter((item)=>item.legalName.toLowerCase().includes(search)||item.organizationNumber.includes(search));}
+    if(filters.status)rows=rows.filter((item)=>item.applicationStatus===filters.status||item.provisioningStatus===filters.status||item.tenantStatus===filters.status);
+    return paginate(rows,page);
+  },
+  async createOrganization(context,input:CreateOrganizationInput,key,payloadHash) {
+    return idempotent(context.subjectId,'organization:create',key,payloadHash,()=>{
+      if([...platformOrganizations.values()].some((item)=>item.organizationNumber===input.organizationNumber))throw new Error('ORGANIZATION_ALREADY_EXISTS');
+      const applicationId=crypto.randomUUID(),tenantId=crypto.randomUUID(),requestId=crypto.randomUUID(),createdAt=now();
+      referenceSequence+=1;
+      const application:ApplicationView={id:applicationId,applicationReference:formatApplicationReference(new Date().getUTCFullYear(),referenceSequence),status:'onboarding',statusVersion:2,organizationName:input.organizationName,organizationNumber:input.organizationNumber,organizationType:input.organizationType,primaryEmail:input.primaryAdminEmail,primaryContactName:input.primaryAdminName,primaryContactTitle:input.primaryAdminTitle,profile:{officialEmailDomain:input.primaryAdminEmail.split('@')[1]??'',deployment:{mode:input.deploymentMode,region:input.region},plannedUse:{createdByPlatformAdmin:true}},emailVerifiedAt:createdAt,submittedAt:createdAt,decidedAt:createdAt,assignedTo:context.subjectId,tenantId,createdAt,updatedAt:createdAt};
+      applications.set(applicationId,application);
+      const request:ProvisioningRequestView={id:requestId,applicationId,tenantId,status:'completed',currentStep:'enable_account_management',attempts:1,createdAt,updatedAt:createdAt};
+      provisioning.set(requestId,request);
+      const slug=input.organizationName.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40)||'organisation';
+      const view:PlatformOrganizationView={applicationId,tenantId,provisioningRequestId:requestId,legalName:input.organizationName,organizationNumber:input.organizationNumber,organizationType:input.organizationType,applicationStatus:'onboarding',tenantStatus:'onboarding',provisioningStatus:'completed',currentStep:'enable_account_management',primaryHostname:`${slug}.kommunsign.se`,domainReady:true,primaryAdminEmail:input.primaryAdminEmail,primaryAdminName:input.primaryAdminName,primaryAdminTitle:input.primaryAdminTitle,createdAt};
+      platformOrganizations.set(applicationId,view);
+      addAudit(applicationId,context.subjectId,'organization.created_and_provisioning_completed',{tenantId,requestId});
+      return view;
+    });
+  },
   async create(input: CreateApplicationInput, key, payloadHash) {
     return idempotent('public','application:create',key,payloadHash,async () => {
       const duplicate = [...applications.values()].some((item)=>item.organizationNumber===input.organizationNumber && !['rejected','withdrawn','archived'].includes(item.status));
@@ -144,7 +167,7 @@ export const devOnboardingRepository: OnboardingRepository = {
   async requestInformation(context,applicationId,input:InformationRequestInput,key,payloadHash){return idempotent(applicationId,'platform:information-request',key,payloadHash,()=>{let app=requireApplication(applicationId);const value:InformationRequestView={...input,id:crypto.randomUUID(),applicationId,status:'open',createdAt:now()};informationRequests.set(value.id,value);if(app.status!=='additional_information_requested')app=transition(app,'additional_information_requested',context.subjectId);const message:ExternalMessageView={id:crypto.randomUUID(),applicationId,direction:'platform_to_applicant',body:input.question,createdAt:now()};messages.set(applicationId,[...(messages.get(applicationId)??[]),message]);addAudit(applicationId,context.subjectId,'onboarding.information_request.created',{requestId:value.id});return value;});},
   async approve(context,applicationId,input:DecisionInput,key,payloadHash){return idempotent(applicationId,'platform:approve',key,payloadHash,()=>{const current=requireApplication(applicationId);if(!requiredReviewsPassed(applicationId))throw new Error('REQUIRED_REVIEWS_NOT_PASSED');const risk=maximumRisk(applicationId);if(risk==='high'||risk==='critical'){if(!input.secondApproverId)throw new Error('TWO_PERSON_APPROVAL_REQUIRED');assertDistinctApprovers(context.subjectId,input.secondApproverId);}const updated=transition(current,'approved',context.subjectId);addAudit(applicationId,context.subjectId,'onboarding.decision.approved',{reason:input.reason,conditions:input.conditions??[],risk,secondApproverId:input.secondApproverId??null});return updated;});},
   async reject(context,applicationId,input:DecisionInput,key,payloadHash){return idempotent(applicationId,'platform:reject',key,payloadHash,()=>{const current=requireApplication(applicationId);const updated=transition(current,'rejected',context.subjectId);addAudit(applicationId,context.subjectId,'onboarding.decision.rejected',{reason:input.reason});return updated;});},
-  async provision(context,applicationId,key,payloadHash){return idempotent(applicationId,'platform:provision',key,payloadHash,()=>{let app=requireApplication(applicationId);if(app.status!=='approved'&&app.status!=='provisioning_failed')throw new Error('INVALID_APPLICATION_STATE_TRANSITION');app=transition(app,'provisioning',context.subjectId);const tenantId=app.tenantId??crypto.randomUUID();const updatedApp=transition(saveApplication({...app,tenantId}),'onboarding',context.subjectId);saveApplication(updatedApp);const createdAt=now();const request:ProvisioningRequestView={id:crypto.randomUUID(),applicationId,tenantId,status:'completed',currentStep:'onboarding_checklist_created',attempts:1,createdAt,updatedAt:createdAt};provisioning.set(request.id,request);addAudit(applicationId,context.subjectId,'tenant.provisioning.completed',{requestId:request.id,tenantId});return request;});},
+  async provision(context,applicationId,key,payloadHash){return idempotent(applicationId,'platform:provision',key,payloadHash,()=>{let app=requireApplication(applicationId);if(app.status!=='approved'&&app.status!=='provisioning_failed')throw new Error('INVALID_APPLICATION_STATE_TRANSITION');app=transition(app,'provisioning',context.subjectId);const tenantId=app.tenantId??crypto.randomUUID();const updatedApp=transition(saveApplication({...app,tenantId}),'onboarding',context.subjectId);saveApplication(updatedApp);const createdAt=now();const request:ProvisioningRequestView={id:crypto.randomUUID(),applicationId,tenantId,status:'completed',currentStep:'onboarding_checklist_created',attempts:1,createdAt,updatedAt:createdAt};provisioning.set(request.id,request);platformOrganizations.set(applicationId,{applicationId,tenantId,provisioningRequestId:request.id,legalName:updatedApp.organizationName,organizationNumber:updatedApp.organizationNumber,organizationType:updatedApp.organizationType,applicationStatus:updatedApp.status,tenantStatus:'onboarding',provisioningStatus:request.status,...(request.currentStep?{currentStep:request.currentStep}:{}),primaryHostname:`${updatedApp.organizationName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,40)||'organisation'}.kommunsign.se`,domainReady:true,primaryAdminEmail:updatedApp.primaryEmail,primaryAdminName:updatedApp.primaryContactName,primaryAdminTitle:updatedApp.primaryContactTitle,createdAt:updatedApp.createdAt});addAudit(applicationId,context.subjectId,'tenant.provisioning.completed',{requestId:request.id,tenantId});return request;});},
   async audit(_context,applicationId){requireApplication(applicationId);return audit.get(applicationId)??[];},
   async getProvisioning(_context,requestId){return provisioning.get(requestId)??null;},
   async retryProvisioning(context,requestId,key,payloadHash){const current=provisioning.get(requestId);if(!current)throw new Error('NOT_FOUND');return idempotent(current.applicationId,`provisioning:${requestId}:retry`,key,payloadHash,()=>{if(!['failed','partially_completed','retry_scheduled'].includes(current.status))throw new Error('INVALID_APPLICATION_STATE_TRANSITION');const updated={...current,status:'completed' as const,attempts:current.attempts+1,currentStep:'onboarding_checklist_created',updatedAt:now()};provisioning.set(requestId,updated);addAudit(current.applicationId,context.subjectId,'tenant.provisioning.retried',{requestId});return updated;});},

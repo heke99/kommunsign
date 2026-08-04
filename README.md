@@ -8,15 +8,29 @@ Repositoryt innehåller produktionsimplementationen för den första BankID-fase
 
 Kommunsign har ingen publik registrering.
 
-1. En organisation skickar en ansökan via `kommunsign.se/ansok/`.
-2. En superadministratör granskar ansökan och skapar organisationens miljö.
-3. Superadministratören bjuder in organisationens första administratör.
-4. Inbjudan skickas med e-post via Supabase Auth och vald SMTP-leverantör.
-5. Administratören väljer ett lösenord på `app.kommunsign.se/aktivera/`.
-6. Fler organisationskonton skapas av superadministratören i plattformsadministrationen.
-7. Glömt lösenord hanteras på `app.kommunsign.se/aterstall/`; svaret avslöjar aldrig om en e-postadress finns.
+1. En organisation skickar en ansökan via `kommunsign.se/ansok/`, eller så skapar plattformens superadmin organisationen direkt i organisationsvyn.
+2. Den ordinarie ansökningsvägen granskas innan provisionering; direkt skapande är reserverat för `platform_super_admin`.
+3. Tenant, standardroller, signeringspolicyer och primär domän provisioneras innan inbjudan låses upp.
+4. Superadministratören bjuder in organisationens första administratör.
+5. Inbjudan skickas med e-post via Supabase Auth och vald SMTP-leverantör.
+6. Administratören väljer ett lösenord på `app.kommunsign.se/aktivera/`.
+7. Fler organisationskonton skapas av superadministratören i plattformsadministrationen.
+8. Glömt lösenord hanteras på `app.kommunsign.se/aterstall/`; svaret avslöjar aldrig om en e-postadress finns.
 
 Gamla automatiskt skapade ansökningsidentiteter stängs av av datamigration `0014_managed_organization_accounts.sql`.
+
+
+## Superadmin: organisationer och konton
+
+På `admin.kommunsign.se` finns en separat organisationsvy där superadmin kan:
+
+- skapa en organisation direkt med organisationsnummer, huvudadministratör och driftform,
+- följa provisioneringssteg, blockeringskod, tenantstatus och primär domän,
+- öppna organisationen och se befintliga konton,
+- skicka eller skicka om en säker aktiveringsinbjudan,
+- stänga av och återaktivera organisationskonton.
+
+Inbjudningsformuläret är fail-closed och visas först när tenantens standardroller är provisionerade och den primära domänen är verifierad med aktiv TLS. Kunden väljer därefter sitt eget lösenord och får en hostbunden session till den egna organisationsportalen. Portalen hämtar tenantens aktiva signeringspolicyer dynamiskt och kan skapa ärenden, ladda upp PDF, lägga till signerare och skicka avtalet.
 
 ## Implementerat
 

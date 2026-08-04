@@ -4,7 +4,7 @@ import type { DomainEvent, TenantContext } from '../../../packages/contracts/src
 import { createApiHandler } from './router.js';
 import type {
   AddDocumentInput, AddSignerInput, CaseRepository, CreateCaseInput, DocumentView, EventRepository,
-  Page, PageInput, SignatureCaseView, SignerView, TemplateInput, TemplateRepository, TemplateView,
+  Page, PageInput, SignatureCaseView, SignaturePolicyView, SignerView, TemplateInput, TemplateRepository, TemplateView,
   UploadGrantInput, UploadGrantView, UploadRepository, WebhookEndpointInput, WebhookEndpointView, WebhookRepository,
 } from './ports.js';
 
@@ -21,6 +21,10 @@ const endpoints = new Map<string, WebhookEndpointView>();
 const templates = new Map<string, TemplateView>();
 const events: DomainEvent[] = [];
 const rolesBySubject = new Map<string, readonly TenantRole[]>();
+const signaturePolicies: readonly SignaturePolicyView[] = [
+  { id: '33333333-3333-4333-8333-333333333333', version: 1, name: 'Elektronisk underskrift', decisionMode: 'ELECTRONIC_SIGNATURE', active: true },
+  { id: '44444444-4444-4444-8444-444444444444', version: 1, name: 'Digitalt godkännande', decisionMode: 'DIGITAL_APPROVAL', active: true },
+];
 
 function tenantKey(tenantId: string, id: string): string { return `${tenantId}:${id}`; }
 function idempotent<T>(tenantId: string, operation: string, key: string, payloadHash: string, create: () => T): T {
@@ -60,8 +64,12 @@ function updateCase(context: TenantContext, id: string, status: SignatureCaseVie
 }
 
 const caseRepository: CaseRepository = {
+  async listPolicies() { return signaturePolicies; },
   async create(context, input: CreateCaseInput, key, payloadHash) {
     return idempotent(context.tenantId, 'case:create', key, payloadHash, () => {
+      const policy=signaturePolicies.find((item)=>item.id===input.signaturePolicyId&&item.active);
+      if(!policy)throw new Error('SIGNATURE_POLICY_NOT_FOUND');
+      if(policy.decisionMode!==input.decisionMode)throw new Error('SIGNATURE_POLICY_DECISION_MODE_MISMATCH');
       const value: SignatureCaseView = {
         id: crypto.randomUUID(), tenantId: context.tenantId, status: 'draft', statusVersion: 1,
         decisionMode: input.decisionMode, title: input.title, createdAt: new Date().toISOString(),

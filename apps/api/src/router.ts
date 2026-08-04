@@ -392,6 +392,8 @@ function mapKnownError(cause: unknown): ApiRequestError | null {
     EMAIL_PROVIDER_NOT_CONFIGURED: [503, 'EMAIL_PROVIDER_NOT_CONFIGURED'],
     EMAIL_MESSAGE_NOT_FOUND: [404, 'EMAIL_MESSAGE_NOT_FOUND'],
     HOST_NOT_ALLOWED: [421, 'HOST_NOT_ALLOWED'],
+    SIGNATURE_POLICY_NOT_FOUND: [404, 'SIGNATURE_POLICY_NOT_FOUND'],
+    SIGNATURE_POLICY_DECISION_MODE_MISMATCH: [422, 'SIGNATURE_POLICY_DECISION_MODE_MISMATCH'],
   };
   const mapped = mappings[cause.message];
   return mapped ? new ApiRequestError(mapped[1], mapped[1].replace(/_/g, ' '), mapped[0]) : null;
@@ -409,6 +411,10 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
       if (onboardingResponse) return onboardingResponse;
       const context = await dependencies.resolveContext(request);
       const url = new URL(request.url);
+      if (request.method === 'GET' && url.pathname === '/v1/signature-policies') {
+        await authorize(dependencies, context, 'case:create');
+        return json(await dependencies.cases.listPolicies(context), 200, { 'x-request-id': requestId });
+      }
       if (request.method === 'POST' && url.pathname === '/v1/signature-cases') {
         await authorize(dependencies, context, 'case:create');
         const idempotencyKey = requireIdempotencyKey(request);

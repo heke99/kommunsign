@@ -10,6 +10,15 @@ servers:
 security:
   - oauth2: [signature-cases:read, signature-cases:write]
 paths:
+  /signature-policies:
+    get:
+      operationId: listSignaturePolicies
+      summary: Lista organisationens aktiva signeringspolicyer för avtalsskapande
+      x-kommunsign-implementation-status: runtime
+      parameters: [{$ref: '#/components/parameters/RequestId'}]
+      responses:
+        '200': {description: Tenantens aktiva policyer, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/SignaturePolicy'}}}}}
+        default: {$ref: '#/components/responses/Error'}
   /signature-cases:
     post:
       operationId: createSignatureCase
@@ -426,6 +435,30 @@ paths:
       responses:
         '200': {description: Session avslutad, headers: {Set-Cookie: {schema: {type: string}}}}
         default: {$ref: '#/components/responses/Error'}
+  /platform/organizations:
+    get:
+      operationId: listPlatformOrganizations
+      summary: Lista provisionerade och pågående organisationer i superadmin
+      security: [{sessionCookie: []}]
+      parameters:
+        - {$ref: '#/components/parameters/RequestId'}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: search, in: query, schema: {type: string, maxLength: 300}}
+        - {name: status, in: query, schema: {type: string, maxLength: 80}}
+      responses:
+        '200': {description: Organisationssida, content: {application/json: {schema: {$ref: '#/components/schemas/PlatformOrganizationPage'}}}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: createPlatformOrganization
+      summary: Skapa organisation och köa full tenantprovisionering från superadmin
+      security: [{sessionCookie: []}]
+      parameters: [{$ref: '#/components/parameters/RequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}, {$ref: '#/components/parameters/CsrfToken'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreatePlatformOrganization'}}}}
+      responses:
+        '202': {description: Organisation skapad och provisionering startad, content: {application/json: {schema: {$ref: '#/components/schemas/PlatformOrganization'}}}}
+        '409': {$ref: '#/components/responses/IdempotencyConflict'}
+        default: {$ref: '#/components/responses/Error'}
   /platform/organizations/{organizationId}/users:
     get:
       operationId: listOrganizationUsers
@@ -533,6 +566,48 @@ components:
         csrfToken: {type: string, minLength: 32, writeOnly: true}
         tenantId: {type: string, format: uuid}
         displayName: {type: string}
+    CreatePlatformOrganization:
+      type: object
+      additionalProperties: false
+      required: [organizationName, organizationNumber, organizationType, primaryAdminEmail, primaryAdminName, primaryAdminTitle, deploymentMode, region]
+      properties:
+        organizationName: {type: string, minLength: 2, maxLength: 300}
+        organizationNumber: {type: string, pattern: '^[0-9-]{10,20}$'}
+        organizationType: {type: string, enum: [municipality, region, municipal_federation, municipal_company, authority, public_supplier, other_public_body]}
+        primaryAdminEmail: {type: string, format: email, maxLength: 254}
+        primaryAdminName: {type: string, minLength: 2, maxLength: 200}
+        primaryAdminTitle: {type: string, minLength: 2, maxLength: 200}
+        deploymentMode: {type: string, enum: [shared_saas, dedicated_data_plane, customer_hosted]}
+        region: {type: string, minLength: 2, maxLength: 100, pattern: '^[A-Za-z0-9][A-Za-z0-9-]{1,99}$'}
+    PlatformOrganization:
+      type: object
+      additionalProperties: false
+      required: [applicationId, legalName, organizationNumber, organizationType, applicationStatus, primaryAdminEmail, primaryAdminName, primaryAdminTitle, domainReady, createdAt]
+      properties:
+        applicationId: {type: string, format: uuid}
+        legalName: {type: string}
+        organizationNumber: {type: string}
+        organizationType: {type: string, enum: [municipality, region, municipal_federation, municipal_company, authority, public_supplier, other_public_body]}
+        applicationStatus: {type: string}
+        primaryAdminEmail: {type: string, format: email}
+        primaryAdminName: {type: string}
+        primaryAdminTitle: {type: string}
+        domainReady: {type: boolean, description: True only when the primary domain is active, verified and has active TLS}
+        createdAt: {type: string, format: date-time}
+        tenantId: {type: string, format: uuid}
+        tenantStatus: {type: string, enum: [provisioning, onboarding, active, paused, suspended, decommissioning, decommissioned]}
+        provisioningRequestId: {type: string, format: uuid}
+        provisioningStatus: {type: string, enum: [requested, validated, queued, running, waiting_for_external_dependency, retry_scheduled, failed, partially_completed, completed, cancelled]}
+        currentStep: {type: string}
+        blockingCode: {type: string}
+        primaryHostname: {type: string, format: hostname}
+    PlatformOrganizationPage:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/PlatformOrganization'}}
+        nextCursor: {type: string}
     OrganizationUserInput:
       type: object
       additionalProperties: false
@@ -620,6 +695,16 @@ components:
         byteSize: {type: integer, minimum: 1, maximum: 104857600}
         sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
         category: {type: string, maxLength: 80}
+    SignaturePolicy:
+      type: object
+      additionalProperties: false
+      required: [id, version, name, decisionMode, active]
+      properties:
+        id: {type: string, format: uuid}
+        version: {type: integer, minimum: 1}
+        name: {type: string, minLength: 1, maxLength: 200}
+        decisionMode: {type: string, enum: [DIGITAL_APPROVAL, ELECTRONIC_SIGNATURE]}
+        active: {type: boolean}
     CreateSignatureCase:
       type: object
       additionalProperties: false

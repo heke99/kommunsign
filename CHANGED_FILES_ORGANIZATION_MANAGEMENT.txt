@@ -1,0 +1,32 @@
+KOMMUNSIGN – ORGANISATIONER, INBJUDAN OCH KUNDPORTAL
+Datum: 2026-08-04
+
+Nya filer
+- .env.example
+- .env.production.template
+- CHANGED_FILES_ORGANIZATION_MANAGEMENT.txt
+- DELIVERY_REPORT_ORGANIZATION_MANAGEMENT.md
+- VERIFICATION_RESULTS_ORGANIZATION_MANAGEMENT.txt
+
+Ändrade källfiler
+- README.md
+- FILE_MANIFEST.sha256
+- apps/api/src/dev-onboarding.ts
+- apps/api/src/dev-runtime.ts
+- apps/api/src/onboarding-router.ts
+- apps/api/src/ports.ts
+- apps/api/src/production-adapters/postgres/data-database.ts
+- apps/api/src/production-adapters/postgres/onboarding-repository.ts
+- apps/api/src/router.ts
+- apps/platform-admin/public/app.js
+- apps/platform-admin/public/index.html
+- apps/tenant-portal/public/app.js
+- apps/tenant-portal/public/index.html
+- docs/api/error-codes.md
+- docs/api/openapi.yaml
+- packages/authorization/src/index.ts
+- scripts/verify-sdk-sync.mjs
+- tests/integration.mjs
+- tests/run.mjs
+
+Ingen ny databasmigration behövs. Lösningen återanvänder befintliga tabeller för onboarding, tenantprovisionering, domäner, signeringspolicyer, Supabase-identiteter, organisationsinbjudningar, användare, medlemskap och rolltilldelningar.

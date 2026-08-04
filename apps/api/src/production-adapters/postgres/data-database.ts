@@ -9,7 +9,7 @@ import type {
   AddDocumentInput, AddSignerInput, CaseRepository, CreateCaseInput, DocumentView, EventRepository,
   Page, PageInput, SignatureCaseView, SignerView, TemplateInput, TemplateRepository, TemplateView,
   UploadGrantInput, UploadGrantView, UploadRepository, WebhookEndpointInput, WebhookEndpointView, WebhookRepository,
-  DownloadArtifact,
+  DownloadArtifact, SignaturePolicyView,
 } from '../../ports.js';
 import type { ProductionInfrastructure } from './infrastructure.js';
 
@@ -34,6 +34,18 @@ export function createDataRepositories(database: SqlDatabase, infrastructure: Pr
 
 export function createCaseRepository(database: SqlDatabase, infrastructure: ProductionInfrastructure): CaseRepository {
   return {
+    async listPolicies(context) {
+      return tenantTx(database, context, async (transaction) => {
+        const result = await transaction.query<{ readonly id: string; readonly version: number|string; readonly name: string; readonly decision_mode: SignaturePolicyView['decisionMode']; readonly active: boolean }>(
+          `select id,version,name,decision_mode::text as decision_mode,active
+             from app.signature_policies
+            where tenant_id=$1 and active=true
+            order by decision_mode,name,version desc`,
+          [context.tenantId],
+        );
+        return result.rows.map((row) => ({ id: row.id, version: Number(row.version), name: row.name, decisionMode: row.decision_mode, active: row.active }));
+      });
+    },
     async create(context, input, key, payloadHash) {
       return tenantTx(database, context, async (transaction) => idempotent(transaction, context.tenantId, 'case:create', key, payloadHash, async () => {
         const userId = await requireUserId(transaction, context);

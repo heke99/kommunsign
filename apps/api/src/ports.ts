@@ -106,7 +106,16 @@ export interface Page<T> {
   readonly nextCursor?: string;
 }
 
+export interface SignaturePolicyView {
+  readonly id: string;
+  readonly version: number;
+  readonly name: string;
+  readonly decisionMode: 'DIGITAL_APPROVAL' | 'ELECTRONIC_SIGNATURE';
+  readonly active: boolean;
+}
+
 export interface CaseRepository {
+  listPolicies(context: TenantContext): Promise<readonly SignaturePolicyView[]>;
   create(context: TenantContext, input: CreateCaseInput, idempotencyKey: string, payloadHash: string): Promise<SignatureCaseView>;
   get(context: TenantContext, id: string): Promise<SignatureCaseView | null>;
   list(context: TenantContext, page: PageInput): Promise<Page<SignatureCaseView>>;
@@ -248,7 +257,39 @@ export interface ActivationRequestView {
   readonly createdAt: string;
   readonly decidedAt?: string;
 }
+export interface CreateOrganizationInput {
+  readonly organizationName: string;
+  readonly organizationNumber: string;
+  readonly organizationType: CreateApplicationInput['organizationType'];
+  readonly primaryAdminEmail: string;
+  readonly primaryAdminName: string;
+  readonly primaryAdminTitle: string;
+  readonly deploymentMode: DeploymentMode;
+  readonly region: string;
+}
+export interface PlatformOrganizationView {
+  readonly applicationId: string;
+  readonly legalName: string;
+  readonly organizationNumber: string;
+  readonly organizationType: CreateApplicationInput['organizationType'];
+  readonly applicationStatus: ApplicationStatus;
+  readonly primaryAdminEmail: string;
+  readonly primaryAdminName: string;
+  readonly primaryAdminTitle: string;
+  readonly domainReady: boolean;
+  readonly createdAt: string;
+  readonly tenantId?: string;
+  readonly tenantStatus?: 'provisioning' | 'onboarding' | 'active' | 'paused' | 'suspended' | 'decommissioning' | 'decommissioned';
+  readonly provisioningRequestId?: string;
+  readonly provisioningStatus?: ProvisioningStatus;
+  readonly currentStep?: string;
+  readonly blockingCode?: string;
+  readonly primaryHostname?: string;
+}
+
 export interface OnboardingRepository {
+  platformOrganizations(context: PlatformContext, page: PageInput, filters: Readonly<Record<string, string>>): Promise<Page<PlatformOrganizationView>>;
+  createOrganization(context: PlatformContext, input: CreateOrganizationInput, idempotencyKey: string, payloadHash: string): Promise<PlatformOrganizationView>;
   create(input: CreateApplicationInput, idempotencyKey: string, payloadHash: string): Promise<ApplicationCreatedView>;
   resolveApplicant(applicationId: string, accessToken: string, requestId: string): Promise<ApplicantContext>;
   get(context: ApplicantContext): Promise<ApplicationView>;

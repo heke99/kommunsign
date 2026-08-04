@@ -8,9 +8,9 @@ import { evaluateReadiness, type ReadinessCheck, type ReadinessResult } from '..
 import type { SqlDatabase, SqlTransaction } from '../../../../../packages/database/src/index.js';
 import type {
   ActivationRequestView, ApplicationCreatedView, ApplicationDocumentInput, ApplicationDocumentView,
-  ApplicationProfile, ApplicationView, CreateApplicationInput, DecisionInput, ExternalMessageInput,
+  ApplicationProfile, ApplicationView, CreateApplicationInput, CreateOrganizationInput, DecisionInput, ExternalMessageInput,
   ExternalMessageView, InformationRequestInput, InformationRequestView, InformationResponseInput,
-  OnboardingRepository, Page, PageInput, ProvisioningRequestView, ReviewInput, UpdateApplicationInput,
+  OnboardingRepository, Page, PageInput, PlatformOrganizationView, ProvisioningRequestView, ReviewInput, UpdateApplicationInput,
 } from '../../ports.js';
 import type { ProductionInfrastructure } from './infrastructure.js';
 
@@ -43,9 +43,90 @@ interface ActivationRow {
   readonly id:string; readonly tenant_id:string; readonly requested_by:string;
   readonly status:ActivationRequestView['status']; readonly created_at:string|Date; readonly decided_at:string|Date|null;
 }
+interface PlatformOrganizationRow extends ApplicationRow {
+  readonly provisioning_request_id: string | null;
+  readonly provisioning_status: ProvisioningRequestView['status'] | null;
+  readonly provisioning_current_step: string | null;
+  readonly provisioning_blocking_code: string | null;
+  readonly provisioning_tenant_id: string | null;
+  readonly tenant_status: PlatformOrganizationView['tenantStatus'] | null;
+  readonly primary_hostname: string | null;
+  readonly domain_ready: boolean;
+}
 
 export function createOnboardingRepository(database: SqlDatabase, infrastructure: ProductionInfrastructure): OnboardingRepository {
   return {
+    async platformOrganizations(_context, page, filters) {
+      return database.transaction(async (transaction) => {
+        const { offset, limit } = pageBounds(page);
+        const search = filters.search?.trim() || null;
+        const status = filters.status?.trim() || null;
+        const result = await transaction.query<PlatformOrganizationRow>(
+          `${platformOrganizationSelect}
+            where (a.linked_tenant_id is not null or pr.id is not null)
+              and ($1::text is null or a.organization_name ilike '%'||$1||'%' or a.organization_number like '%'||$1||'%')
+              and ($2::text is null or a.status::text=$2 or pr.status::text=$2 or t.status::text=$2)
+            order by a.created_at desc,a.id desc
+            offset $3 limit $4`,
+          [search,status,offset,limit+1],
+        );
+        const views: PlatformOrganizationView[] = [];
+        for (const row of result.rows) views.push(await platformOrganizationView(row,infrastructure));
+        return pageResult(views,offset,limit);
+      });
+    },
+    async createOrganization(context, input, key, payloadHash) {
+      return controlIdempotent(database,infrastructure,'platform',context.subjectId,'organization:create',key,payloadHash,async (transaction) => {
+        const organizationNumber=normalizeOrganizationNumber(input.organizationNumber);
+        const primaryEmail=normalizeEmail(input.primaryAdminEmail);
+        const duplicate=await transaction.query<{readonly id:string}>(
+          `select id from control.onboarding_applications
+            where organization_number=$1 and status not in ('rejected','withdrawn','archived')
+            union all
+           select id from control.platform_tenants where organization_number=$1 and status not in ('decommissioning','decommissioned')
+           limit 1`,
+          [organizationNumber],
+        );
+        if(duplicate.rows[0])throw new Error('ORGANIZATION_ALREADY_EXISTS');
+        const emailCiphertext=await infrastructure.sensitiveData.encryptText(primaryEmail,'onboarding.primary_email');
+        const emailBlindIndex=await infrastructure.sensitiveData.blindIndex(primaryEmail,'onboarding.primary_email');
+        const reference=await transaction.query<{readonly reference:string}>(
+          `select 'ONB-'||extract(year from now())::int||'-'||lpad(nextval('control.onboarding_application_reference_seq')::text,6,'0') as reference`,
+        );
+        const officialEmailDomain=primaryEmail.split('@')[1] ?? '';
+        const profile:ApplicationProfile={officialEmailDomain,deployment:{mode:input.deploymentMode,region:input.region},plannedUse:{createdByPlatformAdmin:true}};
+        const inserted=await transaction.query<ApplicationRow>(
+          `insert into control.onboarding_applications
+             (application_reference,status,status_version,organization_name,organization_number,organization_type,
+              primary_email_ciphertext,primary_email_blind_index,primary_contact_name,primary_contact_title,
+              applicant_visible_profile,assigned_to,email_verified_at,submitted_at,decided_at)
+           values($1,'provisioning',2,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,now(),now(),now())
+           returning ${applicationColumns}`,
+          [requireRow(reference.rows[0],'APPLICATION_REFERENCE_FAILED').reference,cleanText(input.organizationName,2,300),organizationNumber,input.organizationType,
+           emailCiphertext,emailBlindIndex,cleanText(input.primaryAdminName,2,200),cleanText(input.primaryAdminTitle,2,200),JSON.stringify(profile),context.subjectId],
+        );
+        const applicationRow=requireRow(inserted.rows[0],'APPLICATION_INSERT_FAILED');
+        const application=await applicationView(applicationRow,infrastructure);
+        await saveApplicationVersion(transaction,application,'platform',context.subjectId);
+        const requestResult=await transaction.query<ProvisioningRow>(
+          `insert into control.tenant_provisioning_requests
+             (application_id,status,deployment_mode,region,requested_by,current_step,idempotency_key,payload_sha256)
+           values($1,'queued',$2::control.deployment_mode,$3,$4,'reserve_tenant_slug',$5,$6)
+           returning id,application_id,tenant_id,status::text as status,current_step,blocking_code,attempts,created_at,updated_at`,
+          [application.id,input.deploymentMode,cleanText(input.region,2,100),context.subjectId,key,payloadHash],
+        );
+        const request=requireRow(requestResult.rows[0],'PROVISIONING_REQUEST_INSERT_FAILED');
+        const steps=['reserve_tenant_slug','create_tenant','create_environment','assign_data_plane','create_default_domain','create_storage_namespaces','seed_policies','seed_roles','create_branding_draft','create_auth_draft','create_onboarding_checklist','enable_account_management'];
+        for(let index=0;index<steps.length;index+=1)await transaction.query(
+          `insert into control.tenant_provisioning_steps(provisioning_request_id,step_key,sequence_number,status) values($1,$2,$3,'pending')`,
+          [request.id,steps[index],index+1],
+        );
+        await infrastructure.queue.enqueue({tenantId:'00000000-0000-0000-0000-000000000000',jobType:'TENANT_PROVISION',idempotencyKey:`tenant-provision:${request.id}`,payload:{provisioningRequestId:request.id,applicationId:application.id}});
+        await appendControlAudit(transaction,null,context.subjectId,'organization.created_and_provisioning_queued',{applicationId:application.id,requestId:request.id,organizationNumber});
+        const row=await platformOrganizationByApplication(transaction,application.id);
+        return platformOrganizationView(row,infrastructure);
+      });
+    },
     async create(input, key, payloadHash) {
       return controlIdempotent(database,infrastructure, 'public', 'public', 'application:create', key, payloadHash, async (transaction) => {
         const organizationNumber = normalizeOrganizationNumber(input.organizationNumber);
@@ -377,6 +458,26 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
   };
 }
 
+async function platformOrganizationByApplication(transaction:SqlTransaction,applicationId:string):Promise<PlatformOrganizationRow>{
+  const result=await transaction.query<PlatformOrganizationRow>(`${platformOrganizationSelect} where a.id=$1 limit 1`,[applicationId]);
+  return requireRow(result.rows[0],'ORGANIZATION_NOT_FOUND');
+}
+async function platformOrganizationView(row:PlatformOrganizationRow,infrastructure:ProductionInfrastructure):Promise<PlatformOrganizationView>{
+  const primaryAdminEmail=await infrastructure.sensitiveData.decryptText(row.primary_email_ciphertext,'onboarding.primary_email');
+  const tenantId=row.linked_tenant_id??row.provisioning_tenant_id??undefined;
+  return {
+    applicationId:row.id,legalName:row.organization_name,organizationNumber:row.organization_number,organizationType:row.organization_type,
+    applicationStatus:row.status,primaryAdminEmail,primaryAdminName:row.primary_contact_name,primaryAdminTitle:row.primary_contact_title,
+    domainReady:row.domain_ready,createdAt:iso(row.created_at),
+    ...(tenantId?{tenantId}:{}),...(row.tenant_status?{tenantStatus:row.tenant_status}:{}),
+    ...(row.provisioning_request_id?{provisioningRequestId:row.provisioning_request_id}:{}),
+    ...(row.provisioning_status?{provisioningStatus:row.provisioning_status}:{}),
+    ...(row.provisioning_current_step?{currentStep:row.provisioning_current_step}:{}),
+    ...(row.provisioning_blocking_code?{blockingCode:row.provisioning_blocking_code}:{}),
+    ...(row.primary_hostname?{primaryHostname:row.primary_hostname}:{}),
+  };
+}
+
 async function decideApplication(database:SqlDatabase,infrastructure:ProductionInfrastructure,context:PlatformContext,applicationId:string,decision:'approved'|'rejected',input:DecisionInput,key:string,payloadHash:string):Promise<ApplicationView>{
   return controlIdempotent(database,infrastructure,'application',applicationId,`platform:${decision}`,key,payloadHash,async(transaction)=>{
     const current=await requireApplication(transaction,applicationId,infrastructure,true);
@@ -529,6 +630,20 @@ interface MessageRow{readonly id:string;readonly application_id:string;readonly 
 function messageView(row:MessageRow):ExternalMessageView{return{id:row.id,applicationId:row.application_id,direction:row.direction,body:row.body,createdAt:iso(row.created_at),...(row.attachment_ids.length?{attachmentIds:row.attachment_ids}:{})};}
 interface InformationRequestRow{readonly id:string;readonly application_id:string;readonly category:InformationRequestView['category'];readonly question:string;readonly due_at:string|Date|null;readonly attachment_required:boolean;readonly status:InformationRequestView['status'];readonly created_at:string|Date;}
 function informationRequestView(row:InformationRequestRow):InformationRequestView{return{id:row.id,applicationId:row.application_id,category:row.category,question:row.question,attachmentRequired:row.attachment_required,status:row.status,createdAt:iso(row.created_at),...(row.due_at?{dueAt:iso(row.due_at)}:{})};}
+const platformOrganizationSelect=`select a.id,a.application_reference,a.status::text as status,a.status_version,a.organization_name,a.organization_number,a.organization_type,a.primary_email_ciphertext,a.primary_contact_name,a.primary_contact_title,a.applicant_visible_profile,a.assigned_to,a.linked_tenant_id,a.email_verified_at,a.submitted_at,a.decided_at,a.created_at,a.updated_at,
+  pr.id as provisioning_request_id,pr.status::text as provisioning_status,pr.current_step as provisioning_current_step,
+  pr.blocking_code as provisioning_blocking_code,pr.tenant_id as provisioning_tenant_id,t.status::text as tenant_status,
+  domain.normalized_hostname as primary_hostname,coalesce(domain.domain_ready,false) as domain_ready
+ from control.onboarding_applications a
+ left join control.tenant_provisioning_requests pr on pr.application_id=a.id
+ left join control.platform_tenants t on t.id=coalesce(a.linked_tenant_id,pr.tenant_id)
+ left join lateral (
+   select td.normalized_hostname,
+          (td.status='active' and td.verification_status='verified' and td.tls_status='active') as domain_ready
+     from control.tenant_domains td
+    where td.tenant_id=t.id and td.is_primary and td.status<>'removed'
+    order by td.updated_at desc,td.id desc limit 1
+ ) domain on true`;
 const applicationColumns=`id,application_reference,status::text as status,status_version,organization_name,organization_number,organization_type,primary_email_ciphertext,primary_contact_name,primary_contact_title,applicant_visible_profile,assigned_to,linked_tenant_id,email_verified_at,submitted_at,decided_at,created_at,updated_at`;
 const informationRequestSelect=`select id,application_id,category,question,due_at,attachment_required,status,created_at from control.onboarding_information_requests`;
 const provisioningSelect=`select id,application_id,tenant_id,status::text as status,current_step,blocking_code,attempts,created_at,updated_at from control.tenant_provisioning_requests`;

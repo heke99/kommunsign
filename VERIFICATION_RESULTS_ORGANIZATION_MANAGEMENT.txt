@@ -1,0 +1,40 @@
+KOMMUNSIGN – VERIFIERINGSRESULTAT
+Datum: 2026-08-04
+
+Kommando:
+  npm run verify
+
+Resultat: GODKÄNT
+
+- Toolchain: Node 22.16.0, TypeScript 5.8.3
+- TypeScript/build: GODKÄNT
+- Portalbuild: 6 portaler
+- Vercel unified build: 7 portaler
+- Repositorykontroll: GODKÄNT
+- Deploymentkonfiguration: GODKÄND
+- SQL-migrationskontroll: GODKÄND
+- Provenance: 0 donor LOC, 8 pinnade källor, 0 importer
+- OpenAPI/SDK-synk: 2026-08-03.2
+- Secretscan: GODKÄND
+- Java/Freja-gränstjänster: GODKÄNDA
+- Unit/regression: 39 tester godkända
+- Integration: tenant-API, onboarding, provisionering och direkt organisationsskapande godkända
+- Behörighetstest: icke-superadmin får 403 vid direkt organisationsskapande
+- Dubblettskydd: godkänt
+- Signeringspolicy/mode-validering: godkänd
+- Säkerhet: branding, SSRF, domäner, uppladdningar, inbjudningar och OIDC godkända
+
+Verifierade användarflöden i kod och tester:
+1. Superadmin skapar och listar organisation.
+2. Vanlig driftroll kan inte använda direkt skapande.
+3. Dubblett på organisationsnummer avvisas.
+4. Provisionering följs i organisationsvyn.
+5. Inbjudan är spärrad tills tenant och domän är redo.
+6. Inbjuden kund verifierar e-post och väljer lösenord.
+7. Aktivt medlemskap och tenantroll styr destination och rättigheter.
+8. Kundportalen hämtar rätt tenantpolicy.
+9. Kunden kan skapa ärende, lägga till handling och signerare samt skicka.
+10. Fel tenant och fel signeringspolicy avvisas.
+
+Begränsning:
+Ingen liveinbjudan skickades från denna isolerade verifieringsmiljö och ingen ansluten produktionsdatabas ändrades. Verklig e-postleverans, DNS/TLS och workerdrift måste verifieras efter deployment med målmiljöns secrets.

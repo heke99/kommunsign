@@ -4,7 +4,7 @@ import { sha256Hex } from '../../../packages/crypto/src/hash.js';
 import { normalizeEmail, normalizeOrganizationNumber } from '../../../packages/onboarding/src/index.js';
 import { validateUploadMetadata } from '../../../packages/uploads/src/index.js';
 import type {
-  ApiDependencies, ApplicationDocumentInput, ApplicationProfile, CreateApplicationInput,
+  ApiDependencies, ApplicationDocumentInput, ApplicationProfile, CreateApplicationInput, CreateOrganizationInput,
   DecisionInput, ExternalMessageInput, InformationRequestInput, InformationResponseInput,
   ReviewInput, UpdateApplicationInput,
 } from './ports.js';
@@ -98,6 +98,16 @@ function parseCreate(value: unknown): CreateApplicationInput {
     primaryContactTitle: string(body.primaryContactTitle, 'primaryContactTitle', 2, 200),
   };
 }
+function parseOrganizationCreate(value: unknown): CreateOrganizationInput {
+  const body=plain(value);
+  allowed(body,['organizationName','organizationNumber','organizationType','primaryAdminEmail','primaryAdminName','primaryAdminTitle','deploymentMode','region']);
+  const base=parseCreate({organizationName:body.organizationName,organizationNumber:body.organizationNumber,organizationType:body.organizationType,primaryEmail:body.primaryAdminEmail,primaryContactName:body.primaryAdminName,primaryContactTitle:body.primaryAdminTitle});
+  const deploymentMode=string(body.deploymentMode,'deploymentMode',2,40);
+  if(!['shared_saas','dedicated_data_plane','customer_hosted'].includes(deploymentMode))throw new OnboardingRequestError('VALIDATION_ERROR','deploymentMode is invalid',422);
+  const region=string(body.region,'region',2,100);
+  if(!/^[a-z0-9][a-z0-9-]{1,99}$/i.test(region))throw new OnboardingRequestError('VALIDATION_ERROR','region is invalid',422);
+  return {organizationName:base.organizationName,organizationNumber:base.organizationNumber,organizationType:base.organizationType,primaryAdminEmail:base.primaryEmail,primaryAdminName:base.primaryContactName,primaryAdminTitle:base.primaryContactTitle,deploymentMode:deploymentMode as CreateOrganizationInput['deploymentMode'],region};
+}
 function parseProfile(value: unknown): ApplicationProfile {
   const body = plain(value);
   allowed(body, ['website','officialEmailDomain','municipalityOrRegion','postalAddress','billing','procurementReference','technicalContact','legalAndPrivacy','plannedUse','identityAndAccess','deployment']);
@@ -186,7 +196,7 @@ function known(cause: unknown): OnboardingRequestError {
     RESOURCE_VERSION_CONFLICT:[412,'RESOURCE_VERSION_CONFLICT'], EMAIL_VERIFICATION_TOKEN_INVALID:[400,'EMAIL_VERIFICATION_TOKEN_INVALID'],
     EMAIL_VERIFICATION_EXPIRED:[410,'EMAIL_VERIFICATION_EXPIRED'], TWO_PERSON_APPROVAL_REQUIRED:[409,'TWO_PERSON_APPROVAL_REQUIRED'],
     TENANT_NOT_READY_FOR_ACTIVATION:[409,'TENANT_NOT_READY_FOR_ACTIVATION'], REQUIRED_REVIEWS_NOT_PASSED:[409,'REQUIRED_REVIEWS_NOT_PASSED'],
-    POSSIBLE_DUPLICATE_APPLICATION:[409,'POSSIBLE_DUPLICATE_APPLICATION'],
+    POSSIBLE_DUPLICATE_APPLICATION:[409,'POSSIBLE_DUPLICATE_APPLICATION'], ORGANIZATION_ALREADY_EXISTS:[409,'ORGANIZATION_ALREADY_EXISTS'],
   };
   const item = map[message];
   return item ? new OnboardingRequestError(item[1], item[1].replace(/_/g,' '), item[0]) : new OnboardingRequestError('INTERNAL_ERROR','The request could not be completed',500);
@@ -194,7 +204,7 @@ function known(cause: unknown): OnboardingRequestError {
 
 export async function handleOnboardingRequest(dependencies: ApiDependencies, request: Request, requestId: string): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!url.pathname.startsWith('/v1/onboarding/') && !url.pathname.startsWith('/v1/platform/onboarding/') && !url.pathname.startsWith('/v1/platform/provisioning/') && !url.pathname.startsWith('/v1/platform/tenants/') && !url.pathname.startsWith('/v1/platform/activation-requests/')) return null;
+  if (!url.pathname.startsWith('/v1/onboarding/') && !url.pathname.startsWith('/v1/platform/organizations') && !url.pathname.startsWith('/v1/platform/onboarding/') && !url.pathname.startsWith('/v1/platform/provisioning/') && !url.pathname.startsWith('/v1/platform/tenants/') && !url.pathname.startsWith('/v1/platform/activation-requests/')) return null;
   try {
     const repository = requireRepository(dependencies);
     if (request.method === 'POST' && url.pathname === '/v1/onboarding/applications') {
@@ -230,6 +240,20 @@ export async function handleOnboardingRequest(dependencies: ApiDependencies, req
       if (request.method === 'GET' && action === 'messages') return response(await repository.listMessages(context),200,requestId);
       if (request.method === 'POST' && action === 'messages') { const key=requireIdempotencyKey(request); const input=parseMessage(await readJson(request)); return response(await repository.createMessage(context,input,key,await hash(input)),201,requestId); }
       if (request.method === 'GET' && action === 'information-requests') return response(await repository.listInformationRequests(context),200,requestId);
+    }
+    if (request.method === 'GET' && url.pathname === '/v1/platform/organizations') {
+      const context=await platformContext(dependencies,request,'organization:read');
+      const limit=Math.min(200,Math.max(1,Number(url.searchParams.get('limit')??50)));
+      const cursor=url.searchParams.get('cursor')??undefined;
+      const filters:Record<string,string>={};
+      const search=url.searchParams.get('search');const status=url.searchParams.get('status');
+      if(search)filters.search=search;if(status)filters.status=status;
+      return response(await repository.platformOrganizations(context,{limit,...(cursor?{cursor}:{})},filters),200,requestId);
+    }
+    if (request.method === 'POST' && url.pathname === '/v1/platform/organizations') {
+      const context=await platformContext(dependencies,request,'organization:create');
+      const key=requireIdempotencyKey(request);const input=parseOrganizationCreate(await readJson(request));
+      return response(await repository.createOrganization(context,input,key,await hash(input)),202,requestId);
     }
     if (request.method === 'GET' && url.pathname === '/v1/platform/onboarding/applications') {
       const context=await platformContext(dependencies,request,'onboarding:read'); const filters=Object.fromEntries([...url.searchParams].filter(([key])=>!['limit','cursor'].includes(key)));

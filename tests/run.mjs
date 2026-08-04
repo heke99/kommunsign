@@ -24,6 +24,7 @@ import { TenantHostnameResolver, resolveRequestHostname, resolveTenantPublicUrl,
 import { buildHostOnlySessionCookie, issueAuthorizationCode, exchangeAuthorizationCode } from '../dist/packages/auth-broker/src/index.js';
 import { createSensitiveDataAdapter } from '../dist/apps/api/src/adapters/aes-gcm-sensitive-data.js';
 import { expectedSupabaseAuthConfig, verifySupabaseAuthConfig } from '../scripts/supabase-auth-config-lib.mjs';
+import { hasPlatformPermission } from '../dist/packages/authorization/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -581,6 +582,39 @@ test('database hardening migration includes lease recovery and same-case guards'
   const immutability = await readFile('migrations/data/0010_immutability_and_evidence_states.sql', 'utf8');
   assert.match(immutability, /locked document versions are immutable/);
   assert.match(immutability, /require_trusted_cryptographic_service/);
+});
+
+test('direct organization creation is reserved for platform superadmin', () => {
+  assert.equal(hasPlatformPermission(['platform_super_admin'], 'organization:create'), true);
+  for (const role of ['platform_operations','onboarding_manager','provisioning_operator','platform_support']) {
+    assert.equal(hasPlatformPermission([role], 'organization:create'), false, `${role} must not bypass onboarding review`);
+  }
+});
+
+test('superadmin organization management and tenant agreement flow are connected end to end', async () => {
+  const adminHtml = await readFile('apps/platform-admin/public/index.html', 'utf8');
+  const adminSource = await readFile('apps/platform-admin/public/app.js', 'utf8');
+  const tenantHtml = await readFile('apps/tenant-portal/public/index.html', 'utf8');
+  const tenantSource = await readFile('apps/tenant-portal/public/app.js', 'utf8');
+  const authRepository = await readFile('apps/api/src/production-adapters/postgres/authentication-repository.ts', 'utf8');
+  const openApi = await readFile('docs/api/openapi.yaml', 'utf8');
+  assert.match(adminHtml, /Skapa organisation/);
+  assert.match(adminHtml, /Organisationer/);
+  assert.match(adminSource, /\/v1\/platform\/organizations/);
+  assert.match(adminSource, /Bjud in huvudadmin/);
+  assert.match(adminSource, /organizationReady/);
+  assert.match(adminSource, /domainReady/);
+  assert.doesNotMatch(adminSource, /domainReady:true/);
+  assert.match(authRepository, /inviteOrFindUser/);
+  assert.match(authRepository, /provisionTenantUser/);
+  assert.match(authRepository, /resolveSubjectDestination/);
+  assert.match(tenantHtml, /Nytt signeringsärende/);
+  assert.match(tenantSource, /\/v1\/signature-policies/);
+  assert.match(tenantSource, /\/v1\/signature-cases/);
+  assert.doesNotMatch(tenantSource, /value=["']33333333-3333-4333-8333-333333333333/);
+  assert.match(openApi, /operationId: listPlatformOrganizations/);
+  assert.match(openApi, /operationId: createPlatformOrganization/);
+  assert.match(openApi, /operationId: listSignaturePolicies/);
 });
 
 test('unified Vercel deployment builds all portals and uses customer-facing production language', async () => {
