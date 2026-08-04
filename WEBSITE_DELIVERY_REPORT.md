@@ -24,7 +24,7 @@ Statusdatum: 2026-08-02.
 
 ## Avgränsning
 
-Vercel-projektet publicerar endast marknadswebbplatsen. Onboardingportal, API, workers, administrationsportal, tenantportal, signeringsportal och Java-tjänster ska deployas separat. `/ansok` på marknadswebben leder till `apply.kommunsign.se`.
+Vercel-projektet publicerar endast marknadswebbplatsen. Onboardingportal, API, workers, administrationsportal, tenantportal, signeringsportal och Java-tjänster ska deployas separat. `/ansok` på marknadswebben leder till `kommunsign.se/ansok/`.
 
 ## Före publik lansering
 

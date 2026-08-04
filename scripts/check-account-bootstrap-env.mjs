@@ -39,7 +39,7 @@ for (const name of ['SUPABASE_AUTH_PROJECT_URL','SUPABASE_AUTH_SITE_URL','SUPERA
   }
 }
 const allowed = new Set((process.env.SUPABASE_AUTH_ALLOWED_REDIRECT_URLS ?? '').split(',').map((value) => value.trim()).filter(Boolean));
-for (const redirect of ['https://auth.kommunsign.se/aktivera/','https://auth.kommunsign.se/aterstall/']) {
+for (const redirect of ['https://app.kommunsign.se/aktivera/','https://app.kommunsign.se/aterstall/']) {
   if (!allowed.has(redirect)) problems.push(`SUPABASE_AUTH_ALLOWED_REDIRECT_URLS: saknar ${redirect}`);
 }
 if (problems.length) {

@@ -40,7 +40,7 @@ for(const name of urls){try{const url=new URL(process.env[name]??'');if(url.prot
 for(const name of ['SENSITIVE_DATA_ENCRYPTION_KEY_BASE64','SENSITIVE_DATA_BLIND_INDEX_KEY_BASE64']){const value=process.env[name];if(value){try{if(Buffer.from(value,'base64').length<32)problems.push(`${name}: minst 32 byte krävs`);}catch{problems.push(`${name}: ogiltig base64`);}}}
 for(const name of ['INTERNAL_GATEWAY_HMAC_KEY','CSRF_SIGNING_KEY','TRUSTED_PROXY_SHARED_SECRET','TIC_WEBHOOK_SECRET','RESEND_WEBHOOK_SECRET','VALIDATION_SERVICE_TOKEN']){const value=process.env[name];if(value&&value.length<32)problems.push(`${name}: minst 32 tecken krävs`);}
 const authRedirects=new Set((process.env.SUPABASE_AUTH_ALLOWED_REDIRECT_URLS??'').split(',').map((value)=>value.trim()).filter(Boolean));
-for(const requiredRedirect of ['https://auth.kommunsign.se/aktivera/','https://auth.kommunsign.se/aterstall/']){if(!authRedirects.has(requiredRedirect))problems.push(`SUPABASE_AUTH_ALLOWED_REDIRECT_URLS: saknar ${requiredRedirect}`);}
+for(const requiredRedirect of ['https://app.kommunsign.se/aktivera/','https://app.kommunsign.se/aterstall/']){if(!authRedirects.has(requiredRedirect))problems.push(`SUPABASE_AUTH_ALLOWED_REDIRECT_URLS: saknar ${requiredRedirect}`);}
 if(process.env.EMAIL_PROVIDER==='resend'&&process.env.EMAIL_DATA_RESIDENCY_APPROVED!=='true')problems.push('EMAIL_DATA_RESIDENCY_APPROVED: skriftligt beslut krävs för vald e-postleverantör');
 if(problems.length){console.error('Produktionsmiljön är inte komplett:\n- '+problems.join('\n- '));process.exit(1);}
 console.log('Produktionsmiljön är komplett och samtliga obligatoriska verifieringsflaggor är satta.');

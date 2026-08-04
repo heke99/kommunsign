@@ -9,4 +9,4 @@ Brokerkomponenterna stöder host-bundna engångskoder, destinationsverifiering o
 
 Migration `0009_auth_broker_sessions.sql` lagrar endast kod-/sessionhashar och krypterad PKCE-data. En kod konsumeras atomiskt och kan inte återanvändas eller bytas på annan hostname.
 
-OIDC/SAML-providerkonfiguration finns tenantvis i kontrollplanet. Kompletta publika callbackroutes på `auth.kommunsign.se`, metadataimport, signaturvalidering och SCIM-arbetare kräver fortsatt implementation och livekonfiguration hos respektive IdP.
+OIDC/SAML-providerkonfiguration finns tenantvis i kontrollplanet. Kompletta publika callbackroutes på `app.kommunsign.se/login/`, metadataimport, signaturvalidering och SCIM-arbetare kräver fortsatt implementation och livekonfiguration hos respektive IdP.

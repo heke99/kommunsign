@@ -9,11 +9,11 @@ KommunSign är en gemensam multi-tenantprodukt utan kundunika kodforkar. Skillna
 | Applikation | Primär domän | Säkerhetskontext |
 |---|---|---|
 | Public website | `kommunsign.se` | publik, inga tenantoperationer |
-| Onboarding portal | `apply.kommunsign.se` | verifierad sökandesession bunden till ansökan |
+| Onboarding portal | `kommunsign.se/ansok/` | verifierad sökandesession bunden till ansökan |
 | Platform admin | `admin.kommunsign.se` | plattforms-OIDC/WebAuthn och plattforms-RBAC |
 | Tenant portal | `app.kommunsign.se` eller tenantdomän | verifierad tenantmedlem härledd server-side |
-| Signer portal | `sign.kommunsign.se` | signerare-/ärende-/tenantbunden engångsinbjudan |
-| Verification portal | `verify.kommunsign.se` | isolerad temporär dokumentbehandling |
+| Signer portal | `kommunsign.se/signera/` | signerare-/ärende-/tenantbunden engångsinbjudan |
+| Verification portal | `kommunsign.se/verifiera/` | isolerad temporär dokumentbehandling |
 | API | `api.kommunsign.se` | applicant, platform eller tenant auth per route group |
 | Workers | privat nät | durable lease och tjänsteidentitet |
 

@@ -10,7 +10,7 @@ const documentList = document.getElementById('document-list');
 function apiBase() {
   const configured = document.querySelector('meta[name="kommunsign-api-base"]')?.content?.trim();
   if (configured) return configured.replace(/\/$/, '');
-  if (location.hostname === 'verify.kommunsign.se') return 'https://api.kommunsign.se';
+  if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return 'https://api.kommunsign.se';
   return 'http://127.0.0.1:8080';
 }
 

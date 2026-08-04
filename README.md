@@ -8,13 +8,13 @@ Repositoryt innehåller produktionsimplementationen för den första BankID-fase
 
 Kommunsign har ingen publik registrering.
 
-1. En organisation skickar en ansökan via `apply.kommunsign.se`.
+1. En organisation skickar en ansökan via `kommunsign.se/ansok/`.
 2. En superadministratör granskar ansökan och skapar organisationens miljö.
 3. Superadministratören bjuder in organisationens första administratör.
 4. Inbjudan skickas med e-post via Supabase Auth och vald SMTP-leverantör.
-5. Administratören väljer ett lösenord på `auth.kommunsign.se/aktivera/`.
+5. Administratören väljer ett lösenord på `app.kommunsign.se/aktivera/`.
 6. Fler organisationskonton skapas av superadministratören i plattformsadministrationen.
-7. Glömt lösenord hanteras på `auth.kommunsign.se/aterstall/`; svaret avslöjar aldrig om en e-postadress finns.
+7. Glömt lösenord hanteras på `app.kommunsign.se/aterstall/`; svaret avslöjar aldrig om en e-postadress finns.
 
 Gamla automatiskt skapade ansökningsidentiteter stängs av av datamigration `0014_managed_organization_accounts.sql`.
 

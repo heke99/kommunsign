@@ -90,7 +90,7 @@ Kontrollera även i webbläsaren:
 
 Denna Vercel-deploy gäller endast marknadswebbplatsen. Följande ska ligga i separata driftprojekt:
 
-- onboardingportal (`apply.kommunsign.se`),
+- onboardingportal (`kommunsign.se/ansok/`),
 - tenantportal,
 - signeringsportal,
 - plattformsadmin,

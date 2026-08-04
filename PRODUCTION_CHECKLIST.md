@@ -16,7 +16,7 @@ Markera endast en kontroll som genomförd när målmiljön har ett sparat testbe
 ## Konton och inloggning
 
 - [ ] Publik registrering är avstängd i Supabase Auth och `AUTH_PUBLIC_SIGNUP_ENABLED=false`.
-- [ ] Site URL är `https://auth.kommunsign.se`.
+- [ ] Site URL är `https://app.kommunsign.se/login/`.
 - [ ] Endast exakta redirect-URL:er för `/aktivera/` och `/aterstall/` är tillåtna i produktion.
 - [ ] `npm run auth:configure-production` och `npm run verify:auth-config` passerar mot Supabase-projektet.
 - [ ] Custom SMTP via `smtp.resend.com:465`, SPF, DKIM och DMARC är verifierade.

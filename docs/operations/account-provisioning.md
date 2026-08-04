@@ -9,8 +9,8 @@ Ansökningsformuläret skapar aldrig ett användarkonto. Det samlar endast in or
 1. Skapa Supabase Auth-projektet i godkänd region.
 2. Stäng av publik registrering.
 3. Lägg in exakta tillåtna redirect-URL:er:
-   - `https://auth.kommunsign.se/aktivera/`
-   - `https://auth.kommunsign.se/aterstall/`
+   - `https://app.kommunsign.se/aktivera/`
+   - `https://app.kommunsign.se/aterstall/`
 4. Fyll Auth SMTP- och Management API-variablerna och kör `npm run auth:configure-production` följt av `npm run verify:auth-config`.
 5. Sätt servervariablerna `SUPABASE_AUTH_PROJECT_URL`, `SUPABASE_AUTH_ANON_KEY`, `SUPABASE_AUTH_SERVICE_ROLE_KEY`, `SUPERADMIN_EMAIL`, `SUPERADMIN_DISPLAY_NAME` och `SUPERADMIN_INVITE_REDIRECT_URL`.
 6. Kontrollera att e-postadressen inte redan tillhör en annan Auth-identitet. Om en granskad befintlig identitet avsiktligt ska upphöjas, sätt `SUPERADMIN_ALLOW_EXISTING_USER=true` endast under bootstrapkörningen.
@@ -28,13 +28,13 @@ Bootstrap-kommandot är idempotent. Service-role-nyckeln används endast server-
 
 ## Organisationens första konto
 
-1. Ansökan skickas via `apply.kommunsign.se`.
+1. Ansökan skickas via `kommunsign.se/ansok/`.
 2. Superadministratören granskar och godkänner ansökan.
 3. Provisioneringen skapar organisation, domän, roller och policyer men ingen personanvändare.
 4. I plattformsadmin öppnas organisationen och avsnittet **Organisationskonton**.
 5. Superadministratören anger namn, e-post och rollen **Organisationsadministratör**.
 6. API:t skapar eller kopplar Supabase Auth-identiteten, krypterar e-post i kontrollplanet, skapar medlemskap och skickar inbjudan.
-7. Mottagaren öppnar token-hashlänken på `auth.kommunsign.se/aktivera/`. Token verifieras först när lösenordet skickas in, vilket skyddar länken mot automatisk förhandsöppning. Därefter skapas en hostbunden session för organisationens verifierade domän.
+7. Mottagaren öppnar token-hashlänken på `app.kommunsign.se/aktivera/`. Token verifieras först när lösenordet skickas in, vilket skyddar länken mot automatisk förhandsöppning. Därefter skapas en hostbunden session för organisationens verifierade domän.
 8. Inbjudan markeras `active` först när identiteten och medlemskapet har verifierats.
 
 ## Roller i gränssnittet
@@ -59,7 +59,7 @@ De interna nycklarna behålls för kompatibilitet med RLS, API och befintliga mi
 1. Användaren väljer **Glömt lösenord** på inloggningssidan.
 2. API:t gör serverbaserad rate limiting och skickar en återställningsbegäran till Supabase Auth.
 3. Samma neutrala svar visas oavsett om e-postadressen finns.
-4. Custom SMTP skickar länken till `https://auth.kommunsign.se/aterstall/`.
+4. Custom SMTP skickar länken till `https://app.kommunsign.se/aterstall/`.
 5. Token-hashen tas bort ur webbläsarens URL direkt efter att sidan har läst den och verifieras först när formuläret skickas.
 6. Lösenordet måste vara 12–128 tecken och innehålla gemen, versal, siffra och specialtecken.
 7. Efter lösenordsbytet skapas en ny hostbunden Kommunsign-session.

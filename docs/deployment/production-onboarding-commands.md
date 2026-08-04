@@ -87,19 +87,15 @@ npx vercel deploy --prod
 for domain in \
   kommunsign.se \
   www.kommunsign.se \
-  apply.kommunsign.se \
-  admin.kommunsign.se \
-  auth.kommunsign.se \
   app.kommunsign.se \
-  sign.kommunsign.se \
-  verify.kommunsign.se \
+  admin.kommunsign.se \
   '*.kommunsign.se'
 do
   npx vercel domains add "$domain" kommunsign-web
 done
 ```
 
-Kör `npx vercel domains inspect <domän>` för att få korrekt DNS-instruktion för varje domän. Wildcarddomänen kan kräva Vercels nameservers. `api.kommunsign.se` och `hooks.kommunsign.se` läggs inte i webprojektet utan pekas mot runtime-deploymenten.
+Kör `npx vercel domains inspect <domän>` för att få korrekt DNS-instruktion för varje domän. Wildcarddomänen kan kräva Vercels nameservers. `api.kommunsign.se` läggs inte i webprojektet utan pekas mot runtime-deploymenten.
 
 ## Git och merge till main
 

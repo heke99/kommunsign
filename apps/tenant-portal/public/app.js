@@ -2,7 +2,7 @@
 const byId=(id)=>document.getElementById(id);let cases=[];let sequence=0;const caseDetails=new Map();
 const LOCAL=location.hostname==='127.0.0.1'||location.hostname==='localhost';
 const API_BASE=globalThis.KOMMUNSIGN_API_BASE||(LOCAL?'http://127.0.0.1:8787':'https://api.kommunsign.se');
-const AUTH_URL=globalThis.KOMMUNSIGN_AUTH_URL||(LOCAL?'http://127.0.0.1:3006':'https://auth.kommunsign.se');
+const AUTH_URL=globalThis.KOMMUNSIGN_AUTH_URL||(LOCAL?'http://127.0.0.1:3006':'https://app.kommunsign.se/login/');
 let csrf=sessionStorage.getItem('kommunsign.csrf')||'';
 const localHeaders=LOCAL?{'x-kommunsign-tenant-id':'11111111-1111-4111-8111-111111111111','x-kommunsign-subject-id':'22222222-2222-4222-8222-222222222222','x-kommunsign-roles':'tenant_admin'}:{};
 const headers=(json=true,method='GET')=>({...json?{'content-type':'application/json'}:{},...localHeaders,...(!LOCAL&&method!=='GET'&&method!=='HEAD'?{'x-csrf-token':csrf}:{})});

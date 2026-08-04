@@ -10,7 +10,7 @@ Källkod, migrationer, OpenAPI, portaler, Dockerfiler, CI, TypeScript och Java h
 
 ### Ansökningsstyrd onboarding
 
-- Separat `apps/onboarding-portal` samt publik landningssida `/ansok` som leder till `apply.kommunsign.se`.
+- Separat `apps/onboarding-portal` samt publik landningssida `/ansok` som leder till `kommunsign.se/ansok/`.
 - Publika ansökningsendpoints, sökandeauktorisering, plattformsendpoints, provisioning-, readiness- och aktiveringsendpoints.
 - Särskilda säkerhetskontexter för sökande, plattform och tenant. Publik ansökan passerar inte tenantroutern och kan inte välja tenant.
 - Strikt servervaliderad ansökningsstatusmaskin och `409 INVALID_APPLICATION_STATE_TRANSITION`.

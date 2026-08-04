@@ -81,7 +81,7 @@ npx vercel link --yes --project kommunsign-web
 npx vercel deploy --prod
 ```
 
-Lägg portal- och wildcarddomänerna i samma Vercelprojekt. `api.kommunsign.se` och `hooks.kommunsign.se` ska peka på runtime-deploymenten och överstyra wildcard-DNS.
+Lägg portal- och wildcarddomänerna i samma Vercelprojekt. `api.kommunsign.se` ska peka på runtime-deploymenten och överstyra wildcard-DNS.
 
 ## Verifiering
 

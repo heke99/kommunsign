@@ -1,30 +1,27 @@
 {
-  "version": 3,
+  "version": 4,
   "projects": [
     {
       "name": "kommunsign-web",
       "source": ".",
-      "deploymentModel": "single-project-host-routing",
+      "deploymentModel": "single-project-path-and-host-routing",
       "domains": [
         "kommunsign.se",
         "www.kommunsign.se",
-        "apply.kommunsign.se",
-        "admin.kommunsign.se",
-        "auth.kommunsign.se",
         "app.kommunsign.se",
-        "sign.kommunsign.se",
-        "verify.kommunsign.se",
-        "*.kommunsign.se"
+        "admin.kommunsign.se"
       ],
-      "notes": "Alla statiska portaler byggs och deployas tillsammans. Host-baserade rewrites väljer portal."
+      "publicPaths": ["/ansok/", "/signera/", "/verifiera/"],
+      "notes": "Den publika webbplatsen ligger i outputroten. App och admin behåller separata hostgränser för hostbundna sessioner."
     }
   ],
   "runtimeDeployment": {
     "name": "kommunsign-runtime",
     "type": "container-stack",
-    "domains": ["api.kommunsign.se", "hooks.kommunsign.se"],
+    "domains": ["api.kommunsign.se"],
     "processes": ["api", "workers", "validation-service", "clamav", "gotenberg", "verapdf"],
-    "notes": "En separat runtime-deployment krävs för långlivade workers och isolerade dokumenttjänster."
+    "notes": "API och providerwebhooks använder samma runtimeorigin och separata paths."
   },
+  "emailDomain": "notify.kommunsign.se",
   "managedExternalServices": ["Supabase PostgreSQL/Auth/Storage", "TIC BankID", "Resend"]
 }

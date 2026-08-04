@@ -77,7 +77,7 @@ test('managed account authentication is invite-only and supports password recove
   });
   const session = await provider.signInWithPassword('ADMIN@KOMMUN.SE', 'Kommunsign!2026');
   assert.equal(session.user.email, 'admin@kommun.se');
-  await provider.sendPasswordRecovery('admin@kommun.se', 'https://auth.kommunsign.se/aterstall/?destination=admin.kommunsign.se');
+  await provider.sendPasswordRecovery('admin@kommun.se', 'https://app.kommunsign.se/aterstall/?destination=admin.kommunsign.se');
   assert.ok(calls.some((call) => call.url.includes('/auth/v1/recover?redirect_to=')));
   assert.ok(calls.every((call) => !String(call.init?.body ?? '').includes('service-role-key')));
 });
@@ -119,7 +119,7 @@ test('an unconfirmed account receives a new activation link without a duplicate 
       throw new Error(`unexpected ${url}`);
     },
   });
-  const result = await provider.inviteOrFindUser('ny@kommun.se', 'https://auth.kommunsign.se/aktivera/?destination=kommun.kommunsign.se', { displayName: 'Ny Admin' });
+  const result = await provider.inviteOrFindUser('ny@kommun.se', 'https://app.kommunsign.se/aktivera/?destination=kommun.kommunsign.se', { displayName: 'Ny Admin' });
   assert.equal(result.user.id, '22222222-2222-4222-8222-222222222222');
   assert.equal(result.invited, true);
   assert.ok(calls.some((call) => call.url.includes('/auth/v1/recover?redirect_to=')));
@@ -128,8 +128,8 @@ test('an unconfirmed account receives a new activation link without a duplicate 
 
 test('Supabase Auth production configuration is machine-verifiable', async () => {
   const expected = await expectedSupabaseAuthConfig({
-    SUPABASE_AUTH_SITE_URL: 'https://auth.kommunsign.se',
-    SUPABASE_AUTH_ALLOWED_REDIRECT_URLS: 'https://auth.kommunsign.se/aktivera/,https://auth.kommunsign.se/aterstall/',
+    SUPABASE_AUTH_SITE_URL: 'https://app.kommunsign.se/login/',
+    SUPABASE_AUTH_ALLOWED_REDIRECT_URLS: 'https://app.kommunsign.se/aktivera/,https://app.kommunsign.se/aterstall/',
     AUTH_SMTP_PORT: '465', AUTH_SMTP_SENDER_EMAIL: 'konto@notify.kommunsign.se',
     AUTH_SMTP_HOST: 'smtp.resend.com', AUTH_SMTP_USERNAME: 'resend', AUTH_SMTP_SENDER_NAME: 'Kommunsign',
   });

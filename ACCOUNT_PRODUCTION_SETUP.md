@@ -4,7 +4,7 @@
 
 Kommunsign har ingen publik kontoregistrering.
 
-1. En organisation skickar en ansökan på `https://apply.kommunsign.se`.
+1. En organisation skickar en ansökan på `https://kommunsign.se/ansok/`.
 2. Ansökan skapar **inte** någon användare eller inloggning.
 3. Superadministratören granskar och godkänner ansökan.
 4. Provisioneringen skapar organisationens miljö, domänkoppling, roller och policyer.
@@ -55,9 +55,9 @@ npm run verify:env-contract
 Publik registrering ska vara avstängd. Site URL och redirect-listan ska vara exakt:
 
 ```text
-https://auth.kommunsign.se
-https://auth.kommunsign.se/aktivera/
-https://auth.kommunsign.se/aterstall/
+https://app.kommunsign.se/login/
+https://app.kommunsign.se/aktivera/
+https://app.kommunsign.se/aterstall/
 ```
 
 Sätt deployment-variablerna, inklusive:
@@ -101,13 +101,13 @@ Verifierings-SQL körs inte längre som migration.
 Följ `infrastructure/vercel/projects.json`:
 
 - `kommunsign.se` – publik webb,
-- `apply.kommunsign.se` – ansökan,
+- `kommunsign.se/ansok/` – ansökan,
 - `admin.kommunsign.se` – plattformsadministration,
-- `auth.kommunsign.se` – inloggning, aktivering och lösenordsåterställning,
+- `app.kommunsign.se/login/` – inloggning; aktivering och återställning ligger på samma appdomän,
 - `app.kommunsign.se` och `*.kommunsign.se` – organisationsportal,
-- `sign.kommunsign.se` – signering,
-- `verify.kommunsign.se` – verifiering,
-- `api.kommunsign.se` och `hooks.kommunsign.se` – backend.
+- `kommunsign.se/signera/` – signering,
+- `kommunsign.se/verifiera/` – verifiering,
+- `api.kommunsign.se` – backend.
 
 Verifiera DNS, TLS, host-allowlist och proxyhemlighet innan trafik öppnas.
 
@@ -118,7 +118,7 @@ Sätt tillfälligt:
 ```text
 SUPERADMIN_EMAIL=<er administratör>
 SUPERADMIN_DISPLAY_NAME=<namn>
-SUPERADMIN_INVITE_REDIRECT_URL=https://auth.kommunsign.se/aktivera/?destination=admin.kommunsign.se
+SUPERADMIN_INVITE_REDIRECT_URL=https://app.kommunsign.se/aktivera/?destination=admin.kommunsign.se
 SUPERADMIN_ALLOW_EXISTING_USER=false
 ```
 
@@ -153,13 +153,13 @@ SUPERADMIN_BOOTSTRAPPED=true
 5. Öppna **Organisationskonton**.
 6. Ange namn, e-post och **Organisationsadministratör**.
 7. Välj **Skicka kontoinbjudan**.
-8. Mottagaren väljer lösenord via `auth.kommunsign.se/aktivera/`.
+8. Mottagaren väljer lösenord via `app.kommunsign.se/aktivera/`.
 
 En ny inbjudan till samma ännu ej aktiverade e-postadress skickar en ny aktiveringslänk utan att skapa en dubblettidentitet.
 
 ## 8. Glömt lösenord
 
-Användaren väljer **Glömt lösenord** på `auth.kommunsign.se`. API:t returnerar samma neutrala svar oavsett om adressen finns. Supabase Auth skickar återställningsmeddelandet via Custom SMTP.
+Användaren väljer **Glömt lösenord** på `app.kommunsign.se/login/`. API:t returnerar samma neutrala svar oavsett om adressen finns. Supabase Auth skickar återställningsmeddelandet via Custom SMTP.
 
 Länken använder token-hash. Den verifieras först när användaren faktiskt skickar in sitt nya lösenord, så automatiska e-postskannrar förbrukar inte engångslänken när de förhandsöppnar meddelandet.
 

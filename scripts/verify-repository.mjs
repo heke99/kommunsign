@@ -93,17 +93,22 @@ if (!kubernetes.includes('registry.invalid/')) throw new Error('Provider-neutral
 const vercelConfig = JSON.parse(await readFile('vercel.json', 'utf8'));
 if (vercelConfig.buildCommand !== 'npm run build:vercel') throw new Error('Vercel must use the unified portal build');
 if (vercelConfig.outputDirectory !== 'build/vercel') throw new Error('Vercel unified output directory is incorrect');
-const requiredPortalHosts = ['kommunsign.se','apply.kommunsign.se','admin.kommunsign.se','auth.kommunsign.se','app.kommunsign.se','sign.kommunsign.se','verify.kommunsign.se'];
+const requiredPortalHosts = ['admin.kommunsign.se','app.kommunsign.se'];
 for (const host of requiredPortalHosts) {
   if (!vercelConfig.rewrites?.some((entry) => entry.has?.some((condition) => condition.type === 'host' && condition.value === host))) {
     throw new Error(`Vercel unified routing is missing ${host}`);
   }
 }
+const vercelBuild = await readFile('scripts/build-vercel-unified.mjs', 'utf8');
+if (!vercelBuild.includes("await cp(sources.public, outputRoot")) throw new Error('Vercel deployment must publish the public website at the output root');
+if (!vercelBuild.includes("`${outputRoot}/ansok`")) throw new Error('Vercel deployment must publish onboarding under /ansok/');
+if (!vercelBuild.includes("`${outputRoot}/signera`")) throw new Error('Vercel deployment must publish signing under /signera/');
+if (!vercelBuild.includes("`${outputRoot}/verifiera`")) throw new Error('Vercel deployment must publish verification under /verifiera/');
 const website = await readFile('apps/public-website/public/index.html', 'utf8');
 if (!website.includes('Säker signering med BankID')) throw new Error('Public website must describe the production product clearly');
 if (/Pilotplattform under utveckling|inte produktionsklar|ej redo|under utveckling/i.test(website)) throw new Error('Public website contains obsolete development messaging');
 const applicationLanding = await readFile('apps/public-website/public/ansok/index.html', 'utf8');
-if (!applicationLanding.includes('apply.kommunsign.se')) throw new Error('Application landing page must route to the isolated onboarding portal');
+if (!applicationLanding.includes('/ansok/')) throw new Error('Application landing page must route to /ansok/');
 if (/\sstyle=/.test(website) || /<script(?![^>]*\ssrc=)/.test(website)) throw new Error('Public website must remain compatible with strict CSP');
 
 const packageConfig = JSON.parse(await readFile('package.json', 'utf8'));

@@ -238,8 +238,8 @@ evidence-packages
 
 - Bekräfta att kontot har BankID signing i produktion.
 - Registrera exakt:
-  - callback `https://sign.kommunsign.se/bankid/callback`
-  - webhook `https://hooks.kommunsign.se/v1/provider-webhooks/tic/bankid`
+  - callback `https://kommunsign.se/signera//bankid/callback`
+  - webhook `https://api.kommunsign.se/v1/provider-webhooks/tic/bankid`
 - Lägg `TIC_API_KEY` och `TIC_WEBHOOK_SECRET` som resolved runtime secrets från respektive secret reference.
 - Behåll `TIC_BANKID_ENABLED=false` tills intern smoke test.
 - Konfigurera intern tenant, testsubject allowlist, rate limits och kill switch.
@@ -249,7 +249,7 @@ evidence-packages
 
 - Verifiera `notify.kommunsign.se` med SPF/DKIM enligt providerinstruktion.
 - Skapa API key och Svix webhook secret med minsta behörighet.
-- Registrera webhook `https://hooks.kommunsign.se/v1/provider-webhooks/resend`.
+- Registrera webhook `https://api.kommunsign.se/v1/provider-webhooks/resend`.
 - Sätt `EMAIL_PROVIDER=resend`; håll tracking avstängd.
 - Kontrollera bounce/complaint och suppression med testad idempotens.
 - Låt `EMAIL_DATA_RESIDENCY_APPROVED=false` tills skriftligt beslut finns. Alternativt välj annan adapter utan ändring i case/signer/reminder/template-domänen.

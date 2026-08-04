@@ -1,6 +1,6 @@
 # TIC BankID webhooks
 
-Endpoint: `POST https://hooks.kommunsign.se/v1/provider-webhooks/tic/bankid`
+Endpoint: `POST https://api.kommunsign.se/v1/provider-webhooks/tic/bankid`
 
 ## Verification
 
