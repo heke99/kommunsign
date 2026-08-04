@@ -65,7 +65,8 @@
     "verify:auth-config": "node --env-file-if-exists=.env.local scripts/verify-supabase-auth-production.mjs",
     "build:vercel": "node scripts/build-vercel-unified.mjs",
     "env:local:init": "node scripts/init-env-local.mjs",
-    "verify:env:account-bootstrap": "node --env-file-if-exists=.env.local scripts/check-account-bootstrap-env.mjs"
+    "verify:env:account-bootstrap": "node --env-file-if-exists=.env.local scripts/check-account-bootstrap-env.mjs",
+    "verify:web:live": "node scripts/verify-live-web.mjs"
   },
   "packageManager": "npm@10.9.2",
   "devDependencies": {

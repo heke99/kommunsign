@@ -111,6 +111,17 @@ if (!vercelBuild.includes("await cp(sources.public, outputRoot")) throw new Erro
 if (!vercelBuild.includes("`${outputRoot}/ansok`")) throw new Error('Vercel deployment must publish onboarding under /ansok/');
 if (!vercelBuild.includes("`${outputRoot}/signera`")) throw new Error('Vercel deployment must publish signing under /signera/');
 if (!vercelBuild.includes("`${outputRoot}/verifiera`")) throw new Error('Vercel deployment must publish verification under /verifiera/');
+for (const portal of ['apps/tenant-portal/public/index.html','apps/platform-admin/public/index.html']) {
+  const protectedHtml = await readFile(portal, 'utf8');
+  if (!protectedHtml.includes('id="protected-app" hidden')) throw new Error(`${portal}: protected portal must remain hidden before session verification`);
+  if (!protectedHtml.includes('id="auth-gate"')) throw new Error(`${portal}: authentication gate is missing`);
+}
+for (const portalScript of ['apps/tenant-portal/public/app.js','apps/platform-admin/public/app.js']) {
+  const protectedScript = await readFile(portalScript, 'utf8');
+  if (!protectedScript.includes('revealProtectedApp')) throw new Error(`${portalScript}: session success must explicitly reveal the portal`);
+  if (!protectedScript.includes('showSessionFailure')) throw new Error(`${portalScript}: session/API failure must fail closed`);
+}
+
 const website = await readFile('apps/public-website/public/index.html', 'utf8');
 if (!website.includes('Säker signering med BankID')) throw new Error('Public website must describe the production product clearly');
 if (/Pilotplattform under utveckling|inte produktionsklar|ej redo|under utveckling/i.test(website)) throw new Error('Public website contains obsolete development messaging');

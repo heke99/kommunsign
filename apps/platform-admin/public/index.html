@@ -1,7 +1,17 @@
 <!doctype html>
 <html lang="sv">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Kommunsign administration</title><link rel="stylesheet" href="app.css"></head>
-<body><a class="skip-link" href="#content">Hoppa till innehåll</a><header><div><strong>Kommunsign administration</strong><span class="header-subtitle">Organisationer, ansökningar och åtkomst</span></div><div class="header-actions"><span id="session-user" class="badge">Verifierar inloggning…</span><button id="logout" type="button" class="header-button">Logga ut</button></div></header>
+<body>
+<section id="auth-gate" class="auth-gate" aria-live="polite">
+  <div class="auth-gate-card">
+    <div class="auth-gate-mark" aria-hidden="true">KS</div>
+    <h1>Verifierar administratörsbehörighet</h1>
+    <p id="auth-gate-message">Kommunsign kontrollerar din session innan administrationen öppnas.</p>
+    <a id="auth-login-link" class="auth-gate-link hidden" href="https://app.kommunsign.se/login/?destination=admin.kommunsign.se">Gå till inloggningen</a>
+  </div>
+</section>
+<div id="protected-app" hidden>
+<a class="skip-link" href="#content">Hoppa till innehåll</a><header><div><strong>Kommunsign administration</strong><span class="header-subtitle">Organisationer, ansökningar och åtkomst</span></div><div class="header-actions"><span id="session-user" class="badge">Verifierar inloggning…</span><button id="logout" type="button" class="header-button">Logga ut</button></div></header>
 <main id="content">
   <div class="page-heading"><div><h1>Organisationer och ansökningar</h1><p>Granska ansökningar, skapa organisationsmiljön och bjud därefter in behöriga administratörer.</p></div></div>
   <div class="layout">
@@ -27,4 +37,4 @@
       <section class="card" id="domains"><h2>Organisationsdomän</h2><form id="domain-form"><label for="domain">Domännamn</label><input id="domain" required placeholder="signering.kommun.se"><button type="submit">Skapa DNS-underlag</button></form><div id="domain-status" class="status" aria-live="polite">Ingen domän kontrollerad.</div></section>
     </div>
   </div><div id="notice" class="status hidden" role="status" aria-live="polite"></div>
-</main><script src="app.js" defer></script></body></html>
+</main></div><script src="app.js" defer></script></body></html>
