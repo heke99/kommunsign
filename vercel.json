@@ -4,90 +4,197 @@
   "installCommand": "npm ci --ignore-scripts",
   "buildCommand": "npm run build:vercel",
   "outputDirectory": "build/vercel",
-  "cleanUrls": true,
-  "trailingSlash": true,
-  "redirects": [
+  "routes": [
     {
-      "source": "/:path*",
-      "has": [{ "type": "host", "value": "www.kommunsign.se" }],
-      "destination": "https://kommunsign.se/:path*",
-      "permanent": true
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/login/:path*",
-      "has": [{ "type": "host", "value": "app.kommunsign.se" }],
-      "destination": "/__portals/auth/:path*"
+      "src": "/(.*)",
+      "headers": {
+        "Content-Security-Policy": "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self' https://api.kommunsign.se; font-src 'self'; object-src 'none'; upgrade-insecure-requests",
+        "Referrer-Policy": "no-referrer",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload"
+      },
+      "continue": true
     },
     {
-      "source": "/aktivera/:path*",
-      "has": [{ "type": "host", "value": "app.kommunsign.se" }],
-      "destination": "/__portals/auth/:path*"
+      "src": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Location": "https://kommunsign.se/$1"
+      },
+      "status": 308
     },
     {
-      "source": "/aterstall/:path*",
-      "has": [{ "type": "host", "value": "app.kommunsign.se" }],
-      "destination": "/__portals/auth/:path*"
+      "src": "/login",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Location": "/login/"
+      },
+      "status": 308
     },
     {
-      "source": "/:path*",
-      "has": [{ "type": "host", "value": "app.kommunsign.se" }],
-      "destination": "/__portals/tenant/:path*"
+      "src": "/login/",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "dest": "/__portals/auth/index.html"
     },
     {
-      "source": "/:path*",
-      "has": [{ "type": "host", "value": "admin.kommunsign.se" }],
-      "destination": "/__portals/admin/:path*"
+      "src": "/aktivera",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Location": "/aktivera/"
+      },
+      "status": 308
     },
     {
-      "source": "/ansok/:path*",
-      "destination": "/__portals/apply/:path*"
+      "src": "/aktivera/",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "dest": "/__portals/auth/aktivera/index.html"
     },
     {
-      "source": "/signera/:path*",
-      "destination": "/__portals/sign/:path*"
+      "src": "/aterstall",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Location": "/aterstall/"
+      },
+      "status": 308
     },
     {
-      "source": "/verifiera/:path*",
-      "destination": "/__portals/verify/:path*"
+      "src": "/aterstall/",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "dest": "/__portals/auth/aterstall/index.html"
     },
     {
-      "source": "/:path*",
-      "destination": "/__portals/public/:path*"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/:path*",
-      "headers": [
-        { "key": "Content-Security-Policy", "value": "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self' https://api.kommunsign.se; font-src 'self'; object-src 'none'; upgrade-insecure-requests" },
-        { "key": "Referrer-Policy", "value": "no-referrer" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
-        { "key": "Cross-Origin-Resource-Policy", "value": "same-origin" },
-        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" }
-      ]
+      "src": "/auth-assets/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Cache-Control": "private, no-store"
+      },
+      "dest": "/__portals/auth/$1"
     },
     {
-      "source": "/:path*",
-      "has": [{ "type": "host", "value": "admin.kommunsign.se" }],
-      "headers": [{ "key": "Cache-Control", "value": "private, no-store" }]
+      "src": "/(app\\.(?:css|js))",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "dest": "/__portals/tenant/$1"
     },
     {
-      "source": "/:path*",
-      "has": [{ "type": "host", "value": "app.kommunsign.se" }],
-      "headers": [{ "key": "Cache-Control", "value": "private, no-store" }]
+      "src": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Cache-Control": "private, no-store"
+      },
+      "dest": "/__portals/tenant/index.html"
     },
     {
-      "source": "/signera/:path*",
-      "headers": [{ "key": "Cache-Control", "value": "private, no-store" }]
+      "src": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Cache-Control": "private, no-store"
+      },
+      "dest": "/__portals/tenant/index.html"
     },
     {
-      "source": "/verifiera/:path*",
-      "headers": [{ "key": "Cache-Control", "value": "private, no-store" }]
+      "src": "/(app\\.(?:css|js))",
+      "has": [
+        {
+          "type": "host",
+          "value": "admin.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Cache-Control": "private, no-store"
+      },
+      "dest": "/__portals/admin/$1"
+    },
+    {
+      "src": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "admin.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Cache-Control": "private, no-store"
+      },
+      "dest": "/__portals/admin/index.html"
+    },
+    {
+      "src": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "admin.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Cache-Control": "private, no-store"
+      },
+      "dest": "/__portals/admin/index.html"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }

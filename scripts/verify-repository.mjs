@@ -94,10 +94,17 @@ const vercelConfig = JSON.parse(await readFile('vercel.json', 'utf8'));
 if (vercelConfig.buildCommand !== 'npm run build:vercel') throw new Error('Vercel must use the unified portal build');
 if (vercelConfig.outputDirectory !== 'build/vercel') throw new Error('Vercel unified output directory is incorrect');
 const requiredPortalHosts = ['admin.kommunsign.se','app.kommunsign.se'];
+const configuredRoutes = [
+  ...(vercelConfig.rewrites ?? []),
+  ...(vercelConfig.routes ?? []),
+];
 for (const host of requiredPortalHosts) {
-  if (!vercelConfig.rewrites?.some((entry) => entry.has?.some((condition) => condition.type === 'host' && condition.value === host))) {
+  if (!configuredRoutes.some((entry) => entry.has?.some((condition) => condition.type === 'host' && condition.value === host))) {
     throw new Error(`Vercel unified routing is missing ${host}`);
   }
+}
+if (!vercelConfig.routes?.some((entry) => entry.handle === 'filesystem')) {
+  throw new Error('Vercel routing must explicitly preserve the public filesystem after host routing');
 }
 const vercelBuild = await readFile('scripts/build-vercel-unified.mjs', 'utf8');
 if (!vercelBuild.includes("await cp(sources.public, outputRoot")) throw new Error('Vercel deployment must publish the public website at the output root');
