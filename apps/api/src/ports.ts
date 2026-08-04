@@ -284,21 +284,15 @@ export interface OnboardingRepository {
 export interface LoginInput {
   readonly email: string;
   readonly password: string;
-  readonly destinationHostname: string;
-  readonly organizationSlug?: string;
 }
 export interface PasswordRecoveryInput {
   readonly email: string;
-  readonly destinationHostname: string;
-  readonly organizationSlug?: string;
 }
 export interface CompletePasswordInput {
   readonly accessToken?: string;
   readonly tokenHash?: string;
   readonly type?: 'invite' | 'recovery';
   readonly password: string;
-  readonly destinationHostname: string;
-  readonly organizationSlug?: string;
 }
 export interface AuthRequestMetadata {
   readonly ipAddress: string;

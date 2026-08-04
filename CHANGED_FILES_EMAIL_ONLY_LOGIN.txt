@@ -1,0 +1,10 @@
+EMAIL_ONLY_LOGIN_AUTOMATIC_ROUTING.md
+CHANGED_FILES_EMAIL_ONLY_LOGIN.txt
+apps/api/src/auth-router.ts
+apps/api/src/ports.ts
+apps/api/src/production-adapters/postgres/authentication-repository.ts
+apps/auth-portal/public/app.js
+apps/auth-portal/public/index.html
+docs/api/openapi.yaml
+packages/provider-adapters/src/supabase-auth.ts
+tests/run.mjs

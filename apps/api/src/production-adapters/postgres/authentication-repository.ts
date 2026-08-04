@@ -36,40 +36,27 @@ export function createAuthenticationRepository(
   provider: SupabaseAuthProvider,
   configuration: AuthenticationRepositoryConfiguration,
 ): AuthenticationRepository {
-  const rootDomain = canonicalHostname(configuration.rootDomain, { allowPlatformNamespace: true });
+  canonicalHostname(configuration.rootDomain, { allowPlatformNamespace: true });
   const platformAdminHostname = canonicalHostname(configuration.platformAdminHostname, { allowPlatformNamespace: true });
-  const tenantDiscoveryHostname = canonicalHostname(configuration.tenantDiscoveryHostname, { allowPlatformNamespace: true });
+  canonicalHostname(configuration.tenantDiscoveryHostname, { allowPlatformNamespace: true });
   const authPortal = new URL(configuration.authPortalUrl);
   if (authPortal.protocol !== 'https:' || authPortal.username || authPortal.password || authPortal.port) throw new Error('AUTH_PORTAL_URL_INVALID');
   if (!Number.isInteger(configuration.sessionLifetimeSeconds) || configuration.sessionLifetimeSeconds < 900 || configuration.sessionLifetimeSeconds > 86_400) throw new Error('AUTH_SESSION_LIFETIME_INVALID');
 
-  async function resolveDestination(destinationHostname: string, organizationSlug?: string): Promise<ResolvedDestination> {
-    let hostname = canonicalHostname(destinationHostname, { allowPlatformNamespace: true });
-    if (hostname === tenantDiscoveryHostname) {
-      const slug = normalizeSlug(organizationSlug);
-      hostname = canonicalHostname(`${slug}.${rootDomain}`, { allowPlatformNamespace: false });
-    }
-    if (hostname === platformAdminHostname) return { boundary: 'platform', hostname, destinationUrl: `https://${hostname}/` };
-    const resolved = await controlDatabase.transaction(async (transaction) => transaction.query<{ readonly tenant_id: string }>(
-      `select d.tenant_id
-         from control.tenant_domains d
-         join control.platform_tenants t on t.id=d.tenant_id
-        where d.normalized_hostname=$1
-          and d.status='active'
-          and d.verification_status='verified'
-          and d.tls_status='active'
-          and t.status in ('provisioning','active')
-        limit 1`,
-      [hostname],
-    ));
-    const tenantId = resolved.rows[0]?.tenant_id;
-    if (!tenantId) throw new Error('AUTH_DESTINATION_NOT_AVAILABLE');
-    return { boundary: 'tenant', hostname, tenantId, destinationUrl: `https://${hostname}/` };
-  }
-
   async function resolveSubjectDestination(subjectId: string): Promise<ResolvedDestination> {
     const platform = await controlDatabase.transaction(async (transaction) => transaction.query<{ readonly id: string }>(
-      `select id from control.platform_subjects where id=$1 and status='active' limit 1`, [subjectId],
+      `select s.id
+         from control.platform_subjects s
+        where s.id=$1
+          and s.status='active'
+          and exists (
+            select 1
+              from control.platform_role_assignments r
+             where r.platform_subject_id=s.id
+               and r.revoked_at is null
+          )
+        limit 1`,
+      [subjectId],
     ));
     if (platform.rows[0]) return { boundary: 'platform', hostname: platformAdminHostname, destinationUrl: `https://${platformAdminHostname}/` };
 
@@ -90,16 +77,21 @@ export function createAuthenticationRepository(
     throw new Error('AUTH_ACCOUNT_NOT_AUTHORIZED');
   }
 
-  async function resolvePasswordDestination(destinationHostname: string, organizationSlug: string | undefined, subjectId: string): Promise<ResolvedDestination> {
-    const hostname = canonicalHostname(destinationHostname, { allowPlatformNamespace: true });
-    if (hostname === tenantDiscoveryHostname && !organizationSlug?.trim()) return resolveSubjectDestination(subjectId);
-    return resolveDestination(hostname, organizationSlug);
-  }
-
   async function assertSubjectAccess(subjectId: string, destination: ResolvedDestination): Promise<string | undefined> {
     if (destination.boundary === 'platform') {
       const result = await controlDatabase.transaction(async (transaction) => transaction.query<{ readonly display_name: string }>(
-        `select display_name from control.platform_subjects where id=$1 and status='active' limit 1`, [subjectId],
+        `select s.display_name
+           from control.platform_subjects s
+          where s.id=$1
+            and s.status='active'
+            and exists (
+              select 1
+                from control.platform_role_assignments r
+               where r.platform_subject_id=s.id
+                 and r.revoked_at is null
+            )
+          limit 1`,
+        [subjectId],
       ));
       const row = result.rows[0];
       if (!row) throw new Error('AUTH_ACCOUNT_NOT_AUTHORIZED');
@@ -148,8 +140,8 @@ export function createAuthenticationRepository(
     async login(input: LoginInput, metadata: AuthRequestMetadata) {
       const email = normalizeEmail(input.email);
       const bucket = await enforceAuthRateLimit(controlDatabase, 'login', metadata, email, 10);
-      const destination = await resolveDestination(input.destinationHostname, input.organizationSlug);
       const session = await provider.signInWithPassword(email, input.password);
+      const destination = await resolveSubjectDestination(session.user.id);
       const displayName = await assertSubjectAccess(session.user.id, destination);
       await clearAuthRateLimit(controlDatabase, 'login', bucket);
       return createSession(session.user.id, destination, displayName);
@@ -158,9 +150,7 @@ export function createAuthenticationRepository(
     async forgotPassword(input: PasswordRecoveryInput, metadata: AuthRequestMetadata) {
       const email = normalizeEmail(input.email);
       await enforceAuthRateLimit(controlDatabase, 'password_recovery', metadata, email, 5);
-      const requestedHostname = canonicalHostname(input.destinationHostname, { allowPlatformNamespace: true });
       const redirect = new URL('/aterstall/', authPortal);
-      redirect.searchParams.set('destination', requestedHostname);
       await provider.sendPasswordRecovery(email, redirect.toString());
       return { accepted: true as const };
     },
@@ -174,7 +164,7 @@ export function createAuthenticationRepository(
           ? { accessToken: input.accessToken, expiresIn: 1, user: await provider.getUser(input.accessToken) }
           : undefined;
       if (!verified) throw new Error('AUTH_EMAIL_LINK_INVALID');
-      const destination = await resolvePasswordDestination(input.destinationHostname, input.organizationSlug, verified.user.id);
+      const destination = await resolveSubjectDestination(verified.user.id);
       const displayName = await assertSubjectAccess(verified.user.id, destination);
       const user = await provider.updatePassword(verified.accessToken, input.password);
       if (verified.user.id !== user.id) throw new Error('AUTH_PROVIDER_IDENTITY_MISMATCH');
@@ -647,11 +637,6 @@ function normalizeEmail(value: string): string {
   const normalized = value.trim().toLowerCase();
   if (normalized.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) throw new Error('EMAIL_INVALID');
   return normalized;
-}
-function normalizeSlug(value: string | undefined): string {
-  const slug = value?.trim().toLowerCase();
-  if (!slug || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug)) throw new Error('ORGANIZATION_SLUG_REQUIRED');
-  return slug;
 }
 function validateSessionToken(value: string): string {
   const token = value.trim();

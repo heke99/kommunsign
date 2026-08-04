@@ -104,36 +104,41 @@ test('email action links are verified from token hashes only when the password f
   assert.match(portalSource, /token_hash/);
   assert.match(portalSource, /emailCredential\(\)/);
   assert.match(portalSource, /history\.replaceState/);
-  assert.match(portalSource, /return organizationSlug\?\{destinationHostname:normalizedDestination,organizationSlug\}:\{destinationHostname:normalizedDestination\}/);
-  assert.match(portalSource, /AUTH_ACCOUNT_NOT_AUTHORIZED/);
-  assert.match(portalSource, /använd endast det senaste mejlet/);
 });
 
-test('password recovery does not hide Supabase rate-limit failures', async () => {
-  const provider = new SupabaseAuthProvider({
-    projectUrl: 'https://example.supabase.co', anonKey: 'anon-key',
-    http: async () => new Response(JSON.stringify({ error_code: 'over_email_send_rate_limit' }), {
-      status: 429,
-      headers: { 'content-type': 'application/json' },
-    }),
-  });
-  await assert.rejects(
-    () => provider.sendPasswordRecovery('admin@kommun.se', 'https://app.kommunsign.se/aterstall/?destination=app.kommunsign.se'),
-    (error) => error?.code === 'AUTH_RATE_LIMITED' && error?.status === 429,
-  );
-});
-
-test('tenant discovery password recovery requires only email and resolves destination after token verification', async () => {
+test('login, password recovery and activation require no organization address and route after identity verification', async () => {
   const portalHtml = await readFile('apps/auth-portal/public/index.html', 'utf8');
   const portalSource = await readFile('apps/auth-portal/public/app.js', 'utf8');
+  const routerSource = await readFile('apps/api/src/auth-router.ts', 'utf8');
   const repositorySource = await readFile('apps/api/src/production-adapters/postgres/authentication-repository.ts', 'utf8');
-  assert.doesNotMatch(portalHtml, /forgot-organization/);
-  assert.match(portalHtml, /Lösenordsåterställning görs med enbart e-post/);
-  assert.match(portalSource, /password\/forgot'.*destinationHostname:normalizedDestination/);
-  assert.doesNotMatch(portalSource, /destinationInput\('forgot-organization'\)/);
-  assert.match(repositorySource, /resolvePasswordDestination/);
-  assert.match(repositorySource, /resolveSubjectDestination/);
-  assert.match(repositorySource, /requestedHostname = canonicalHostname/);
+  const openApi = await readFile('docs/api/openapi.yaml', 'utf8');
+  assert.doesNotMatch(portalHtml, /Organisationsadress|id="organization"/);
+  assert.match(portalHtml, /e-postadress och lösenord/);
+  assert.doesNotMatch(portalSource, /organizationSlug|destinationHostname|destinationInput|normalizeOrganizationSlug/);
+  assert.match(portalSource, /password\/forgot',{email:/);
+  assert.match(portalSource, /auth\/login',{email:.*password:/);
+  assert.match(portalSource, /password\/complete',{\.\.\.credential,password}/);
+  assert.match(routerSource, /allowed\(body, \['email','password'\]\)/);
+  assert.match(routerSource, /allowed\(body, \['email'\]\)/);
+  assert.match(routerSource, /allowed\(body, \['accessToken','tokenHash','type','password'\]\)/);
+  assert.doesNotMatch(routerSource, /organizationSlug|destinationHostname/);
+  assert.match(repositorySource, /provider\.signInWithPassword[\s\S]*resolveSubjectDestination\(session\.user\.id\)/);
+  assert.match(repositorySource, /verifyEmailOtp[\s\S]*resolveSubjectDestination\(verified\.user\.id\)/);
+  assert.match(repositorySource, /platform_role_assignments/);
+  assert.match(openApi, /LoginRequest:[\s\S]*required: \[email, password\]/);
+  assert.match(openApi, /PasswordRecoveryRequest:[\s\S]*required: \[email\]/);
+  assert.doesNotMatch(openApi, /organizationSlug/);
+});
+
+test('password recovery exposes rate limits instead of reporting a false accepted result', async () => {
+  const provider = new SupabaseAuthProvider({
+    projectUrl: 'https://example.supabase.co', anonKey: 'anon-key',
+    http: async () => new Response(JSON.stringify({ error_code: 'over_email_send_rate_limit' }), { status: 429, headers: { 'content-type': 'application/json' } }),
+  });
+  await assert.rejects(
+    () => provider.sendPasswordRecovery('admin@kommun.se', 'https://app.kommunsign.se/aterstall/'),
+    (error) => error?.code === 'AUTH_RATE_LIMITED' && error?.status === 429,
+  );
 });
 
 test('Railway API allows the canonical Vercel origins even when a CORS variable is omitted', async () => {

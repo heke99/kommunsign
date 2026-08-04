@@ -59,24 +59,18 @@ function optionalText(value: unknown, field: string, minimum: number, maximum: n
   return value === undefined ? undefined : text(value, field, minimum, maximum);
 }
 function loginInput(body: Record<string, unknown>): LoginInput {
-  allowed(body, ['email','password','destinationHostname','organizationSlug']);
+  allowed(body, ['email','password']);
   return {
     email: text(body.email, 'email', 3, 254),
     password: text(body.password, 'password', 1, 128),
-    destinationHostname: text(body.destinationHostname, 'destinationHostname', 3, 253),
-    ...(body.organizationSlug === undefined ? {} : { organizationSlug: text(body.organizationSlug, 'organizationSlug', 1, 63) }),
   };
 }
 function recoveryInput(body: Record<string, unknown>): PasswordRecoveryInput {
-  allowed(body, ['email','destinationHostname','organizationSlug']);
-  return {
-    email: text(body.email, 'email', 3, 254),
-    destinationHostname: text(body.destinationHostname, 'destinationHostname', 3, 253),
-    ...(body.organizationSlug === undefined ? {} : { organizationSlug: text(body.organizationSlug, 'organizationSlug', 1, 63) }),
-  };
+  allowed(body, ['email']);
+  return { email: text(body.email, 'email', 3, 254) };
 }
 function completeInput(body: Record<string, unknown>): CompletePasswordInput {
-  allowed(body, ['accessToken','tokenHash','type','password','destinationHostname','organizationSlug']);
+  allowed(body, ['accessToken','tokenHash','type','password']);
   const accessToken = optionalText(body.accessToken, 'accessToken', 32, 8192);
   const tokenHash = optionalText(body.tokenHash, 'tokenHash', 32, 1024);
   if ((!accessToken && !tokenHash) || (accessToken && tokenHash)) throw new AuthRequestError('AUTH_EMAIL_LINK_INVALID', 401, 'Aktiveringslänken är ogiltig eller har gått ut.');
@@ -87,8 +81,6 @@ function completeInput(body: Record<string, unknown>): CompletePasswordInput {
     ...(accessToken ? { accessToken } : {}),
     ...(tokenHash ? { tokenHash, type: type as 'invite' | 'recovery' } : {}),
     password: text(body.password, 'password', 12, 128),
-    destinationHostname: text(body.destinationHostname, 'destinationHostname', 3, 253),
-    ...(body.organizationSlug === undefined ? {} : { organizationSlug: text(body.organizationSlug, 'organizationSlug', 1, 63) }),
   };
 }
 function organizationUserInput(body: Record<string, unknown>): OrganizationUserInput {
@@ -157,8 +149,6 @@ function safeKnown(cause: unknown): AuthRequestError {
   const mapping: Readonly<Record<string, readonly [number,string]>> = {
     AUTH_INVALID_CREDENTIALS: [401,'E-post eller lösenord är felaktigt.'],
     AUTH_ACCOUNT_NOT_AUTHORIZED: [403,'Kontot saknar åtkomst till den valda organisationen.'],
-    AUTH_DESTINATION_NOT_AVAILABLE: [404,'Organisationens inloggning kunde inte hittas.'],
-    ORGANIZATION_SLUG_REQUIRED: [422,'Ange organisationens adressnamn.'],
     AUTH_SESSION_INVALID: [401,'Sessionen är ogiltig eller har gått ut.'],
     AUTH_EMAIL_LINK_INVALID: [401,'Aktiverings- eller återställningslänken är ogiltig eller har gått ut.'],
     AUTH_ORIGIN_REQUIRED: [400,'Säker origin saknas.'],
