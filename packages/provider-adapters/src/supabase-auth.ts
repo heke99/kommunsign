@@ -166,8 +166,8 @@ export class SupabaseAuthProvider {
     }
     const payload = await response.json().catch(() => ({}));
     if (response.ok) return payload;
-    if (hideEnumeration && response.status >= 400 && response.status < 500) return {};
     const providerCode = safeProviderCode(payload);
+    if (hideEnumeration && ['USER_NOT_FOUND','EMAIL_NOT_FOUND','USER_NOT_FOUND_FOR_EMAIL'].includes(providerCode)) return {};
     if (response.status === 400 || response.status === 401 || response.status === 403) throw new SupabaseAuthError(providerCode === 'INVALID_LOGIN_CREDENTIALS' ? 'AUTH_INVALID_CREDENTIALS' : 'AUTH_PROVIDER_REJECTED', 401, false);
     if (response.status === 422) throw new SupabaseAuthError('AUTH_PROVIDER_VALIDATION_FAILED', 422, false);
     if (response.status === 429) throw new SupabaseAuthError('AUTH_RATE_LIMITED', 429, true);

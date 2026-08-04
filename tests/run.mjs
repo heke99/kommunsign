@@ -104,6 +104,23 @@ test('email action links are verified from token hashes only when the password f
   assert.match(portalSource, /token_hash/);
   assert.match(portalSource, /emailCredential\(\)/);
   assert.match(portalSource, /history\.replaceState/);
+  assert.match(portalSource, /return organizationSlug\?\{destinationHostname:normalizedDestination,organizationSlug\}:\{destinationHostname:normalizedDestination\}/);
+  assert.match(portalSource, /AUTH_ACCOUNT_NOT_AUTHORIZED/);
+  assert.match(portalSource, /använd endast det senaste mejlet/);
+});
+
+test('password recovery does not hide Supabase rate-limit failures', async () => {
+  const provider = new SupabaseAuthProvider({
+    projectUrl: 'https://example.supabase.co', anonKey: 'anon-key',
+    http: async () => new Response(JSON.stringify({ error_code: 'over_email_send_rate_limit' }), {
+      status: 429,
+      headers: { 'content-type': 'application/json' },
+    }),
+  });
+  await assert.rejects(
+    () => provider.sendPasswordRecovery('admin@kommun.se', 'https://app.kommunsign.se/aterstall/?destination=app.kommunsign.se'),
+    (error) => error?.code === 'AUTH_RATE_LIMITED' && error?.status === 429,
+  );
 });
 
 test('tenant discovery password recovery requires only email and resolves destination after token verification', async () => {
