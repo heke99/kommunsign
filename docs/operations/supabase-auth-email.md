@@ -12,8 +12,10 @@ Supabases inbyggda standardutskick används inte i produktion. Konfigurera Custo
 Sätt Site URL till:
 
 ```text
-https://app.kommunsign.se/login/
+https://app.kommunsign.se
 ```
+
+Site URL ska vara domänroten utan `/login/`; e-postmallarna lägger själva till `/aktivera/` respektive `/aterstall/`.
 
 Lägg till exakt följande Redirect URLs i produktion:
 
@@ -77,7 +79,7 @@ HTML-mallen versionshanteras i `infrastructure/supabase/auth-templates/recovery.
 
 ## Skydd mot e-postskanning
 
-Mallarna länkar inte direkt till `{{ .ConfirmationURL }}`. E-postsystem som Microsoft Safe Links kan förhandsöppna länkar; en direkt engångslänk kan då förbrukas innan mottagaren klickar. Kommunsigns mallar skickar därför `{{ .TokenHash }}` till `app.kommunsign.se/login/`, tar omedelbart bort tokenvärdet ur adressfältet och verifierar det server-side först när användaren väljer lösenord. Klickspårning ska vara avstängd.
+Mallarna länkar inte direkt till `{{ .ConfirmationURL }}`. E-postsystem som Microsoft Safe Links kan förhandsöppna länkar; en direkt engångslänk kan då förbrukas innan mottagaren klickar. Kommunsigns mallar skickar därför `{{ .TokenHash }}` till den särskilda routen `/aktivera/` eller `/aterstall/` på `app.kommunsign.se`, tar omedelbart bort tokenvärdet ur adressfältet och verifierar det server-side först när användaren väljer lösenord. Klickspårning ska vara avstängd.
 
 ## Verifiering
 

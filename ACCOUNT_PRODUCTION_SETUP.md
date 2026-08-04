@@ -55,9 +55,9 @@ npm run verify:env-contract
 Publik registrering ska vara avstängd. Site URL och redirect-listan ska vara exakt:
 
 ```text
-https://app.kommunsign.se/login/
-https://app.kommunsign.se/aktivera/
-https://app.kommunsign.se/aterstall/
+Site URL: https://app.kommunsign.se
+Redirect URL: https://app.kommunsign.se/aktivera/
+Redirect URL: https://app.kommunsign.se/aterstall/
 ```
 
 Sätt deployment-variablerna, inklusive:

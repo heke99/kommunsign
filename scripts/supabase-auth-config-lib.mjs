@@ -8,7 +8,7 @@ const required = (environment, name) => {
 
 export async function expectedSupabaseAuthConfig(environment = process.env, options = {}) {
   const siteUrl = new URL(required(environment, 'SUPABASE_AUTH_SITE_URL'));
-  if (siteUrl.protocol !== 'https:' || siteUrl.username || siteUrl.password || siteUrl.hash) throw new Error('SUPABASE_AUTH_SITE_URL_INVALID');
+  if (siteUrl.protocol !== 'https:' || siteUrl.username || siteUrl.password || siteUrl.hash || siteUrl.search || siteUrl.pathname !== '/') throw new Error('SUPABASE_AUTH_SITE_URL_INVALID');
   const redirects = required(environment, 'SUPABASE_AUTH_ALLOWED_REDIRECT_URLS').split(',').map((value) => value.trim()).filter(Boolean);
   if (!redirects.length || redirects.some((value) => { try { return new URL(value).protocol !== 'https:'; } catch { return true; } })) throw new Error('SUPABASE_AUTH_ALLOWED_REDIRECT_URLS_INVALID');
   const port = Number(required(environment, 'AUTH_SMTP_PORT'));

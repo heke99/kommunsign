@@ -8,7 +8,24 @@ let applicationHandler = null;
 let readinessCode = 'API_DEPENDENCIES_NOT_CONFIGURED';
 
 const bootstrapModule = process.env.KOMMUNSIGN_API_BOOTSTRAP_MODULE;
-const allowedOrigins = new Set((process.env.CORS_ALLOWED_ORIGINS ?? '').split(',').map((value) => value.trim()).filter(Boolean));
+function origin(value) {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && !parsed.username && !parsed.password ? parsed.origin : null;
+  } catch { return null; }
+}
+const allowedOrigins = new Set([
+  'https://kommunsign.se',
+  'https://app.kommunsign.se',
+  'https://admin.kommunsign.se',
+  ...(process.env.STATIC_ALLOWED_ORIGINS ?? '').split(',').map((value) => value.trim()),
+  ...(process.env.CORS_ALLOWED_ORIGINS ?? '').split(',').map((value) => value.trim()),
+  origin(process.env.PUBLIC_WEBSITE_URL),
+  origin(process.env.TENANT_DISCOVERY_URL),
+  origin(process.env.PLATFORM_ADMIN_URL),
+  origin(process.env.AUTH_BROKER_URL),
+].filter(Boolean));
 if (bootstrapModule) {
   try {
     const module = await import(bootstrapModule);

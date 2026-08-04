@@ -106,15 +106,25 @@ test('email action links are verified from token hashes only when the password f
   assert.match(portalSource, /history\.replaceState/);
 });
 
-test('tenant discovery password recovery collects and forwards the organization slug', async () => {
+test('tenant discovery password recovery requires only email and resolves destination after token verification', async () => {
   const portalHtml = await readFile('apps/auth-portal/public/index.html', 'utf8');
   const portalSource = await readFile('apps/auth-portal/public/app.js', 'utf8');
-  assert.match(portalHtml, /id=\"forgot-organization-field\"/);
-  assert.match(portalHtml, /id=\"forgot-organization\"/);
-  assert.match(portalSource, /forgotOrganizationInput\.required=true/);
-  assert.match(portalSource, /destinationInput\('forgot-organization'\)/);
-  assert.match(portalSource, /forgotOrganizationInput\.value=organizationInput\.value/);
-  assert.match(portalSource, /normalized\.endsWith\('\.kommunsign\.se'\)/);
+  const repositorySource = await readFile('apps/api/src/production-adapters/postgres/authentication-repository.ts', 'utf8');
+  assert.doesNotMatch(portalHtml, /forgot-organization/);
+  assert.match(portalHtml, /Lösenordsåterställning görs med enbart e-post/);
+  assert.match(portalSource, /password\/forgot'.*destinationHostname:normalizedDestination/);
+  assert.doesNotMatch(portalSource, /destinationInput\('forgot-organization'\)/);
+  assert.match(repositorySource, /resolvePasswordDestination/);
+  assert.match(repositorySource, /resolveSubjectDestination/);
+  assert.match(repositorySource, /requestedHostname = canonicalHostname/);
+});
+
+test('Railway API allows the canonical Vercel origins even when a CORS variable is omitted', async () => {
+  const serverSource = await readFile('apps/api/server.mjs', 'utf8');
+  assert.match(serverSource, /https:\/\/app\.kommunsign\.se/);
+  assert.match(serverSource, /STATIC_ALLOWED_ORIGINS/);
+  assert.match(serverSource, /TENANT_DISCOVERY_URL/);
+  assert.match(serverSource, /access-control-allow-credentials/);
 });
 
 test('an unconfirmed account receives a new activation link without a duplicate identity', async () => {
@@ -139,15 +149,23 @@ test('an unconfirmed account receives a new activation link without a duplicate 
 
 test('Supabase Auth production configuration is machine-verifiable', async () => {
   const expected = await expectedSupabaseAuthConfig({
-    SUPABASE_AUTH_SITE_URL: 'https://app.kommunsign.se/login/',
+    SUPABASE_AUTH_SITE_URL: 'https://app.kommunsign.se',
     SUPABASE_AUTH_ALLOWED_REDIRECT_URLS: 'https://app.kommunsign.se/aktivera/,https://app.kommunsign.se/aterstall/',
     AUTH_SMTP_PORT: '465', AUTH_SMTP_SENDER_EMAIL: 'konto@notify.kommunsign.se',
     AUTH_SMTP_HOST: 'smtp.resend.com', AUTH_SMTP_USERNAME: 'resend', AUTH_SMTP_SENDER_NAME: 'Kommunsign',
   });
+  assert.equal(expected.site_url, 'https://app.kommunsign.se');
   assert.deepEqual(verifySupabaseAuthConfig({ ...expected }, expected), []);
   assert.ok(verifySupabaseAuthConfig({ ...expected, disable_signup: false }, expected).some((problem) => problem.startsWith('disable_signup:')));
   assert.match(expected.mailer_templates_invite_content, /TokenHash/);
   assert.doesNotMatch(expected.mailer_templates_invite_content, /ConfirmationURL/);
+  assert.match(expected.mailer_templates_recovery_content, /\{\{ \.SiteURL \}\}\/aterstall\//);
+  await assert.rejects(() => expectedSupabaseAuthConfig({
+    SUPABASE_AUTH_SITE_URL: 'https://app.kommunsign.se/login/',
+    SUPABASE_AUTH_ALLOWED_REDIRECT_URLS: 'https://app.kommunsign.se/aterstall/',
+    AUTH_SMTP_PORT: '465', AUTH_SMTP_SENDER_EMAIL: 'konto@notify.kommunsign.se',
+    AUTH_SMTP_HOST: 'smtp.resend.com', AUTH_SMTP_USERNAME: 'resend', AUTH_SMTP_SENDER_NAME: 'Kommunsign',
+  }), /SUPABASE_AUTH_SITE_URL_INVALID/);
 });
 
 test('organization provisioning never creates an applicant login automatically', async () => {

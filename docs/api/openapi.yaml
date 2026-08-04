@@ -390,7 +390,7 @@ paths:
   /auth/password/forgot:
     post:
       operationId: requestPasswordReset
-      summary: Skicka en återställningslänk utan att avslöja om kontot finns
+      summary: Skicka en återställningslänk med enbart e-post utan att avslöja om kontot finns
       security: []
       parameters: [{$ref: '#/components/parameters/RequestId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PasswordRecoveryRequest'}}}}
@@ -512,7 +512,7 @@ components:
       properties:
         email: {type: string, format: email, maxLength: 254}
         destinationHostname: {type: string, format: hostname}
-        organizationSlug: {type: string, minLength: 1, maxLength: 63}
+        organizationSlug: {type: string, minLength: 1, maxLength: 63, deprecated: true, description: Behövs inte för lösenordsåterställning; används endast för bakåtkompatibilitet}
     CompletePasswordRequest:
       type: object
       additionalProperties: false

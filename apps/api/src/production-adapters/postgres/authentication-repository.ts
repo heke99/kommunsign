@@ -67,6 +67,35 @@ export function createAuthenticationRepository(
     return { boundary: 'tenant', hostname, tenantId, destinationUrl: `https://${hostname}/` };
   }
 
+  async function resolveSubjectDestination(subjectId: string): Promise<ResolvedDestination> {
+    const platform = await controlDatabase.transaction(async (transaction) => transaction.query<{ readonly id: string }>(
+      `select id from control.platform_subjects where id=$1 and status='active' limit 1`, [subjectId],
+    ));
+    if (platform.rows[0]) return { boundary: 'platform', hostname: platformAdminHostname, destinationUrl: `https://${platformAdminHostname}/` };
+
+    const memberships = await dataDatabase.transaction(async (transaction) => transaction.query<{ readonly tenant_id: string }>(
+      `select u.tenant_id
+         from app.users u
+         join app.memberships m on m.tenant_id=u.tenant_id and m.user_id=u.id and m.status='active'
+        where u.external_subject=$1 and u.disabled_at is null
+        group by u.tenant_id
+        order by max(m.created_at) desc, u.tenant_id
+        limit 25`,
+      [subjectId],
+    ));
+    for (const membership of memberships.rows) {
+      try { return await primaryTenantDestination(controlDatabase, membership.tenant_id); }
+      catch (cause) { if (!(cause instanceof Error) || cause.message !== 'ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE') throw cause; }
+    }
+    throw new Error('AUTH_ACCOUNT_NOT_AUTHORIZED');
+  }
+
+  async function resolvePasswordDestination(destinationHostname: string, organizationSlug: string | undefined, subjectId: string): Promise<ResolvedDestination> {
+    const hostname = canonicalHostname(destinationHostname, { allowPlatformNamespace: true });
+    if (hostname === tenantDiscoveryHostname && !organizationSlug?.trim()) return resolveSubjectDestination(subjectId);
+    return resolveDestination(hostname, organizationSlug);
+  }
+
   async function assertSubjectAccess(subjectId: string, destination: ResolvedDestination): Promise<string | undefined> {
     if (destination.boundary === 'platform') {
       const result = await controlDatabase.transaction(async (transaction) => transaction.query<{ readonly display_name: string }>(
@@ -129,9 +158,9 @@ export function createAuthenticationRepository(
     async forgotPassword(input: PasswordRecoveryInput, metadata: AuthRequestMetadata) {
       const email = normalizeEmail(input.email);
       await enforceAuthRateLimit(controlDatabase, 'password_recovery', metadata, email, 5);
-      const destination = await resolveDestination(input.destinationHostname, input.organizationSlug);
+      const requestedHostname = canonicalHostname(input.destinationHostname, { allowPlatformNamespace: true });
       const redirect = new URL('/aterstall/', authPortal);
-      redirect.searchParams.set('destination', destination.hostname);
+      redirect.searchParams.set('destination', requestedHostname);
       await provider.sendPasswordRecovery(email, redirect.toString());
       return { accepted: true as const };
     },
@@ -139,15 +168,16 @@ export function createAuthenticationRepository(
     async completePassword(input: CompletePasswordInput, metadata: AuthRequestMetadata) {
       validatePassword(input.password);
       const bucket = await enforceAuthRateLimit(controlDatabase, 'password_complete', metadata, undefined, 10);
-      const destination = await resolveDestination(input.destinationHostname, input.organizationSlug);
       const verified = input.tokenHash
         ? await provider.verifyEmailOtp(input.tokenHash, input.type ?? 'recovery')
-        : undefined;
-      const accessToken = verified?.accessToken ?? input.accessToken;
-      if (!accessToken) throw new Error('AUTH_EMAIL_LINK_INVALID');
-      const user = await provider.updatePassword(accessToken, input.password);
-      if (verified && verified.user.id !== user.id) throw new Error('AUTH_PROVIDER_IDENTITY_MISMATCH');
-      const displayName = await assertSubjectAccess(user.id, destination);
+        : input.accessToken
+          ? { accessToken: input.accessToken, expiresIn: 1, user: await provider.getUser(input.accessToken) }
+          : undefined;
+      if (!verified) throw new Error('AUTH_EMAIL_LINK_INVALID');
+      const destination = await resolvePasswordDestination(input.destinationHostname, input.organizationSlug, verified.user.id);
+      const displayName = await assertSubjectAccess(verified.user.id, destination);
+      const user = await provider.updatePassword(verified.accessToken, input.password);
+      if (verified.user.id !== user.id) throw new Error('AUTH_PROVIDER_IDENTITY_MISMATCH');
       await markInvitationAccepted(controlDatabase, destination.tenantId, user.id);
       await clearAuthRateLimit(controlDatabase, 'password_complete', bucket);
       return createSession(user.id, destination, displayName);
