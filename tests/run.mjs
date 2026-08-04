@@ -106,6 +106,17 @@ test('email action links are verified from token hashes only when the password f
   assert.match(portalSource, /history\.replaceState/);
 });
 
+test('tenant discovery password recovery collects and forwards the organization slug', async () => {
+  const portalHtml = await readFile('apps/auth-portal/public/index.html', 'utf8');
+  const portalSource = await readFile('apps/auth-portal/public/app.js', 'utf8');
+  assert.match(portalHtml, /id=\"forgot-organization-field\"/);
+  assert.match(portalHtml, /id=\"forgot-organization\"/);
+  assert.match(portalSource, /forgotOrganizationInput\.required=true/);
+  assert.match(portalSource, /destinationInput\('forgot-organization'\)/);
+  assert.match(portalSource, /forgotOrganizationInput\.value=organizationInput\.value/);
+  assert.match(portalSource, /normalized\.endsWith\('\.kommunsign\.se'\)/);
+});
+
 test('an unconfirmed account receives a new activation link without a duplicate identity', async () => {
   const calls = [];
   const provider = new SupabaseAuthProvider({
