@@ -1,0 +1,29 @@
+KOMMUNSIGN COMPLETE WEB/API RUNTIME VERIFICATION
+Date: 2026-08-04
+
+PASS
+- TypeScript 5.8.3 compilation
+- Portal build: 6 standalone portals
+- Unified Vercel build: 7 portals plus build/vercel/index.html
+- Deployment config verification
+- Repository verification
+- ENV contract: 186 variables / 33 direct runtime references
+- SQL migration verification
+- Provenance verification: 0 donor LOC, 8 pinned donors
+- SDK sync: 2026-08-03.2
+- Secret scan
+- Java validation/SDK self-tests
+- Unit tests: 34 passed
+- Integration: tenant API and onboarding/provisioning flows passed
+- Security: branding, SSRF, domains, uploads, invitations and OIDC passed
+
+COMMAND
+npm run verify
+RESULT
+PASS
+
+ENVIRONMENT LIMITATIONS
+- A clean npm ci could not be completed in the execution environment because its internal npm mirror returned 404 for the locked postgres@3.4.7 tarball.
+- The verification run used the already available locked TypeScript 5.8.3 toolchain; no dependency or lockfile version was changed.
+- Docker, qpdf and clamd binaries were unavailable, so real container builds and PDF-service health checks were not executed here.
+- Live DNS/Vercel/Railway checks were not claimed as passed because account access, credentials and externally resolvable deployment endpoints were unavailable.

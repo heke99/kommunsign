@@ -20,7 +20,7 @@ import { verifyProvenance } from '../scripts/provenance-lib.mjs';
 import { assertApplicationTransition, assertDistinctApprovers, createEmailVerification, formatApplicationReference, verifyEmailToken } from '../dist/packages/onboarding/src/index.js';
 import { evaluateReadiness } from '../dist/packages/readiness/src/index.js';
 import { normalizeTenantSlug, canonicalHostname as canonicalTenantHostname, createDomainVerificationChallenge, verifyDomainChallengeValue } from '../dist/packages/custom-domains/src/index.js';
-import { TenantHostnameResolver, resolveTenantPublicUrl, isAllowedCredentialOrigin } from '../dist/packages/tenant-gateway/src/index.js';
+import { TenantHostnameResolver, resolveRequestHostname, resolveTenantPublicUrl, isAllowedCredentialOrigin } from '../dist/packages/tenant-gateway/src/index.js';
 import { buildHostOnlySessionCookie, issueAuthorizationCode, exchangeAuthorizationCode } from '../dist/packages/auth-broker/src/index.js';
 import { createSensitiveDataAdapter } from '../dist/apps/api/src/adapters/aes-gcm-sensitive-data.js';
 import { expectedSupabaseAuthConfig, verifySupabaseAuthConfig } from '../scripts/supabase-auth-config-lib.mjs';
@@ -192,6 +192,26 @@ test('domain gateway derives tenant only from an active canonical hostname', asy
   assert.equal(isAllowedCredentialOrigin('https://signering.kungalv.se', new Set(['signering.kungalv.se'])), true);
   await assert.rejects(() => resolver.resolve(new Request('https://unknown.kommunsign.se', { headers: { host: 'unknown.kommunsign.se' } })), /TENANT_DOMAIN_NOT_FOUND/);
   assert.ok(events.some((event) => event.eventType === 'unknown_host_rejected'));
+});
+
+
+test('Railway forwarded host is trusted only with Railway edge headers', () => {
+  const options = { trustProxy: true, trustedProxyProvider: 'railway', requireVerifiedForwardedHost: true };
+  const trusted = new Request('http://api.railway.internal/v1/auth/session', { headers: {
+    host: 'api.railway.internal',
+    'x-forwarded-host': 'app.kommunsign.se',
+    'x-forwarded-proto': 'https',
+    'x-real-ip': '192.0.2.10',
+    'x-railway-edge': 'arn1',
+    'x-railway-request-id': 'request-1',
+  } });
+  assert.equal(resolveRequestHostname(trusted, options), 'app.kommunsign.se');
+  const spoofed = new Request('http://api.railway.internal/v1/auth/session', { headers: {
+    host: 'api.railway.internal',
+    'x-forwarded-host': 'app.kommunsign.se',
+    'x-forwarded-proto': 'https',
+  } });
+  assert.throws(() => resolveRequestHostname(spoofed, options), /UNVERIFIED_FORWARDED_HOST/);
 });
 
 test('domain challenge and auth exchange are single-use and host-bound', async () => {
@@ -521,9 +541,10 @@ test('unified Vercel deployment builds all portals and uses customer-facing prod
   assert.doesNotMatch(html, /\sstyle=/);
   assert.equal(config.buildCommand, 'npm run build:vercel');
   assert.equal(config.outputDirectory, 'build/vercel');
-  assert.ok(config.rewrites.some((entry) => entry.has?.some((condition) => condition.type === 'host' && condition.value === 'admin.kommunsign.se')));
-  assert.ok(config.rewrites.some((entry) => entry.destination === '/__portals/tenant/:path*'));
-  assert.ok(config.headers.some((entry) => entry.headers?.some((header) => header.key === 'Content-Security-Policy')));
+  assert.ok(config.routes.some((entry) => entry.has?.some((condition) => condition.type === 'host' && condition.value === 'admin.kommunsign.se')));
+  assert.ok(config.routes.some((entry) => entry.dest === '/__portals/tenant/index.html'));
+  assert.ok(config.routes.some((entry) => entry.headers?.['Content-Security-Policy']));
+  assert.ok(config.routes.some((entry) => entry.handle === 'filesystem'));
 });
 
 test('provenance gate pins donors and reports zero unverified imports', async () => {

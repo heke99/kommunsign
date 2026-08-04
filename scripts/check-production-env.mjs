@@ -4,16 +4,16 @@ const required = [
   'SUPABASE_DATA_PROJECT_URL','SUPABASE_DATA_SERVICE_ROLE_KEY',
   'SUPABASE_AUTH_PROJECT_URL','SUPABASE_AUTH_PROJECT_REF','SUPABASE_AUTH_ANON_KEY','SUPABASE_AUTH_SERVICE_ROLE_KEY',
   'AUTH_SMTP_PASSWORD_SECRET_REF','AUTH_SMTP_SENDER_EMAIL','AUTH_SMTP_SENDER_NAME',
-  'INTERNAL_GATEWAY_HMAC_KEY','CSRF_SIGNING_KEY','TRUSTED_PROXY_SHARED_SECRET',
+  'INTERNAL_GATEWAY_HMAC_KEY','CSRF_SIGNING_KEY',
   'TIC_API_KEY','TIC_WEBHOOK_SECRET','RESEND_API_KEY','RESEND_WEBHOOK_SECRET',
-  'VALIDATION_SERVICE_TOKEN','VERCEL_API_TOKEN','VERCEL_TEAM_ID','VERCEL_WEB_PROJECT_ID',
+  'VALIDATION_SERVICE_TOKEN',
 ];
 const exact = {
   NODE_ENV:'production',APP_ENV:'production',KOMMUNSIGN_ENV:'production',
   AUTH_PUBLIC_SIGNUP_ENABLED:'false',SUPERADMIN_ALLOW_EXISTING_USER:'false',
   AUTH_SMTP_PROVIDER:'resend',AUTH_SMTP_HOST:'smtp.resend.com',AUTH_SMTP_PORT:'465',AUTH_SMTP_USERNAME:'resend',
   SESSION_COOKIE_SECURE:'true',SESSION_COOKIE_HTTP_ONLY:'true',
-  TRUST_PROXY:'true',REJECT_UNKNOWN_HOSTS:'true',REQUIRE_VERIFIED_FORWARDED_HOST:'true',
+  TRUST_PROXY:'true',TRUSTED_PROXY_PROVIDER:'railway',REJECT_UNKNOWN_HOSTS:'true',REQUIRE_VERIFIED_FORWARDED_HOST:'true',
   REJECT_UNVERIFIED_CUSTOM_DOMAINS:'true',ALLOW_ARBITRARY_REDIRECTS:'false',
   ALLOW_IN_MEMORY_RUNTIME:'false',TENANT_CONTEXT_REQUIRED:'true',
   TIC_ENVIRONMENT:'production',TIC_GLOBAL_KILL_SWITCH:'false',
@@ -38,7 +38,10 @@ for(const [name,wanted] of Object.entries(exact)){if(process.env[name]?.trim().t
 for(const name of verified){if(process.env[name]?.trim().toLowerCase()!=='true')problems.push(`${name}: ska vara true efter verifiering`);}
 for(const name of urls){try{const url=new URL(process.env[name]??'');if(url.protocol!=='https:'||url.username||url.password)throw new Error();}catch{problems.push(`${name}: ska vara en giltig https-URL`);}}
 for(const name of ['SENSITIVE_DATA_ENCRYPTION_KEY_BASE64','SENSITIVE_DATA_BLIND_INDEX_KEY_BASE64']){const value=process.env[name];if(value){try{if(Buffer.from(value,'base64').length<32)problems.push(`${name}: minst 32 byte krävs`);}catch{problems.push(`${name}: ogiltig base64`);}}}
-for(const name of ['INTERNAL_GATEWAY_HMAC_KEY','CSRF_SIGNING_KEY','TRUSTED_PROXY_SHARED_SECRET','TIC_WEBHOOK_SECRET','RESEND_WEBHOOK_SECRET','VALIDATION_SERVICE_TOKEN']){const value=process.env[name];if(value&&value.length<32)problems.push(`${name}: minst 32 tecken krävs`);}
+for(const name of ['INTERNAL_GATEWAY_HMAC_KEY','CSRF_SIGNING_KEY','TIC_WEBHOOK_SECRET','RESEND_WEBHOOK_SECRET','VALIDATION_SERVICE_TOKEN']){const value=process.env[name];if(value&&value.length<32)problems.push(`${name}: minst 32 tecken krävs`);}
+
+if(process.env.TRUSTED_PROXY_PROVIDER!=='railway'&&!process.env.TRUSTED_PROXY_SHARED_SECRET?.trim())problems.push('TRUSTED_PROXY_SHARED_SECRET: krävs för vald proxyprovider');
+if(process.env.TRUSTED_PROXY_PROVIDER==='railway'&&process.env.RAILWAY_ENVIRONMENT_ID&&!process.env.RAILWAY_ENVIRONMENT_ID.trim())problems.push('RAILWAY_ENVIRONMENT_ID: ogiltigt Railway-värde');
 const authRedirects=new Set((process.env.SUPABASE_AUTH_ALLOWED_REDIRECT_URLS??'').split(',').map((value)=>value.trim()).filter(Boolean));
 for(const requiredRedirect of ['https://app.kommunsign.se/aktivera/','https://app.kommunsign.se/aterstall/']){if(!authRedirects.has(requiredRedirect))problems.push(`SUPABASE_AUTH_ALLOWED_REDIRECT_URLS: saknar ${requiredRedirect}`);}
 if(process.env.EMAIL_PROVIDER==='resend'&&process.env.EMAIL_DATA_RESIDENCY_APPROVED!=='true')problems.push('EMAIL_DATA_RESIDENCY_APPROVED: skriftligt beslut krävs för vald e-postleverantör');

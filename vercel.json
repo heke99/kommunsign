@@ -15,22 +15,24 @@
         "X-Frame-Options": "DENY",
         "Cross-Origin-Opener-Policy": "same-origin",
         "Cross-Origin-Resource-Policy": "same-origin",
-        "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload"
+        "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+        "X-Kommunsign-Deployment": "web-0.2.0"
       },
       "continue": true
     },
     {
-      "src": "/(.*)",
+      "src": "/",
       "has": [
         {
           "type": "host",
-          "value": "www.kommunsign.se"
+          "value": "kommunsign.se"
         }
       ],
       "headers": {
-        "Location": "https://kommunsign.se/$1"
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        "X-Kommunsign-Portal": "public"
       },
-      "status": 308
+      "dest": "/index.html"
     },
     {
       "src": "/login",
@@ -41,7 +43,8 @@
         }
       ],
       "headers": {
-        "Location": "/login/"
+        "Location": "/login/",
+        "X-Kommunsign-Portal": "tenant"
       },
       "status": 308
     },
@@ -53,7 +56,10 @@
           "value": "app.kommunsign.se"
         }
       ],
-      "dest": "/__portals/auth/index.html"
+      "dest": "/__portals/auth/index.html",
+      "headers": {
+        "X-Kommunsign-Portal": "auth"
+      }
     },
     {
       "src": "/aktivera",
@@ -64,7 +70,8 @@
         }
       ],
       "headers": {
-        "Location": "/aktivera/"
+        "Location": "/aktivera/",
+        "X-Kommunsign-Portal": "tenant"
       },
       "status": 308
     },
@@ -76,7 +83,10 @@
           "value": "app.kommunsign.se"
         }
       ],
-      "dest": "/__portals/auth/aktivera/index.html"
+      "dest": "/__portals/auth/aktivera/index.html",
+      "headers": {
+        "X-Kommunsign-Portal": "auth"
+      }
     },
     {
       "src": "/aterstall",
@@ -87,7 +97,8 @@
         }
       ],
       "headers": {
-        "Location": "/aterstall/"
+        "Location": "/aterstall/",
+        "X-Kommunsign-Portal": "tenant"
       },
       "status": 308
     },
@@ -99,7 +110,10 @@
           "value": "app.kommunsign.se"
         }
       ],
-      "dest": "/__portals/auth/aterstall/index.html"
+      "dest": "/__portals/auth/aterstall/index.html",
+      "headers": {
+        "X-Kommunsign-Portal": "auth"
+      }
     },
     {
       "src": "/auth-assets/(.*)",
@@ -110,7 +124,8 @@
         }
       ],
       "headers": {
-        "Cache-Control": "private, no-store"
+        "Cache-Control": "private, no-store",
+        "X-Kommunsign-Portal": "auth"
       },
       "dest": "/__portals/auth/$1"
     },
@@ -122,7 +137,10 @@
           "value": "app.kommunsign.se"
         }
       ],
-      "dest": "/__portals/tenant/$1"
+      "dest": "/__portals/tenant/$1",
+      "headers": {
+        "X-Kommunsign-Portal": "tenant"
+      }
     },
     {
       "src": "/",
@@ -133,7 +151,8 @@
         }
       ],
       "headers": {
-        "Cache-Control": "private, no-store"
+        "Cache-Control": "private, no-store",
+        "X-Kommunsign-Portal": "tenant"
       },
       "dest": "/__portals/tenant/index.html"
     },
@@ -146,7 +165,8 @@
         }
       ],
       "headers": {
-        "Cache-Control": "private, no-store"
+        "Cache-Control": "private, no-store",
+        "X-Kommunsign-Portal": "tenant"
       },
       "dest": "/__portals/tenant/index.html"
     },
@@ -159,7 +179,8 @@
         }
       ],
       "headers": {
-        "Cache-Control": "private, no-store"
+        "Cache-Control": "private, no-store",
+        "X-Kommunsign-Portal": "admin"
       },
       "dest": "/__portals/admin/$1"
     },
@@ -172,7 +193,8 @@
         }
       ],
       "headers": {
-        "Cache-Control": "private, no-store"
+        "Cache-Control": "private, no-store",
+        "X-Kommunsign-Portal": "admin"
       },
       "dest": "/__portals/admin/index.html"
     },
@@ -185,12 +207,37 @@
         }
       ],
       "headers": {
-        "Cache-Control": "private, no-store"
+        "Cache-Control": "private, no-store",
+        "X-Kommunsign-Portal": "admin"
       },
       "dest": "/__portals/admin/index.html"
     },
     {
       "handle": "filesystem"
+    },
+    {
+      "src": "/ansok/(.*)",
+      "headers": {
+        "Cache-Control": "no-store",
+        "X-Kommunsign-Portal": "apply"
+      },
+      "dest": "/ansok/index.html"
+    },
+    {
+      "src": "/signera/(.*)",
+      "headers": {
+        "Cache-Control": "private, no-store",
+        "X-Kommunsign-Portal": "sign"
+      },
+      "dest": "/signera/index.html"
+    },
+    {
+      "src": "/verifiera/(.*)",
+      "headers": {
+        "Cache-Control": "no-store",
+        "X-Kommunsign-Portal": "verify"
+      },
+      "dest": "/verifiera/index.html"
     },
     {
       "src": "/(.*)",

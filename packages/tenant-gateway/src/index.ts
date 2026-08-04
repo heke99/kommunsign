@@ -31,7 +31,7 @@ export interface TenantDomainRepository {
 
 export interface HostResolverOptions {
   readonly trustProxy: boolean;
-  readonly trustedProxyProvider: 'vercel' | 'cloudflare' | 'none';
+  readonly trustedProxyProvider: 'vercel' | 'cloudflare' | 'railway' | 'none';
   readonly requireVerifiedForwardedHost: boolean;
   readonly cacheTtlMs?: number;
   readonly now?: () => number;
@@ -140,6 +140,14 @@ function isTrustedProxyRequest(request: Request, provider: HostResolverOptions['
   if (provider === 'none') return false;
   if (provider === 'vercel') return Boolean(request.headers.get('x-vercel-id'));
   if (provider === 'cloudflare') return Boolean(request.headers.get('cf-ray'));
+  if (provider === 'railway') {
+    return Boolean(
+      request.headers.get('x-railway-request-id')
+      && request.headers.get('x-railway-edge')
+      && request.headers.get('x-real-ip')
+      && request.headers.get('x-forwarded-proto') === 'https'
+    );
+  }
   return false;
 }
 

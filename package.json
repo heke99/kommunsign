@@ -28,7 +28,7 @@
     "verify:repository": "node scripts/verify-repository.mjs",
     "verify:provenance": "node scripts/check-provenance.mjs",
     "verify:java": "bash scripts/build-java.sh",
-    "verify": "npm run clean && npm run build && npm run verify:repository && npm run verify:migrations && npm run verify:provenance && npm run verify:sdk && npm run scan:secrets && npm run verify:java && node tests/run.mjs && node tests/integration.mjs && node tests/security.mjs",
+    "verify": "npm run clean && npm run build && npm run verify:repository && npm run verify:deployment-config && npm run verify:migrations && npm run verify:provenance && npm run verify:sdk && npm run scan:secrets && npm run verify:java && node tests/run.mjs && node tests/integration.mjs && node tests/security.mjs",
     "package:release": "bash scripts/package-release.sh",
     "provenance:report": "node scripts/provenance-report.mjs",
     "verify:migrations": "node scripts/check-sql-migrations.mjs",
@@ -66,7 +66,8 @@
     "build:vercel": "node scripts/build-vercel-unified.mjs",
     "env:local:init": "node scripts/init-env-local.mjs",
     "verify:env:account-bootstrap": "node --env-file-if-exists=.env.local scripts/check-account-bootstrap-env.mjs",
-    "verify:web:live": "node scripts/verify-live-web.mjs"
+    "verify:deployment-config": "node scripts/build-vercel-unified.mjs && node scripts/verify-deployment-config.mjs",
+    "verify:deployment:live": "node --env-file-if-exists=.env.local scripts/verify-live-deployment.mjs"
   },
   "packageManager": "npm@10.9.2",
   "devDependencies": {

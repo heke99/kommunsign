@@ -90,9 +90,9 @@ function integerEnvironment(name: string, fallback: number, minimum: number, max
   if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) throw new Error(`${name}_INVALID`);
   return parsed;
 }
-function proxyProvider(): 'vercel' | 'cloudflare' | 'none' {
+function proxyProvider(): 'vercel' | 'cloudflare' | 'railway' | 'none' {
   const value = (process.env.TRUSTED_PROXY_PROVIDER ?? 'vercel').trim().toLowerCase();
-  if (value === 'vercel' || value === 'cloudflare' || value === 'none') return value;
+  if (value === 'vercel' || value === 'cloudflare' || value === 'railway' || value === 'none') return value;
   throw new Error('TRUSTED_PROXY_PROVIDER_INVALID');
 }
 

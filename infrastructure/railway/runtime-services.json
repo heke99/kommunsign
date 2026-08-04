@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "project": "kommunsign-runtime",
+  "region": "europe-west4-drams3a",
+  "services": [
+    {
+      "name": "api",
+      "source": "github",
+      "configFile": "/infrastructure/railway/api.railway.json",
+      "public": true,
+      "port": 8787,
+      "customDomain": "api.kommunsign.se"
+    },
+    {
+      "name": "workers",
+      "source": "github",
+      "configFile": "/infrastructure/railway/workers.railway.json",
+      "public": false
+    },
+    {
+      "name": "validation-service",
+      "source": "github",
+      "configFile": "/infrastructure/railway/validation-service.railway.json",
+      "public": false,
+      "port": 8082
+    },
+    {
+      "name": "clamav",
+      "source": "docker-image",
+      "image": "clamav/clamav:1.5.3-debian13-slim",
+      "public": false,
+      "port": 3310
+    },
+    {
+      "name": "gotenberg",
+      "source": "docker-image",
+      "image": "gotenberg/gotenberg:8.34.0",
+      "public": false,
+      "port": 3000,
+      "command": "gotenberg --api-disable-health-check-logging=true --chromium-disable-javascript=true --api-timeout=120s"
+    },
+    {
+      "name": "verapdf",
+      "source": "docker-image",
+      "image": "verapdf/rest:v1.30.2",
+      "public": false,
+      "port": 8080
+    }
+  ],
+  "externalServices": [
+    "Supabase control database",
+    "Supabase data database and Storage",
+    "Supabase Auth",
+    "TIC BankID",
+    "Resend"
+  ]
+}

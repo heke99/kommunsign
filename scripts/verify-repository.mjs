@@ -8,7 +8,7 @@ const required = [
   'migrations/data/0009_integrity_and_worker_recovery.sql','migrations/data/0010_immutability_and_evidence_states.sql','migrations/data/0011_upload_notification_and_invitation_runtime.sql',
   'upstream/manifests/source-inventory.yaml','upstream/manifests/reuse-map.json',
   'upstream/permissions/PERMISSION_EVIDENCE_REQUIRED.md','docker-compose.yml','.github/workflows/ci.yml',
-  'apps/api/server.mjs','infrastructure/docker/api.Dockerfile','SBOM.cdx.json','PROVENANCE_REPORT.txt',
+  'apps/api/server.mjs','infrastructure/docker/api.Dockerfile','infrastructure/docker/workers.Dockerfile','.dockerignore','SBOM.cdx.json','PROVENANCE_REPORT.txt',
   'docs/operations/synchronization.md','docs/operations/vercel-deployment.md','docs/architecture/review-2026-08-02.md',
   'docs/architecture/current-state-verified.md','docs/architecture/target-architecture.md','docs/architecture/remaining-implementation-plan.md','docs/architecture/onboarding-architecture.md','docs/verification/requirements-traceability.md','docs/verification/production-readiness.md',
   'vercel.json','apps/public-website/public/index.html','apps/public-website/public/app.css','scripts/build-public-site.mjs','scripts/build-portals.mjs',
@@ -16,6 +16,9 @@ const required = [
   'migrations/control/0006_onboarding_and_activation.sql','migrations/control/0011_managed_accounts_and_password_sessions.sql','migrations/data/0014_managed_organization_accounts.sql','tests/sql/onboarding-control.sql','apps/api/src/onboarding-router.ts','apps/api/src/production-runtime.ts','apps/workers/src/production-runner.ts','packages/onboarding/src/index.ts','packages/readiness/src/index.ts',
   'packages/auth/src/index.ts','packages/branding/src/index.ts','packages/custom-domains/src/index.ts','packages/invitations/src/index.ts','packages/uploads/src/index.ts',
   'sdks/typescript/src/client.ts','sdks/csharp/src/KommunSignClient.cs','sdks/java/src/main/java/se/kommunsign/sdk/KommunSignClient.java','scripts/verify-sdk-sync.mjs',
+  'scripts/verify-deployment-config.mjs','scripts/verify-live-deployment.mjs','RAILWAY_API_RUNTIME_SETUP.md','COMPLETE_WEB_API_FIX_REPORT.md',
+  'infrastructure/railway/api.railway.json','infrastructure/railway/workers.railway.json','infrastructure/railway/validation-service.railway.json','infrastructure/railway/runtime-services.json',
+  'infrastructure/railway/shared.runtime.env.example','infrastructure/railway/api.env.example','infrastructure/railway/workers.env.example','infrastructure/railway/validation-service.env.example',
 ];
 for (const path of required) await access(path);
 
@@ -66,6 +69,7 @@ const productionWorker = await readFile('apps/workers/src/production-runner.ts',
 if (!productionWorker.includes('KOMMUNSIGN_WORKER_ADAPTER_MODULE') || !productionWorker.includes('DEVELOPMENT_WORKER_FORBIDDEN_IN_PRODUCTION')) throw new Error('Production worker must fail closed without reviewed adapters');
 const workerDockerfile = await readFile('infrastructure/docker/workers.Dockerfile', 'utf8');
 if (workerDockerfile.includes('dev-runner') || !workerDockerfile.includes('production-runner')) throw new Error('Production worker image may not start the development runner');
+if (!workerDockerfile.includes('/app/package.json') || !workerDockerfile.includes('/app/node_modules')) throw new Error('Production worker image must retain ESM metadata and runtime dependencies');
 const server = await readFile('apps/api/server.mjs', 'utf8');
 if (!server.includes('x-kommunsign-application-token') || !server.includes('PATCH')) throw new Error('API CORS contract must support onboarding auth and draft updates');
 
@@ -86,6 +90,7 @@ if (!devRuntime.includes('DEVELOPMENT_RUNTIME_FORBIDDEN_IN_PRODUCTION')) throw n
 
 const dockerfile = await readFile('infrastructure/docker/api.Dockerfile', 'utf8');
 if (!dockerfile.includes('npm ci --ignore-scripts') || !dockerfile.includes('apps/api/server.mjs')) throw new Error('API container is not reproducibly bootstrapped');
+if (!dockerfile.includes('/app/package.json') || !dockerfile.includes('/app/node_modules')) throw new Error('API image must retain ESM metadata and runtime dependencies');
 const kubernetes = await readFile('infrastructure/kubernetes/base/api-deployment.yaml', 'utf8');
 if (/:latest\b/.test(kubernetes)) throw new Error('Production manifests may not use latest tags');
 if (!kubernetes.includes('registry.invalid/')) throw new Error('Provider-neutral manifest must remain fail-closed until release digest injection');
@@ -111,17 +116,23 @@ if (!vercelBuild.includes("await cp(sources.public, outputRoot")) throw new Erro
 if (!vercelBuild.includes("`${outputRoot}/ansok`")) throw new Error('Vercel deployment must publish onboarding under /ansok/');
 if (!vercelBuild.includes("`${outputRoot}/signera`")) throw new Error('Vercel deployment must publish signing under /signera/');
 if (!vercelBuild.includes("`${outputRoot}/verifiera`")) throw new Error('Vercel deployment must publish verification under /verifiera/');
-for (const portal of ['apps/tenant-portal/public/index.html','apps/platform-admin/public/index.html']) {
-  const protectedHtml = await readFile(portal, 'utf8');
-  if (!protectedHtml.includes('id="protected-app" hidden')) throw new Error(`${portal}: protected portal must remain hidden before session verification`);
-  if (!protectedHtml.includes('id="auth-gate"')) throw new Error(`${portal}: authentication gate is missing`);
+const tenantPortalHtml = await readFile('apps/tenant-portal/public/index.html', 'utf8');
+const adminPortalHtml = await readFile('apps/platform-admin/public/index.html', 'utf8');
+for (const [name, html] of [['tenant', tenantPortalHtml], ['admin', adminPortalHtml]]) {
+  if (!html.includes('id="auth-gate"') || !html.includes('id="protected-app" hidden')) throw new Error(`${name} portal must remain hidden until session verification`);
 }
-for (const portalScript of ['apps/tenant-portal/public/app.js','apps/platform-admin/public/app.js']) {
-  const protectedScript = await readFile(portalScript, 'utf8');
-  if (!protectedScript.includes('revealProtectedApp')) throw new Error(`${portalScript}: session success must explicitly reveal the portal`);
-  if (!protectedScript.includes('showSessionFailure')) throw new Error(`${portalScript}: session/API failure must fail closed`);
+const tenantPortalScript = await readFile('apps/tenant-portal/public/app.js', 'utf8');
+const adminPortalScript = await readFile('apps/platform-admin/public/app.js', 'utf8');
+for (const [name, source] of [['tenant', tenantPortalScript], ['admin', adminPortalScript]]) {
+  if (!source.includes('/v1/auth/session') || !source.includes('showSessionFailure')) throw new Error(`${name} portal session gate is incomplete`);
 }
-
+const gatewaySource = await readFile('packages/tenant-gateway/src/index.ts', 'utf8');
+if (!gatewaySource.includes("'railway'") || !gatewaySource.includes('x-railway-request-id') || !gatewaySource.includes('x-real-ip')) throw new Error('Railway trusted proxy support is incomplete');
+const runtimeManifest = JSON.parse(await readFile('infrastructure/railway/runtime-services.json', 'utf8'));
+if (runtimeManifest.region !== 'europe-west4-drams3a') throw new Error('Railway runtime manifest must use the current EU West region identifier');
+for (const service of ['api','workers','validation-service','clamav','gotenberg','verapdf']) {
+  if (!runtimeManifest.services?.some((entry) => entry.name === service)) throw new Error(`Railway runtime manifest lacks ${service}`);
+}
 const website = await readFile('apps/public-website/public/index.html', 'utf8');
 if (!website.includes('Säker signering med BankID')) throw new Error('Public website must describe the production product clearly');
 if (/Pilotplattform under utveckling|inte produktionsklar|ej redo|under utveckling/i.test(website)) throw new Error('Public website contains obsolete development messaging');
@@ -130,7 +141,7 @@ if (!applicationLanding.includes('/ansok/')) throw new Error('Application landin
 if (/\sstyle=/.test(website) || /<script(?![^>]*\ssrc=)/.test(website)) throw new Error('Public website must remain compatible with strict CSP');
 
 const packageConfig = JSON.parse(await readFile('package.json', 'utf8'));
-for (const command of ['dev','dev:api','dev:workers','db:up','db:migrate','db:verify','db:reset:test','test:unit','test:integration','test:e2e','test:security','test:accessibility','verify:sdk','verify:env-contract','verify:env','auth:bootstrap-superadmin']) {
+for (const command of ['dev','dev:api','dev:workers','db:up','db:migrate','db:verify','db:reset:test','test:unit','test:integration','test:e2e','test:security','test:accessibility','verify:sdk','verify:env-contract','verify:env','auth:bootstrap-superadmin','verify:deployment-config','verify:deployment:live']) {
   if (!packageConfig.scripts?.[command]) throw new Error(`Missing root command: ${command}`);
 }
 console.log('repository verification: OK');

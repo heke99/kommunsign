@@ -24,7 +24,7 @@ export interface TicEvidenceValidationReport {
 export class ValidationServiceClient {
   private readonly baseUrl: string;
   constructor(baseUrl: string, private readonly serviceToken: string, private readonly http: typeof fetch = fetch) {
-    const parsed = new URL(baseUrl); if (parsed.protocol !== 'https:' && !['127.0.0.1', 'localhost'].includes(parsed.hostname)) throw new Error('VALIDATION_SERVICE_URL_INVALID');
+    const parsed = new URL(baseUrl); const privateHttp = parsed.protocol === 'http:' && (['127.0.0.1', 'localhost'].includes(parsed.hostname) || parsed.hostname.endsWith('.railway.internal')); if (parsed.protocol !== 'https:' && !privateHttp) throw new Error('VALIDATION_SERVICE_URL_INVALID');
     if (!serviceToken.trim()) throw new Error('VALIDATION_SERVICE_TOKEN_MISSING'); this.baseUrl = parsed.toString().replace(/\/$/, '');
   }
   async validateTicEvidence(input: TicEvidenceValidationRequest): Promise<TicEvidenceValidationReport> {

@@ -119,4 +119,18 @@ Detaljer:
 
 ## Deployment
 
-Kommunsign använder ett gemensamt Vercel-projekt för samtliga webportaler och en separat containerbaserad runtime för API, webhooks, workers och dokumenttjänster. Lokalt används en enda `.env.local`; skapa den med `npm run env:local:init`. Se `docs/operations/deployment-topology.md`.
+Kommunsign använder ett gemensamt Vercel-projekt för webbportalerna och Railwayprojektet `kommunsign-runtime` för API, webhooks, workers, ClamAV, Gotenberg, veraPDF och validation-service. Endast `api.kommunsign.se` exponeras från Railway; övriga runtime-tjänster använder privat `railway.internal`-nät. Lokalt används en enda `.env.local`; skapa den med `npm run env:local:init`.
+
+Verifiera deploymentkonfigurationen före push:
+
+```bash
+npm run verify:deployment-config
+```
+
+Verifiera live efter Vercel/Railway-deployment:
+
+```bash
+npm run verify:deployment:live
+```
+
+Se `RAILWAY_API_RUNTIME_SETUP.md` och `docs/operations/deployment-topology.md`.

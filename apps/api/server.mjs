@@ -62,12 +62,23 @@ function constantTimeSecretMatches(value, expected) {
 function trustedProxyRequest(request) {
   const trustProxy = (process.env.TRUST_PROXY ?? 'true').trim().toLowerCase() === 'true';
   if (!trustProxy) return false;
+  const provider = (process.env.TRUSTED_PROXY_PROVIDER ?? 'vercel').trim().toLowerCase();
+  if (provider === 'railway') {
+    return Boolean(
+      process.env.RAILWAY_ENVIRONMENT_ID
+      && request.headers['x-railway-request-id']
+      && request.headers['x-railway-edge']
+      && firstForwardedIp(request.headers['x-real-ip'])
+      && String(request.headers['x-forwarded-proto'] ?? '').toLowerCase() === 'https'
+    );
+  }
   return constantTimeSecretMatches(request.headers['x-kommunsign-proxy-secret'], process.env.TRUSTED_PROXY_SHARED_SECRET);
 }
 
 function trustedClientIp(request) {
   const provider = (process.env.TRUSTED_PROXY_PROVIDER ?? 'vercel').trim().toLowerCase();
   if (!trustedProxyRequest(request) || provider === 'none') return firstForwardedIp(request.socket.remoteAddress);
+  if (provider === 'railway') return firstForwardedIp(request.headers['x-real-ip']);
   if (provider === 'cloudflare') return firstForwardedIp(request.headers['cf-connecting-ip']);
   if (provider === 'vercel') return firstForwardedIp(request.headers['x-vercel-forwarded-for'] ?? request.headers['x-forwarded-for']);
   return null;
