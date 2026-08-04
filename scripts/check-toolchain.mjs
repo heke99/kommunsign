@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 const requiredNodeMajor = 22;
 const currentNodeMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
 
-if (currentNodeMajor < requiredNodeMajor) {
+if (currentNodeMajor !== requiredNodeMajor) {
   throw new Error(
-    `KommunSign requires Node.js ${requiredNodeMajor} or newer; current version is ${process.versions.node}.`,
+    `Kommunsign requires Node.js ${requiredNodeMajor}.x; current version is ${process.versions.node}.`,
   );
 }
 

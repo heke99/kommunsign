@@ -1,3 +1,5 @@
+# Vercel web deployment: keep every browser portal and the build scripts.
+# Exclude only backend/runtime, infrastructure and non-web artifacts.
 .git
 .github
 node_modules
@@ -14,8 +16,4 @@ tests
 packages
 apps/api
 apps/workers
-apps/platform-admin
-apps/signer-portal
-apps/tenant-portal
-apps/verification-portal
 docs

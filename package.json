@@ -12,7 +12,7 @@
     "kommunsign-verify": "scripts/kommunsign-verify.mjs"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": "22.x"
   },
   "scripts": {
     "clean": "node scripts/clean.mjs",
