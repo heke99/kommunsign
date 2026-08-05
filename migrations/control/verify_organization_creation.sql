@@ -6,6 +6,17 @@ BEGIN
 
   IF NOT EXISTS (
     SELECT 1
+      FROM control.data_planes
+     WHERE deployment_mode='shared_saas'
+       AND status='ready'
+       AND region='se-central'
+       AND storage_secret_reference IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'DATABASE_RUNTIME_NOT_READY: shared SaaS data plane is not registered';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
       FROM pg_type t
       JOIN pg_namespace n ON n.oid = t.typnamespace
       JOIN pg_enum e ON e.enumtypid = t.oid

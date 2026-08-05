@@ -97,7 +97,8 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
           `select 'ONB-'||extract(year from now())::int||'-'||lpad(nextval('control.onboarding_application_reference_seq')::text,6,'0') as reference`,
         );
         const officialEmailDomain=primaryEmail.split('@')[1] ?? '';
-        const profile:ApplicationProfile={officialEmailDomain,deployment:{mode:input.deploymentMode,region:input.region},plannedUse:{createdByPlatformAdmin:true}};
+        const deploymentRegion=input.deploymentMode==='shared_saas'?'se-central':cleanText(input.region,2,100);
+        const profile:ApplicationProfile={officialEmailDomain,deployment:{mode:input.deploymentMode,region:deploymentRegion},plannedUse:{createdByPlatformAdmin:true}};
         const inserted=await transaction.query<ApplicationRow>(
           `insert into control.onboarding_applications
              (application_reference,status,status_version,organization_name,organization_number,organization_type,
@@ -116,10 +117,10 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
              (application_id,status,deployment_mode,region,requested_by,current_step,idempotency_key,payload_sha256)
            values($1,'queued',$2::control.deployment_mode,$3,$4,'reserve_tenant_slug',$5,$6)
            returning id,application_id,tenant_id,status::text as status,current_step,blocking_code,attempts,created_at,updated_at`,
-          [application.id,input.deploymentMode,cleanText(input.region,2,100),context.subjectId,key,payloadHash],
+          [application.id,input.deploymentMode,deploymentRegion,context.subjectId,key,payloadHash],
         );
         const request=requireRow(requestResult.rows[0],'PROVISIONING_REQUEST_INSERT_FAILED');
-        const steps=['reserve_tenant_slug','create_tenant','create_environment','assign_data_plane','create_default_domain','create_storage_namespaces','seed_policies','seed_roles','create_branding_draft','create_auth_draft','create_onboarding_checklist','enable_account_management'];
+        const steps=['reserve_tenant_slug','create_tenant','assign_data_plane','create_environment','create_default_domain','create_storage_namespaces','seed_policies','seed_roles','create_branding_draft','create_auth_draft','create_onboarding_checklist','enable_account_management'];
         for(let index=0;index<steps.length;index+=1)await transaction.query(
           `insert into control.tenant_provisioning_steps(provisioning_request_id,step_key,sequence_number,status) values($1,$2,$3,'pending')`,
           [request.id,steps[index],index+1],
@@ -404,15 +405,16 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
 
         if(!['approved','provisioning_failed'].includes(current.status))throw new Error('INVALID_APPLICATION_STATE_TRANSITION');
         const deployment=current.profile.deployment; if(!deployment)throw new Error('DEPLOYMENT_PROFILE_MISSING');
+        const deploymentRegion=deployment.mode==='shared_saas'?'se-central':deployment.region??'se-central';
         await transitionApplication(transaction,current,'provisioning');
         const inserted=await transaction.query<ProvisioningRow>(
           `insert into control.tenant_provisioning_requests(application_id,status,deployment_mode,region,requested_by,current_step,idempotency_key,payload_sha256)
            values($1,'queued',$2::control.deployment_mode,$3,$4,'reserve_tenant_slug',$5,$6)
            returning id,application_id,tenant_id,status::text as status,current_step,blocking_code,attempts,created_at,updated_at`,
-          [applicationId,deployment.mode,deployment.region??'se-central',context.subjectId,key,payloadHash],
+          [applicationId,deployment.mode,deploymentRegion,context.subjectId,key,payloadHash],
         );
         const request=requireRow(inserted.rows[0],'PROVISIONING_REQUEST_INSERT_FAILED');
-        const steps=['reserve_tenant_slug','create_tenant','create_environment','assign_data_plane','create_default_domain','create_storage_namespaces','seed_policies','seed_roles','create_branding_draft','create_auth_draft','create_onboarding_checklist','enable_account_management'];
+        const steps=['reserve_tenant_slug','create_tenant','assign_data_plane','create_environment','create_default_domain','create_storage_namespaces','seed_policies','seed_roles','create_branding_draft','create_auth_draft','create_onboarding_checklist','enable_account_management'];
         for(let index=0;index<steps.length;index+=1)await transaction.query(`insert into control.tenant_provisioning_steps(provisioning_request_id,step_key,sequence_number,status) values($1,$2,$3,'pending')`,[request.id,steps[index],index+1]);
         await infrastructure.queue.enqueue({tenantId:'00000000-0000-0000-0000-000000000000',jobType:'TENANT_PROVISION',idempotencyKey:`tenant-provision:${request.id}`,payload:{provisioningRequestId:request.id,applicationId}});
         await appendControlAudit(transaction,null,context.subjectId,'tenant.provisioning.queued',{applicationId,requestId:request.id});

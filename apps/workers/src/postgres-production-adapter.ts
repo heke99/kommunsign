@@ -55,6 +55,7 @@ export async function createProductionWorkerAdapter(
       ],
     });
     const repository = createDurableJobRepository(controlDatabase, dataDatabase);
+    await recoverProvisioningJobs(controlDatabase, dataDatabase);
     const bankIdHandlers = createProductionJobHandlers({
       controlDatabase,
       dataDatabase,
@@ -67,6 +68,9 @@ export async function createProductionWorkerAdapter(
         const requestId = stringPayload(job.payload, 'provisioningRequestId');
         const result = await provisioning.run(requestId, `durable-job:${job.id}`);
         if (result.status === 'failed') throw new Error(result.blockingCode ?? 'TENANT_PROVISION_FAILED');
+        if (result.status === 'waiting_for_external_dependency') {
+          throw new Error(result.blockingCode ?? 'TENANT_PROVISION_WAITING_FOR_DEPENDENCY');
+        }
       },
     };
     return {
@@ -79,6 +83,93 @@ export async function createProductionWorkerAdapter(
   } catch (cause) {
     await Promise.allSettled([controlDatabase.close(), dataDatabase.close()]);
     throw cause;
+  }
+}
+
+
+async function recoverProvisioningJobs(
+  controlDatabase: SqlDatabase,
+  dataDatabase: SqlDatabase,
+): Promise<void> {
+  const recoverable = await controlDatabase.transaction(async (transaction) => {
+    const result = await transaction.query<{
+      readonly id: string;
+      readonly application_id: string;
+    }>(
+      `select request.id,request.application_id
+         from control.tenant_provisioning_requests request
+        where request.status in ('queued','retry_scheduled','partially_completed')
+           or (
+             request.status='running'
+             and request.updated_at < now() - interval '15 minutes'
+           )
+           or (
+             request.status='waiting_for_external_dependency'
+             and request.blocking_code in ('DATA_PLANE_NOT_READY','DATA_PLANE_STORAGE_SECRET_MISSING')
+             and exists (
+               select 1
+                 from control.data_planes plane
+                where plane.deployment_mode=request.deployment_mode
+                  and plane.status='ready'
+                  and plane.region=request.region
+                  and plane.storage_secret_reference is not null
+             )
+           )
+        order by request.created_at,request.id`,
+    );
+    return result.rows;
+  });
+
+  for (const request of recoverable) {
+    const context = workerContext(PLATFORM_JOB_TENANT_ID);
+    await withTenantTransaction(dataDatabase, context, 'worker', async (transaction) => {
+      const existing = await transaction.query<{
+        readonly id: string;
+        readonly status: string;
+        readonly lease_active: boolean;
+      }>(
+        `select id,status::text as status,
+                status='leased' and coalesce(lease_expires_at,now()+interval '1 minute')>now() as lease_active
+           from app.durable_jobs
+          where tenant_id=$1
+            and job_type='TENANT_PROVISION'
+            and payload->>'provisioningRequestId'=$2
+          order by created_at desc,id desc
+          limit 1`,
+        [PLATFORM_JOB_TENANT_ID, request.id],
+      );
+      const job = existing.rows[0];
+      if (job && !job.lease_active) {
+        await transaction.query(
+          `update app.durable_jobs
+              set status='pending',available_at=now(),lease_owner=null,lease_expires_at=null,
+                  last_error_code=null,attempts=case when status='dead_letter' then 0 else attempts end,
+                  updated_at=now()
+            where tenant_id=$1
+              and id=$2`,
+          [PLATFORM_JOB_TENANT_ID, job.id],
+        );
+      } else if (!job) {
+        await transaction.query(
+          `insert into app.durable_jobs(tenant_id,job_type,payload,idempotency_key,status)
+           values($1,'TENANT_PROVISION',$2::jsonb,$3,'pending')`,
+          [
+            PLATFORM_JOB_TENANT_ID,
+            { provisioningRequestId: request.id, applicationId: request.application_id },
+            `tenant-provision-recovery:${request.id}`,
+          ],
+        );
+      }
+    });
+    await controlDatabase.transaction(async (transaction) => {
+      await transaction.query(
+        `update control.tenant_provisioning_requests
+            set status='queued',blocking_code=null,updated_at=now()
+          where id=$1
+            and status<>'completed'`,
+        [request.id],
+      );
+    });
   }
 }
 

@@ -238,6 +238,20 @@ test('Supabase Auth production configuration is machine-verifiable', async () =>
   }), /SUPABASE_AUTH_SITE_URL_INVALID/);
 });
 
+test('shared SaaS provisioning has a ready data plane and worker recovery', async () => {
+  const migration = await readFile('migrations/control/0015_shared_saas_data_plane_runtime.sql', 'utf8');
+  const worker = await readFile('apps/workers/src/postgres-production-adapter.ts', 'utf8');
+  const onboarding = await readFile('apps/api/src/production-adapters/postgres/onboarding-repository.ts', 'utf8');
+  assert.match(migration, /'shared_saas',[\s\S]*'ready',[\s\S]*'se-central'/);
+  assert.match(migration, /DATA_PLANE_NOT_READY/);
+  assert.match(worker, /recoverProvisioningJobs/);
+  assert.match(worker, /waiting_for_external_dependency/);
+  assert.match(worker, /tenant-provision-recovery:/);
+  assert.match(onboarding, /'create_tenant','assign_data_plane','create_environment'/);
+  assert.match(onboarding, /deployment\.mode==='shared_saas'\?'se-central'/);
+  assert.doesNotMatch(onboarding, /'create_tenant','create_environment','assign_data_plane'/);
+});
+
 test('organization provisioning never creates an applicant login automatically', async () => {
   const source = await readFile('apps/api/src/production-adapters/postgres/provisioning-repository.ts', 'utf8');
   assert.doesNotMatch(source, /pending-invite:/);
