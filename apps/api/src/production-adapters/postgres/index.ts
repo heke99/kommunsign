@@ -63,13 +63,29 @@ export async function createProductionDependencies(configuration: ProductionRunt
       reportError(cause, requestId) {
         const name = cause instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,79}$/.test(cause.name) ? cause.name : 'UnknownError';
         const code = cause instanceof Error && /^[A-Z][A-Z0-9_]{2,79}$/.test(cause.message) ? cause.message : 'INTERNAL_REQUEST_FAILURE';
-        console.error(JSON.stringify({ level: 'error', service: 'kommunsign-api', requestId, name, code }));
+        console.error(JSON.stringify({ level: 'error', service: 'kommunsign-api', requestId, name, code, ...safePostgresMetadata(cause) }));
       },
     };
   } catch (cause) {
     await Promise.allSettled([controlDatabase.close(), dataDatabase.close()]);
     throw cause;
   }
+}
+
+
+function safePostgresMetadata(cause: unknown): Readonly<Record<string, string>> {
+  if (!cause || typeof cause !== 'object') return {};
+  const source = cause as Readonly<Record<string, unknown>>;
+  const fields: readonly (readonly [string, string])[] = [
+    ['code', 'sqlState'], ['schema_name', 'databaseSchema'], ['table_name', 'databaseTable'],
+    ['column_name', 'databaseColumn'], ['constraint_name', 'databaseConstraint'], ['routine', 'databaseRoutine'],
+  ];
+  const result: Record<string, string> = {};
+  for (const [sourceKey, targetKey] of fields) {
+    const value = source[sourceKey];
+    if (typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,120}$/.test(value)) result[targetKey] = value;
+  }
+  return result;
 }
 
 function requiredEnvironment(name: string): string {

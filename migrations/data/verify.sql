@@ -9,11 +9,35 @@ WHERE contype = 'f' AND connamespace IN ('app'::regnamespace, 'audit'::regnamesp
   AND pg_get_constraintdef(oid) NOT LIKE '%tenant_id%';
 
 -- BankID production foundation invariants. These checks intentionally return zero rows on success.
-SELECT schemaname, tablename, rowsecurity, forcrowsecurity
-FROM pg_tables
-WHERE schemaname='app'
-  AND tablename IN ('signing_intents','signing_intent_documents','tic_identity_artifacts','document_processor_reports','provider_webhook_events','email_provider_events','evidence_package_files')
-  AND (rowsecurity IS NOT TRUE OR forcrowsecurity IS NOT TRUE);
+-- pg_tables exposes relrowsecurity as rowsecurity, but it does not expose the
+-- FORCE ROW LEVEL SECURITY flag. Read both flags from pg_class instead.
+WITH required_bankid_tables(tablename) AS (
+  VALUES
+    ('signing_intents'),
+    ('signing_intent_documents'),
+    ('tic_identity_artifacts'),
+    ('document_processor_reports'),
+    ('provider_webhook_events'),
+    ('email_provider_events'),
+    ('evidence_package_files')
+)
+SELECT
+  CASE
+    WHEN c.oid IS NULL THEN 'missing_bankid_table'
+    WHEN c.relrowsecurity IS NOT TRUE THEN 'bankid_table_rls_disabled'
+    ELSE 'bankid_table_force_rls_disabled'
+  END AS violation,
+  'app.' || required_bankid_tables.tablename AS resource_id
+FROM required_bankid_tables
+LEFT JOIN pg_namespace n
+  ON n.nspname = 'app'
+LEFT JOIN pg_class c
+  ON c.relnamespace = n.oid
+ AND c.relname = required_bankid_tables.tablename
+ AND c.relkind IN ('r', 'p')
+WHERE c.oid IS NULL
+   OR c.relrowsecurity IS NOT TRUE
+   OR c.relforcerowsecurity IS NOT TRUE;
 
 SELECT 'tenantless_signing_intent' AS violation, id::text AS resource_id
 FROM app.signing_intents WHERE tenant_id IS NULL;

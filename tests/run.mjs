@@ -617,6 +617,31 @@ test('superadmin organization management and tenant agreement flow are connected
   assert.match(openApi, /operationId: listSignaturePolicies/);
 });
 
+
+test('organization creation repairs schema drift and reports safe PostgreSQL diagnostics', async () => {
+  const controlMigration = await readFile('migrations/control/0012_organization_creation_runtime_repair.sql', 'utf8');
+  const dataMigration = await readFile('migrations/data/0015_organization_provisioning_queue_runtime_repair.sql', 'utf8');
+  const onboardingRepository = await readFile('apps/api/src/production-adapters/postgres/onboarding-repository.ts', 'utf8');
+  const onboardingRouter = await readFile('apps/api/src/onboarding-router.ts', 'utf8');
+  const productionAdapter = await readFile('apps/api/src/production-adapters/postgres/index.ts', 'utf8');
+  const adminSource = await readFile('apps/platform-admin/public/app.js', 'utf8');
+  const verifyScript = await readFile('scripts/db-verify.sh', 'utf8');
+  assert.match(controlMigration, /ADD COLUMN IF NOT EXISTS response_body_ciphertext bytea/);
+  assert.match(controlMigration, /assert_organization_creation_runtime/);
+  assert.match(dataMigration, /CREATE TABLE IF NOT EXISTS app\.durable_jobs/);
+  assert.match(dataMigration, /durable_jobs_enqueue_idempotency_idx/);
+  assert.match(dataMigration, /FORCE ROW LEVEL SECURITY/);
+  assert.match(onboardingRepository, /select control\.assert_organization_creation_runtime\(\)/);
+  assert.match(onboardingRouter, /DATABASE_SCHEMA_OUTDATED/);
+  assert.match(onboardingRouter, /DATABASE_PERMISSION_DENIED/);
+  assert.match(onboardingRouter, /DATABASE_UNAVAILABLE/);
+  assert.match(productionAdapter, /safePostgresMetadata/);
+  assert.match(productionAdapter, /sqlState/);
+  assert.doesNotMatch(productionAdapter, /databaseDetail|internal_query/);
+  assert.match(adminSource, /Databasmigrationerna för organisationsskapande är inte aktuella/);
+  assert.match(verifyScript, /verify_organization_creation\.sql/);
+});
+
 test('unified Vercel deployment builds all portals and uses customer-facing production language', async () => {
   const html = await readFile('apps/public-website/public/index.html', 'utf8');
   const config = JSON.parse(await readFile('vercel.json', 'utf8'));

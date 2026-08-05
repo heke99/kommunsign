@@ -1,0 +1,13 @@
+apps/api/src/onboarding-router.ts
+apps/api/src/production-adapters/postgres/index.ts
+apps/api/src/production-adapters/postgres/onboarding-repository.ts
+apps/platform-admin/public/app.js
+migrations/control/0012_organization_creation_runtime_repair.sql
+migrations/control/verify_organization_creation.sql
+migrations/data/0015_organization_provisioning_queue_runtime_repair.sql
+migrations/data/verify_organization_creation.sql
+scripts/db-verify.sh
+tests/run.mjs
+ORGANIZATION_CREATION_INTERNAL_ERROR_FIX.md
+CHANGED_FILES_ORGANIZATION_CREATION_INTERNAL_ERROR.txt
+FILE_MANIFEST.sha256

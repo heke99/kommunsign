@@ -10,6 +10,21 @@ DO $$ BEGIN
 END $$;
 GRANT USAGE ON SCHEMA app TO kommunsign_rls_test;
 GRANT SELECT ON app.organizations TO kommunsign_rls_test;
+
+-- PostgreSQL 16+ grants a role created by a non-superuser CREATEROLE
+-- account back to its creator with SET FALSE. Explicitly enable SET ROLE for
+-- this transaction while keeping privilege inheritance disabled. Do not grant
+-- ADMIN back to SESSION_USER: PostgreSQL rejects granting ADMIN to the grantor
+-- itself. ROLLBACK removes the temporary membership, role, grants, and rows.
+GRANT kommunsign_rls_test TO SESSION_USER
+  WITH INHERIT FALSE, SET TRUE;
+
+DO $$ BEGIN
+  IF NOT pg_has_role(session_user, 'kommunsign_rls_test', 'SET') THEN
+    RAISE EXCEPTION 'RLS test setup failed: session user % cannot SET ROLE kommunsign_rls_test', session_user;
+  END IF;
+END $$;
+
 SET LOCAL ROLE kommunsign_rls_test;
 SELECT set_config('app.tenant_id', '11111111-1111-4111-8111-111111111111', true);
 DO $$ BEGIN

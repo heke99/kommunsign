@@ -77,6 +77,7 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
     },
     async createOrganization(context, input, key, payloadHash) {
       return controlIdempotent(database,infrastructure,'platform',context.subjectId,'organization:create',key,payloadHash,async (transaction) => {
+        await transaction.query(`select control.assert_organization_creation_runtime()`);
         const organizationNumber=normalizeOrganizationNumber(input.organizationNumber);
         const primaryEmail=normalizeEmail(input.primaryAdminEmail);
         const duplicate=await transaction.query<{readonly id:string}>(

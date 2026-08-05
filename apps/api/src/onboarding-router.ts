@@ -197,9 +197,21 @@ function known(cause: unknown): OnboardingRequestError {
     EMAIL_VERIFICATION_EXPIRED:[410,'EMAIL_VERIFICATION_EXPIRED'], TWO_PERSON_APPROVAL_REQUIRED:[409,'TWO_PERSON_APPROVAL_REQUIRED'],
     TENANT_NOT_READY_FOR_ACTIVATION:[409,'TENANT_NOT_READY_FOR_ACTIVATION'], REQUIRED_REVIEWS_NOT_PASSED:[409,'REQUIRED_REVIEWS_NOT_PASSED'],
     POSSIBLE_DUPLICATE_APPLICATION:[409,'POSSIBLE_DUPLICATE_APPLICATION'], ORGANIZATION_ALREADY_EXISTS:[409,'ORGANIZATION_ALREADY_EXISTS'],
+    DATABASE_SCHEMA_OUTDATED:[503,'DATABASE_SCHEMA_OUTDATED'], DATABASE_PERMISSION_DENIED:[503,'DATABASE_PERMISSION_DENIED'],
+    DATABASE_UNAVAILABLE:[503,'DATABASE_UNAVAILABLE'],
   };
   const item = map[message];
-  return item ? new OnboardingRequestError(item[1], item[1].replace(/_/g,' '), item[0]) : new OnboardingRequestError('INTERNAL_ERROR','The request could not be completed',500);
+  if (item) return new OnboardingRequestError(item[1], item[1].replace(/_/g,' '), item[0]);
+  const sqlState=postgresSqlState(cause);
+  if (['42P01','42703','42883','3F000'].includes(sqlState)) return new OnboardingRequestError('DATABASE_SCHEMA_OUTDATED','Database migrations are not current',503);
+  if (sqlState === '42501') return new OnboardingRequestError('DATABASE_PERMISSION_DENIED','Database runtime permissions are incomplete',503);
+  if (sqlState.startsWith('08') || ['57P01','57P02','57P03'].includes(sqlState)) return new OnboardingRequestError('DATABASE_UNAVAILABLE','Database is temporarily unavailable',503);
+  return new OnboardingRequestError('INTERNAL_ERROR','The request could not be completed',500);
+}
+function postgresSqlState(cause:unknown):string{
+  if(!cause||typeof cause!=='object')return '';
+  const value=(cause as {readonly code?:unknown}).code;
+  return typeof value==='string'&&/^[0-9A-Z]{5}$/.test(value)?value:'';
 }
 
 export async function handleOnboardingRequest(dependencies: ApiDependencies, request: Request, requestId: string): Promise<Response | null> {
