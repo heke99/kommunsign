@@ -1,0 +1,13 @@
+APPLICATION_TO_INVITATION_FLOW_FIX.md
+CHANGED_FILES_APPLICATION_FLOW.txt
+apps/api/src/dev-onboarding.ts
+apps/api/src/onboarding-router.ts
+apps/api/src/production-adapters/postgres/onboarding-repository.ts
+apps/api/src/production-adapters/postgres/provisioning-repository.ts
+apps/platform-admin/public/app.js
+apps/platform-admin/public/index.html
+migrations/control/0014_consistent_application_provisioning_flow.sql
+packages/onboarding/src/index.ts
+tests/integration.mjs
+tests/run.mjs
+tests/sql/onboarding-control.sql

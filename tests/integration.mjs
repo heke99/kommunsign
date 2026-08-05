@@ -126,14 +126,27 @@ const platformHeaders = {
   'x-kommunsign-platform-subject-id': '99999999-9999-4999-8999-999999999999',
   'x-kommunsign-platform-roles': 'platform_super_admin',
 };
+const informationReviewResponse = await onboardingRequest(`/v1/platform/onboarding/applications/${applicationId}/reviews`, 'POST', {
+  reviewType: 'commercial', result: 'requires_information', riskLevel: 'low', summary: 'Valfri komplettering registrerad',
+}, platformHeaders);
+assert.equal(informationReviewResponse.status, 201);
+assert.equal((await informationReviewResponse.json()).status, 'additional_information_requested');
+
 const approveResponse = await onboardingRequest(`/v1/platform/onboarding/applications/${applicationId}/approve`, 'POST', { reason: 'Godkänd av superadministratör' }, platformHeaders);
 assert.equal(approveResponse.status, 200);
 assert.equal((await approveResponse.json()).status, 'approved');
+const repeatedApproveResponse = await onboardingRequest(`/v1/platform/onboarding/applications/${applicationId}/approve`, 'POST', { reason: 'Godkänd av superadministratör' }, platformHeaders);
+assert.equal(repeatedApproveResponse.status, 200);
+assert.equal((await repeatedApproveResponse.json()).status, 'approved');
+
 const provisionResponse = await onboardingRequest(`/v1/platform/onboarding/applications/${applicationId}/provision`, 'POST', undefined, platformHeaders);
 assert.equal(provisionResponse.status, 202);
 const provisioned = await provisionResponse.json();
 assert.equal(provisioned.status, 'completed');
 assert.ok(provisioned.tenantId);
+const repeatedProvisionResponse = await onboardingRequest(`/v1/platform/onboarding/applications/${applicationId}/provision`, 'POST', undefined, platformHeaders);
+assert.equal(repeatedProvisionResponse.status, 202);
+assert.equal((await repeatedProvisionResponse.json()).id, provisioned.id);
 const readinessResponse = await onboardingRequest(`/v1/platform/tenants/${provisioned.tenantId}/readiness/run`, 'POST', undefined, platformHeaders);
 assert.equal(readinessResponse.status, 200);
 assert.equal((await readinessResponse.json()).ready, false);

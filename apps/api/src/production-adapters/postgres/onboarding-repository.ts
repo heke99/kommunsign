@@ -3,7 +3,10 @@ import type { ApplicantContext, PlatformContext } from '../../../../../packages/
 import { sha256Hex } from '../../../../../packages/crypto/src/hash.js';
 import { randomToken } from '../../../../../packages/crypto/src/tokens.js';
 import { base64Encode } from '../../../../../packages/crypto/src/base64.js';
-import { normalizeEmail, normalizeOrganizationNumber, assertDistinctApprovers } from '../../../../../packages/onboarding/src/index.js';
+import {
+  assertDistinctApprovers, isApplicationApprovedOrLater, isApplicationDecisionPending,
+  normalizeEmail, normalizeOrganizationNumber,
+} from '../../../../../packages/onboarding/src/index.js';
 import { evaluateReadiness, type ReadinessCheck, type ReadinessResult } from '../../../../../packages/readiness/src/index.js';
 import type { SqlDatabase, SqlTransaction } from '../../../../../packages/database/src/index.js';
 import type {
@@ -369,11 +372,38 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
     },
     async provision(context,applicationId,key,payloadHash){
       return controlIdempotent(database,infrastructure,'application',applicationId,'platform:provision',key,payloadHash,async(transaction)=>{
-        const current=await requireApplication(transaction,applicationId,infrastructure,true);
+        let current=await requireApplication(transaction,applicationId,infrastructure,true);
+        const existingResult=await transaction.query<ProvisioningRow>(`${provisioningSelect} where application_id=$1 for update`,[applicationId]);
+        const existing=existingResult.rows[0];
+
+        if(existing){
+          if(current.status==='approved')current=await applicationView(await transitionApplication(transaction,current,'provisioning'),infrastructure);
+          if(existing.status==='completed'){
+            if(current.status==='provisioning_failed')current=await applicationView(await transitionApplication(transaction,current,'provisioning'),infrastructure);
+            if(current.status==='provisioning')await transitionApplication(transaction,current,'onboarding');
+            else if(!['onboarding','ready_for_acceptance_test','acceptance_test_failed','ready_for_activation','active'].includes(current.status))throw new Error('INVALID_APPLICATION_STATE_TRANSITION');
+            return provisioningView(existing);
+          }
+          if(['failed','partially_completed','retry_scheduled','waiting_for_external_dependency'].includes(existing.status)){
+            if(current.status==='provisioning_failed')current=await applicationView(await transitionApplication(transaction,current,'provisioning'),infrastructure);
+            if(!['provisioning','approved'].includes(current.status))throw new Error('INVALID_APPLICATION_STATE_TRANSITION');
+            const retried=await transaction.query<ProvisioningRow>(
+              `update control.tenant_provisioning_requests
+                  set status='queued',blocking_code=null,updated_at=now()
+                where id=$1
+                returning id,application_id,tenant_id,status::text as status,current_step,blocking_code,attempts,created_at,updated_at`,
+              [existing.id],
+            );
+            await infrastructure.queue.enqueue({tenantId:'00000000-0000-0000-0000-000000000000',jobType:'TENANT_PROVISION',idempotencyKey:`tenant-provision-retry:${existing.id}:${key}`,payload:{provisioningRequestId:existing.id,applicationId}});
+            await appendControlAudit(transaction,existing.tenant_id,context.subjectId,'tenant.provisioning.requeued',{applicationId,requestId:existing.id,previousStatus:existing.status});
+            return provisioningView(requireRow(retried.rows[0],'PROVISIONING_RETRY_FAILED'));
+          }
+          if(['requested','validated','queued','running'].includes(existing.status))return provisioningView(existing);
+          throw new Error('INVALID_PROVISIONING_STATE');
+        }
+
         if(!['approved','provisioning_failed'].includes(current.status))throw new Error('INVALID_APPLICATION_STATE_TRANSITION');
         const deployment=current.profile.deployment; if(!deployment)throw new Error('DEPLOYMENT_PROFILE_MISSING');
-        const existing=await transaction.query<ProvisioningRow>(`${provisioningSelect} where application_id=$1`,[applicationId]);
-        if(existing.rows[0])return provisioningView(existing.rows[0]);
         await transitionApplication(transaction,current,'provisioning');
         const inserted=await transaction.query<ProvisioningRow>(
           `insert into control.tenant_provisioning_requests(application_id,status,deployment_mode,region,requested_by,current_step,idempotency_key,payload_sha256)
@@ -404,7 +434,10 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
       return controlIdempotent(database,infrastructure,'platform',context.subjectId,`provisioning:${requestId}:retry`,key,payloadHash,async(transaction)=>{
         const current=await transaction.query<ProvisioningRow>(`${provisioningSelect} where id=$1 for update`,[requestId]);const row=requireRow(current.rows[0],'NOT_FOUND');
         if(!['failed','partially_completed','retry_scheduled','waiting_for_external_dependency'].includes(row.status))throw new Error('INVALID_PROVISIONING_STATE');
-        const updated=await transaction.query<ProvisioningRow>(`update control.tenant_provisioning_requests set status='queued',blocking_code=null,attempts=attempts+1,updated_at=now() where id=$1 returning id,application_id,tenant_id,status::text as status,current_step,blocking_code,attempts,created_at,updated_at`,[requestId]);
+        const application=await requireApplication(transaction,row.application_id,infrastructure,true);
+        if(['approved','provisioning_failed'].includes(application.status))await transitionApplication(transaction,application,'provisioning');
+        else if(application.status!=='provisioning')throw new Error('INVALID_APPLICATION_STATE_TRANSITION');
+        const updated=await transaction.query<ProvisioningRow>(`update control.tenant_provisioning_requests set status='queued',blocking_code=null,updated_at=now() where id=$1 returning id,application_id,tenant_id,status::text as status,current_step,blocking_code,attempts,created_at,updated_at`,[requestId]);
         await infrastructure.queue.enqueue({tenantId:'00000000-0000-0000-0000-000000000000',jobType:'TENANT_PROVISION',idempotencyKey:`tenant-provision-retry:${requestId}:${key}`,payload:{provisioningRequestId:requestId,applicationId:row.application_id}});
         await appendControlAudit(transaction,row.tenant_id,context.subjectId,'tenant.provisioning.retried',{applicationId:row.application_id,requestId});
         return provisioningView(requireRow(updated.rows[0],'PROVISIONING_RETRY_FAILED'));
@@ -481,6 +514,12 @@ async function platformOrganizationView(row:PlatformOrganizationRow,infrastructu
 async function decideApplication(database:SqlDatabase,infrastructure:ProductionInfrastructure,context:PlatformContext,applicationId:string,decision:'approved'|'rejected',input:DecisionInput,key:string,payloadHash:string):Promise<ApplicationView>{
   return controlIdempotent(database,infrastructure,'application',applicationId,`platform:${decision}`,key,payloadHash,async(transaction)=>{
     const current=await requireApplication(transaction,applicationId,infrastructure,true);
+
+    if(decision==='approved'&&isApplicationApprovedOrLater(current.status))return current;
+    if(decision==='rejected'&&current.status==='rejected')return current;
+    const canDecide=isApplicationDecisionPending(current.status)||(decision==='rejected'&&current.status==='provisioning_failed');
+    if(!canDecide)throw new Error(current.status==='rejected'||current.status==='withdrawn'||current.status==='archived'?'APPLICATION_ALREADY_CLOSED':'INVALID_APPLICATION_STATE_TRANSITION');
+
     if(decision==='approved'){
       const reviews=await transaction.query<{readonly review_type:string;readonly result:string;readonly risk_level:string|null}>(`select distinct on(review_type) review_type::text as review_type,result::text as result,risk_level from control.onboarding_reviews where application_id=$1 order by review_type,created_at desc`,[applicationId]);
       const highRisk=reviews.rows.some((row)=>row.risk_level==='high'||row.risk_level==='critical');
@@ -488,7 +527,7 @@ async function decideApplication(database:SqlDatabase,infrastructure:ProductionI
     }
     const updated=await transitionApplication(transaction,current,decision);
     await transaction.query(`insert into control.onboarding_decisions(application_id,decision,decided_by,second_approver_id,external_reason,internal_reason,conditions,valid_until) values($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`,[applicationId,decision,context.subjectId,input.secondApproverId??null,cleanText(input.reason,2,5000),input.internalReason??null,input.conditions??[],input.validUntil??null]);
-    await appendControlAudit(transaction,null,context.subjectId,`onboarding.decision.${decision}`,{applicationId,reason:input.reason,secondApproverId:input.secondApproverId??null});
+    await appendControlAudit(transaction,null,context.subjectId,`onboarding.decision.${decision}`,{applicationId,previousStatus:current.status,reason:input.reason,secondApproverId:input.secondApproverId??null});
     return applicationView(updated,infrastructure);
   });
 }

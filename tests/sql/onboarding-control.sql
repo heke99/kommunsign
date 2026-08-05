@@ -24,6 +24,11 @@ BEGIN
     decode('01','hex'), decode('02','hex'), 'Anna Test', 'IT-chef'
   );
 
+  IF NOT control.onboarding_transition_allowed('additional_information_requested','approved')
+     OR NOT control.onboarding_transition_allowed('additional_information_requested','rejected') THEN
+    RAISE EXCEPTION 'Simple decision transitions are not installed for requested information';
+  END IF;
+
   UPDATE control.onboarding_applications SET status = 'email_verified' WHERE id = application_id;
   IF (SELECT status_version FROM control.onboarding_applications WHERE id = application_id) <> 2 THEN
     RAISE EXCEPTION 'Onboarding optimistic version was not advanced';

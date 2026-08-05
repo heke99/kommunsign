@@ -22,13 +22,26 @@ export const ACTIVATION_STATUSES = [
 ] as const;
 export type ActivationStatus = (typeof ACTIVATION_STATUSES)[number];
 
+export const APPLICATION_DECISION_PENDING_STATUSES = [
+  'submitted', 'under_initial_review', 'additional_information_requested', 'resubmitted',
+  'commercial_review', 'legal_review', 'security_review', 'technical_review',
+] as const satisfies readonly ApplicationStatus[];
+
+export const APPLICATION_APPROVED_OR_LATER_STATUSES = [
+  'approved', 'provisioning', 'provisioning_failed', 'onboarding',
+  'ready_for_acceptance_test', 'acceptance_test_failed', 'ready_for_activation', 'active',
+] as const satisfies readonly ApplicationStatus[];
+
+const decisionPendingStatuses = new Set<ApplicationStatus>(APPLICATION_DECISION_PENDING_STATUSES);
+const approvedOrLaterStatuses = new Set<ApplicationStatus>(APPLICATION_APPROVED_OR_LATER_STATUSES);
+
 const applicationTransitions: Readonly<Record<ApplicationStatus, readonly ApplicationStatus[]>> = {
   draft: ['email_verification_pending', 'withdrawn'],
   email_verification_pending: ['email_verified', 'withdrawn'],
   email_verified: ['submitted', 'withdrawn'],
   submitted: ['under_initial_review', 'approved', 'rejected', 'withdrawn'],
   under_initial_review: ['additional_information_requested', 'commercial_review', 'legal_review', 'security_review', 'technical_review', 'approved', 'rejected', 'withdrawn'],
-  additional_information_requested: ['resubmitted', 'withdrawn'],
+  additional_information_requested: ['resubmitted', 'approved', 'rejected', 'withdrawn'],
   resubmitted: ['under_initial_review', 'commercial_review', 'legal_review', 'security_review', 'technical_review', 'approved', 'rejected', 'withdrawn'],
   commercial_review: ['legal_review', 'security_review', 'technical_review', 'additional_information_requested', 'approved', 'rejected'],
   legal_review: ['commercial_review', 'security_review', 'technical_review', 'additional_information_requested', 'approved', 'rejected'],
@@ -46,6 +59,14 @@ const applicationTransitions: Readonly<Record<ApplicationStatus, readonly Applic
   active: ['archived'],
   archived: [],
 };
+
+export function isApplicationDecisionPending(status: ApplicationStatus): boolean {
+  return decisionPendingStatuses.has(status);
+}
+
+export function isApplicationApprovedOrLater(status: ApplicationStatus): boolean {
+  return approvedOrLaterStatuses.has(status);
+}
 
 export function canTransitionApplication(from: ApplicationStatus, to: ApplicationStatus): boolean {
   return applicationTransitions[from].includes(to);

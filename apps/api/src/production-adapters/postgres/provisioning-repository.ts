@@ -836,6 +836,15 @@ async function markFailed(
       [requestId, code],
     );
     const row = result.rows[0];
+    await transaction.query(
+      `update control.onboarding_applications application
+          set status='provisioning_failed',updated_at=now()
+        from control.tenant_provisioning_requests request
+       where request.id=$1
+         and application.id=request.application_id
+         and application.status='provisioning'`,
+      [requestId],
+    );
     const currentStep = explicitStep ?? row?.current_step ?? undefined;
     if (currentStep) {
       const stepRow = await transaction.query<{ readonly id: string }>(
