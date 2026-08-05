@@ -126,13 +126,7 @@ const platformHeaders = {
   'x-kommunsign-platform-subject-id': '99999999-9999-4999-8999-999999999999',
   'x-kommunsign-platform-roles': 'platform_super_admin',
 };
-for (const reviewType of ['commercial', 'legal', 'security', 'technical']) {
-  const review = await onboardingRequest(`/v1/platform/onboarding/applications/${applicationId}/reviews`, 'POST', {
-    reviewType, result: 'passed', summary: `${reviewType} godkänd`, riskLevel: 'low',
-  }, platformHeaders);
-  assert.equal(review.status, 201);
-}
-const approveResponse = await onboardingRequest(`/v1/platform/onboarding/applications/${applicationId}/approve`, 'POST', { reason: 'Alla obligatoriska granskningar godkända' }, platformHeaders);
+const approveResponse = await onboardingRequest(`/v1/platform/onboarding/applications/${applicationId}/approve`, 'POST', { reason: 'Godkänd av superadministratör' }, platformHeaders);
 assert.equal(approveResponse.status, 200);
 assert.equal((await approveResponse.json()).status, 'approved');
 const provisionResponse = await onboardingRequest(`/v1/platform/onboarding/applications/${applicationId}/provision`, 'POST', undefined, platformHeaders);
@@ -147,7 +141,7 @@ const activationBlocked = await onboardingRequest(`/v1/platform/tenants/${provis
 assert.equal(activationBlocked.status, 409);
 assert.equal((await activationBlocked.json()).error.code, 'TENANT_NOT_READY_FOR_ACTIVATION');
 
-console.log('integration tests: onboarding application, review, provisioning and fail-closed activation passed');
+console.log('integration tests: simple approval, provisioning and fail-closed activation passed');
 
 const unauthorizedDirectOrganization=await onboardingRequest('/v1/platform/organizations','POST',{
   organizationName:'Otillåten direktkommun',organizationNumber:'2120007777',organizationType:'municipality',

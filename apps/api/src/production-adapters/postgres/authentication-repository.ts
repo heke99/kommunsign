@@ -38,7 +38,7 @@ export function createAuthenticationRepository(
 ): AuthenticationRepository {
   canonicalHostname(configuration.rootDomain, { allowPlatformNamespace: true });
   const platformAdminHostname = canonicalHostname(configuration.platformAdminHostname, { allowPlatformNamespace: true });
-  canonicalHostname(configuration.tenantDiscoveryHostname, { allowPlatformNamespace: true });
+  const tenantDiscoveryHostname = canonicalHostname(configuration.tenantDiscoveryHostname, { allowPlatformNamespace: true });
   const authPortal = new URL(configuration.authPortalUrl);
   if (authPortal.protocol !== 'https:' || authPortal.username || authPortal.password || authPortal.port) throw new Error('AUTH_PORTAL_URL_INVALID');
   if (!Number.isInteger(configuration.sessionLifetimeSeconds) || configuration.sessionLifetimeSeconds < 900 || configuration.sessionLifetimeSeconds > 86_400) throw new Error('AUTH_SESSION_LIFETIME_INVALID');
@@ -71,7 +71,7 @@ export function createAuthenticationRepository(
       [subjectId],
     ));
     for (const membership of memberships.rows) {
-      try { return await primaryTenantDestination(controlDatabase, membership.tenant_id); }
+      try { return await primaryTenantDestination(controlDatabase, membership.tenant_id, tenantDiscoveryHostname); }
       catch (cause) { if (!(cause instanceof Error) || cause.message !== 'ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE') throw cause; }
     }
     throw new Error('AUTH_ACCOUNT_NOT_AUTHORIZED');
@@ -119,8 +119,11 @@ export function createAuthenticationRepository(
     let lastCause: unknown;
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
-        const destination = requestedHostname
-          ? await requestedTenantDestination(controlDatabase, requestedHostname)
+        const requestedCanonical = requestedHostname ? canonicalHostname(requestedHostname, { allowPlatformNamespace: true }) : undefined;
+        const destination = requestedCanonical
+          ? requestedCanonical === tenantDiscoveryHostname
+            ? await resolveSubjectDestination(subjectId)
+            : await requestedTenantDestination(controlDatabase, requestedCanonical)
           : await resolveSubjectDestination(subjectId);
         const displayName = await assertSubjectAccess(subjectId, destination);
         return { destination, ...(displayName ? { displayName } : {}) };
@@ -269,7 +272,7 @@ export function createAuthenticationRepository(
       ));
       if (existing.rows[0]) return invitationView(existing.rows[0], infrastructure);
 
-      const destination = await primaryTenantDestination(controlDatabase, tenantId);
+      const destination = await primaryTenantDestination(controlDatabase, tenantId, tenantDiscoveryHostname);
       const redirect = new URL('/aktivera/', authPortal);
       redirect.searchParams.set('destination', destination.hostname);
       const invitation = await provider.inviteOrFindUser(email, redirect.toString(), {
@@ -549,14 +552,13 @@ async function requestedTenantDestination(database: SqlDatabase, hostnameValue: 
   return { boundary: 'tenant', hostname: row.normalized_hostname, tenantId: row.tenant_id, destinationUrl: `https://${row.normalized_hostname}/` };
 }
 
-async function primaryTenantDestination(database: SqlDatabase, tenantId: string): Promise<ResolvedDestination> {
+async function primaryTenantDestination(database: SqlDatabase, tenantId: string, fallbackHostname: string): Promise<ResolvedDestination> {
   const result = await database.transaction(async (transaction) => transaction.query<{ readonly normalized_hostname: string }>(
     `select normalized_hostname from control.tenant_domains
       where tenant_id=$1 and is_primary and status='active' and verification_status='verified' and tls_status='active'
       order by updated_at desc limit 1`, [tenantId],
   ));
-  const hostname = result.rows[0]?.normalized_hostname;
-  if (!hostname) throw new Error('ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE');
+  const hostname = result.rows[0]?.normalized_hostname ?? fallbackHostname;
   return { boundary: 'tenant', hostname, tenantId, destinationUrl: `https://${hostname}/` };
 }
 

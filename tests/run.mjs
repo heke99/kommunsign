@@ -248,6 +248,8 @@ test('organization provisioning never creates an applicant login automatically',
 
 test('onboarding state machine, reference and email tokens fail closed', async () => {
   assertApplicationTransition('email_verification_pending', 'email_verified');
+  assertApplicationTransition('submitted', 'approved');
+  assertApplicationTransition('submitted', 'rejected');
   assertApplicationTransition('approved', 'provisioning');
   assert.throws(() => assertApplicationTransition('submitted', 'active'), /INVALID_APPLICATION_STATE_TRANSITION/);
   assert.equal(formatApplicationReference(2026, 1), 'ONB-2026-000001');

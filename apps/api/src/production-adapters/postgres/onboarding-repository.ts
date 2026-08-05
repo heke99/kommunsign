@@ -483,8 +483,6 @@ async function decideApplication(database:SqlDatabase,infrastructure:ProductionI
     const current=await requireApplication(transaction,applicationId,infrastructure,true);
     if(decision==='approved'){
       const reviews=await transaction.query<{readonly review_type:string;readonly result:string;readonly risk_level:string|null}>(`select distinct on(review_type) review_type::text as review_type,result::text as result,risk_level from control.onboarding_reviews where application_id=$1 order by review_type,created_at desc`,[applicationId]);
-      const latest=new Map(reviews.rows.map((row)=>[row.review_type,row]));
-      if(!['commercial','legal','security','technical'].every((type)=>latest.get(type)?.result==='passed'))throw new Error('REQUIRED_REVIEWS_NOT_PASSED');
       const highRisk=reviews.rows.some((row)=>row.risk_level==='high'||row.risk_level==='critical');
       if(highRisk){if(!input.secondApproverId)throw new Error('TWO_PERSON_APPROVAL_REQUIRED');assertDistinctApprovers(context.subjectId,input.secondApproverId);}
     }
@@ -500,6 +498,8 @@ async function collectReadinessChecks(transaction:SqlTransaction,tenantId:string
   const environment=await transaction.query<{readonly data_plane_status:string;readonly environment_status:string}>(`select dp.status::text as data_plane_status,te.status as environment_status from control.tenant_environments te join control.data_planes dp on dp.id=te.data_plane_id where te.tenant_id=$1 and te.environment='production'`,[tenantId]);
   const env=environment.rows[0];
   const domains=await transaction.query<{readonly domain_type:string;readonly status:string;readonly is_primary:boolean;readonly dns_verified_at:string|null;readonly certificate_issued_at:string|null;readonly certificate_expires_at:string|null;readonly last_health_status:string|null;readonly normalized_hostname:string}>(`select domain_type::text,status::text,is_primary,dns_verified_at,certificate_issued_at,certificate_expires_at,last_health_status,normalized_hostname from control.tenant_domains where tenant_id=$1 and environment_id=(select id from control.tenant_environments where tenant_id=$1 and environment='production') and status<>'removed'`,[tenantId]);
+  const deployment=await transaction.query<{readonly deployment_mode:string}>(`select deployment_mode::text as deployment_mode from control.tenant_provisioning_requests where tenant_id=$1 order by created_at desc limit 1`,[tenantId]);
+  const sharedSaas=deployment.rows[0]?.deployment_mode==='shared_saas';
   const defaultDomain=domains.rows.find((row)=>row.domain_type==='platform_default');const primary=domains.rows.find((row)=>row.is_primary);const custom=domains.rows.find((row)=>row.domain_type==='customer_custom');
   const customRequired=await transaction.query<{readonly required:boolean}>(`select coalesce((configuration->>'customDomainRequired')::boolean,false) as required from control.tenant_features where tenant_id=$1 and feature_key='custom_domain'`,[tenantId]);
   const emailProvider=(environmentValue('EMAIL_PROVIDER')??'').toLowerCase();
@@ -515,8 +515,8 @@ async function collectReadinessChecks(transaction:SqlTransaction,tenantId:string
     check('PUBLIC_ACCOUNT_REGISTRATION_ENABLED',environmentValue('AUTH_PUBLIC_SIGNUP_ENABLED')==='false','blocking',checkedAt),
     check('AUTH_EMAIL_DELIVERY_NOT_VERIFIED',environmentFlag('AUTH_EMAIL_DELIVERY_VERIFIED'),'blocking',checkedAt),
     check('SUPERADMIN_NOT_BOOTSTRAPPED',environmentFlag('SUPERADMIN_BOOTSTRAPPED'),'blocking',checkedAt),
-    check('DEFAULT_TENANT_DOMAIN_NOT_ACTIVE',defaultDomain?.status==='active','blocking',checkedAt,{hostname:defaultDomain?.normalized_hostname??null,status:defaultDomain?.status??'missing'}),
-    check('PRIMARY_DOMAIN_NOT_SELECTED',Boolean(primary),'blocking',checkedAt,{hostname:primary?.normalized_hostname??null}),
+    check('DEFAULT_TENANT_DOMAIN_NOT_ACTIVE',sharedSaas||defaultDomain?.status==='active','blocking',checkedAt,{hostname:defaultDomain?.normalized_hostname??null,status:defaultDomain?.status??'missing'}),
+    check('PRIMARY_DOMAIN_NOT_SELECTED',sharedSaas||Boolean(primary),'blocking',checkedAt,{hostname:primary?.normalized_hostname??null}),
     check('CUSTOM_DOMAIN_REQUIRED_BUT_MISSING',!customRequired.rows[0]?.required||Boolean(custom),'blocking',checkedAt),
     check('CUSTOM_DOMAIN_DNS_NOT_VERIFIED',!custom||Boolean(custom.dns_verified_at),'blocking',checkedAt),
     check('CUSTOM_DOMAIN_CERTIFICATE_NOT_READY',!custom||Boolean(custom.certificate_issued_at),'blocking',checkedAt),
@@ -537,7 +537,7 @@ async function collectReadinessChecks(transaction:SqlTransaction,tenantId:string
     check('EMAIL_PROVIDER_NOT_READY',emailProvider==='resend'&&!environmentFlag('EMAIL_GLOBAL_KILL_SWITCH')&&environmentPresent('RESEND_API_KEY','RESEND_WEBHOOK_SECRET','EMAIL_DEFAULT_FROM','EMAIL_DEFAULT_REPLY_TO','EMAIL_SENDING_DOMAIN'),'blocking',checkedAt,{provider:emailProvider||'missing'}),
     check('EMAIL_DATA_RESIDENCY_NOT_APPROVED',emailProvider!=='resend'||environmentFlag('EMAIL_DATA_RESIDENCY_APPROVED'),'blocking',checkedAt,{provider:emailProvider||'missing'}),
     check('WORKER_CONSUMERS_NOT_READY',environmentFlag('WORKER_CONSUMERS_READY'),'blocking',checkedAt),
-    check('WILDCARD_TLS_NOT_VERIFIED',environmentFlag('WILDCARD_TLS_VERIFIED')||environmentFlag('PLATFORM_WILDCARD_VERIFIED'),'blocking',checkedAt),
+    check('WILDCARD_TLS_NOT_VERIFIED',sharedSaas||environmentFlag('WILDCARD_TLS_VERIFIED')||environmentFlag('PLATFORM_WILDCARD_VERIFIED'),'blocking',checkedAt),
     check('ENCRYPTION_KEYS_NOT_CONFIGURED',environmentPresent('SENSITIVE_DATA_ENCRYPTION_KEY_BASE64','SENSITIVE_DATA_BLIND_INDEX_KEY_BASE64','INTERNAL_GATEWAY_HMAC_KEY'),'blocking',checkedAt),
     check('AUDIT_CHAIN_NOT_VERIFIED',environmentFlag('AUDIT_CHAIN_VERIFIED'),'blocking',checkedAt),
     check('MIGRATIONS_NOT_CURRENT',environmentFlag('MIGRATIONS_CURRENT'),'blocking',checkedAt),

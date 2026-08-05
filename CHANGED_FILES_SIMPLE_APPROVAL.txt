@@ -1,0 +1,17 @@
+ADDED
+migrations/control/0013_simple_approval_flow.sql
+SIMPLE_APPROVAL_AND_INVITATION_FIX.md
+CHANGED_FILES_SIMPLE_APPROVAL.txt
+VERIFICATION_RESULTS_SIMPLE_APPROVAL.txt
+
+MODIFIED
+apps/api/src/dev-onboarding.ts
+apps/api/src/production-adapters/postgres/authentication-repository.ts
+apps/api/src/production-adapters/postgres/onboarding-repository.ts
+apps/api/src/production-adapters/postgres/provisioning-repository.ts
+apps/platform-admin/public/app.js
+apps/platform-admin/public/index.html
+packages/onboarding/src/index.ts
+tests/integration.mjs
+tests/run.mjs
+VERCEL_MINIMAL_DOMAINS.md

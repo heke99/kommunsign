@@ -1,0 +1,15 @@
+Kommunsign simple approval and invitation flow verification
+Date: 2026-08-05
+
+PASS: tsc -p tsconfig.json --noEmit
+PASS: node --check apps/platform-admin/public/app.js
+PASS: manual TypeScript build and portal build
+PASS: node tests/run.mjs (42 tests)
+PASS: node tests/integration.mjs
+PASS: node scripts/check-sql-migrations.mjs
+PASS: node tests/security.mjs
+PASS: node scripts/verify-repository.mjs
+PASS: node scripts/build-vercel-unified.mjs
+PASS: node scripts/verify-deployment-config.mjs
+
+NOTE: npm ci could not download postgres@3.4.7 from the execution environment's internal npm mirror (HTTP 404). The repository compiled with TypeScript 5.8.3 already available in the environment, and all listed tests completed successfully.

@@ -385,7 +385,7 @@ export function createProvisioningRepository(
         });
 
         const tenantId = await controlDatabase.transaction(async (transaction) => requiredTenantId(transaction, request.id));
-        if (!configuration.platformWildcardVerified) {
+        if (!configuration.platformWildcardVerified && request.deployment_mode !== 'shared_saas') {
           const code = 'DEFAULT_TENANT_DOMAIN_EXTERNAL_VERIFICATION_REQUIRED';
           await markWaiting(controlDatabase, request.id, 'create_default_domain', code, claimed.attemptNumber);
           return {
