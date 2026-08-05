@@ -114,6 +114,26 @@ export function createAuthenticationRepository(
     });
   }
 
+
+  async function resolvePasswordCompletionDestination(subjectId: string, requestedHostname?: string): Promise<{ readonly destination: ResolvedDestination; readonly displayName?: string }> {
+    let lastCause: unknown;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        const destination = requestedHostname
+          ? await requestedTenantDestination(controlDatabase, requestedHostname)
+          : await resolveSubjectDestination(subjectId);
+        const displayName = await assertSubjectAccess(subjectId, destination);
+        return { destination, ...(displayName ? { displayName } : {}) };
+      } catch (cause) {
+        lastCause = cause;
+        const retryable = cause instanceof Error && ['AUTH_ACCOUNT_NOT_AUTHORIZED','ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE'].includes(cause.message);
+        if (!retryable || attempt === 3) throw cause;
+        await new Promise((resolve) => setTimeout(resolve, 100 * (2 ** attempt)));
+      }
+    }
+    throw lastCause instanceof Error ? lastCause : new Error('AUTH_ACCOUNT_NOT_AUTHORIZED');
+  }
+
   async function createSession(subjectId: string, destination: ResolvedDestination, displayName?: string): Promise<AuthenticatedSessionView & { readonly sessionToken: string }> {
     const sessionToken = randomToken(48);
     const csrfToken = randomToken(32);
@@ -164,8 +184,9 @@ export function createAuthenticationRepository(
           ? { accessToken: input.accessToken, expiresIn: 1, user: await provider.getUser(input.accessToken) }
           : undefined;
       if (!verified) throw new Error('AUTH_EMAIL_LINK_INVALID');
-      const destination = await resolveSubjectDestination(verified.user.id);
-      const displayName = await assertSubjectAccess(verified.user.id, destination);
+      const resolved = await resolvePasswordCompletionDestination(verified.user.id, input.destinationHostname);
+      const destination = resolved.destination;
+      const displayName = resolved.displayName;
       const user = await provider.updatePassword(verified.accessToken, input.password);
       if (verified.user.id !== user.id) throw new Error('AUTH_PROVIDER_IDENTITY_MISMATCH');
       await markInvitationAccepted(controlDatabase, destination.tenantId, user.id);
@@ -506,6 +527,26 @@ async function organizationName(database: SqlDatabase, tenantId: string): Promis
     `select legal_name from control.platform_tenants where id=$1 limit 1`, [tenantId],
   ));
   return requiredRow(result.rows[0], 'ORGANIZATION_NOT_FOUND').legal_name;
+}
+
+async function requestedTenantDestination(database: SqlDatabase, hostnameValue: string): Promise<ResolvedDestination> {
+  const hostname = canonicalHostname(hostnameValue, { allowPlatformNamespace: true });
+  const result = await database.transaction(async (transaction) => transaction.query<{ readonly tenant_id: string; readonly normalized_hostname: string }>(
+    `select d.tenant_id,d.normalized_hostname
+       from control.tenant_domains d
+       join control.platform_tenants t on t.id=d.tenant_id
+      where d.normalized_hostname=$1
+        and d.is_primary
+        and d.status='active'
+        and d.verification_status='verified'
+        and d.tls_status='active'
+        and t.status not in ('suspended','decommissioning','decommissioned')
+      limit 1`,
+    [hostname],
+  ));
+  const row = result.rows[0];
+  if (!row) throw new Error('ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE');
+  return { boundary: 'tenant', hostname: row.normalized_hostname, tenantId: row.tenant_id, destinationUrl: `https://${row.normalized_hostname}/` };
 }
 
 async function primaryTenantDestination(database: SqlDatabase, tenantId: string): Promise<ResolvedDestination> {

@@ -333,6 +333,7 @@ export interface CompletePasswordInput {
   readonly accessToken?: string;
   readonly tokenHash?: string;
   readonly type?: 'invite' | 'recovery';
+  readonly destinationHostname?: string;
   readonly password: string;
 }
 export interface AuthRequestMetadata {

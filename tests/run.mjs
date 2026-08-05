@@ -115,20 +115,66 @@ test('login, password recovery and activation require no organization address an
   const openApi = await readFile('docs/api/openapi.yaml', 'utf8');
   assert.doesNotMatch(portalHtml, /Organisationsadress|id="organization"/);
   assert.match(portalHtml, /e-postadress och lösenord/);
-  assert.doesNotMatch(portalSource, /organizationSlug|destinationHostname|destinationInput|normalizeOrganizationSlug/);
+  assert.doesNotMatch(portalSource, /organizationSlug|destinationInput|normalizeOrganizationSlug/);
   assert.match(portalSource, /password\/forgot',{email:/);
   assert.match(portalSource, /auth\/login',{email:.*password:/);
   assert.match(portalSource, /password\/complete',{\.\.\.credential,password}/);
+  assert.match(portalSource, /destinationFromEmailLink/);
+  assert.match(portalSource, /destinationHostname/);
   assert.match(routerSource, /allowed\(body, \['email','password'\]\)/);
   assert.match(routerSource, /allowed\(body, \['email'\]\)/);
-  assert.match(routerSource, /allowed\(body, \['accessToken','tokenHash','type','password'\]\)/);
-  assert.doesNotMatch(routerSource, /organizationSlug|destinationHostname/);
+  assert.match(routerSource, /allowed\(body, \['accessToken','tokenHash','type','destinationHostname','password'\]\)/);
+  assert.doesNotMatch(routerSource, /organizationSlug/);
   assert.match(repositorySource, /provider\.signInWithPassword[\s\S]*resolveSubjectDestination\(session\.user\.id\)/);
-  assert.match(repositorySource, /verifyEmailOtp[\s\S]*resolveSubjectDestination\(verified\.user\.id\)/);
+  assert.match(repositorySource, /verifyEmailOtp[\s\S]*resolvePasswordCompletionDestination\(verified\.user\.id, input\.destinationHostname\)/);
   assert.match(repositorySource, /platform_role_assignments/);
   assert.match(openApi, /LoginRequest:[\s\S]*required: \[email, password\]/);
   assert.match(openApi, /PasswordRecoveryRequest:[\s\S]*required: \[email\]/);
   assert.doesNotMatch(openApi, /organizationSlug/);
+});
+
+test('password completion preserves the exact organization destination from the invite link', async () => {
+  let captured = null;
+  const sessionToken = 's'.repeat(64);
+  const compliantPassword = ['Kommunsign', '!', '2026'].join('');
+  const handler = createApiHandler({
+    resolveContext: async () => ({ tenantId: 'unused', source: 'api-client', subjectId: 'unused', requestId: 'unused', authMethod: 'development' }),
+    authorize: () => {},
+    authentication: {
+      completePassword: async (input) => {
+        captured = input;
+        return {
+          sessionToken,
+          subjectId: '11111111-1111-4111-8111-111111111111',
+          boundary: 'tenant',
+          destinationUrl: 'https://direktkommunen.kommunsign.se/',
+          expiresAt: '2026-08-05T12:00:00.000Z',
+          csrfToken: 'c'.repeat(64),
+          tenantId: '22222222-2222-4222-8222-222222222222',
+          displayName: 'Anna Admin',
+        };
+      },
+    },
+  });
+  const response = await handler(new Request('https://api.kommunsign.se/v1/auth/password/complete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-request-id': 'password-complete-test' },
+    body: JSON.stringify({ tokenHash: 'h'.repeat(64), type: 'invite', destinationHostname: 'Direktkommunen.Kommunsign.SE', password: compliantPassword }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(captured.destinationHostname, 'direktkommunen.kommunsign.se');
+  assert.match(response.headers.get('set-cookie') ?? '', /__Host-ks_api_session=/);
+});
+
+test('async portal forms retain their form element across awaited requests', async () => {
+  const adminSource = await readFile('apps/platform-admin/public/app.js', 'utf8');
+  const tenantSource = await readFile('apps/tenant-portal/public/app.js', 'utf8');
+  const onboardingSource = await readFile('apps/onboarding-portal/public/app.js', 'utf8');
+  assert.doesNotMatch(adminSource, /event\.currentTarget\.reset\(\)/);
+  assert.doesNotMatch(tenantSource, /event\.currentTarget\.reset\(\)/);
+  assert.doesNotMatch(onboardingSource, /event\.currentTarget\.reset\(\)/);
+  assert.match(adminSource, /const form=event\.currentTarget[\s\S]*Organisationen .* är skapad, men listan kunde inte uppdateras automatiskt/);
+  assert.match(adminSource, /Kontot är skapat, men kontolistan kunde inte uppdateras automatiskt/);
 });
 
 test('password recovery exposes rate limits instead of reporting a false accepted result', async () => {
@@ -181,6 +227,7 @@ test('Supabase Auth production configuration is machine-verifiable', async () =>
   assert.deepEqual(verifySupabaseAuthConfig({ ...expected }, expected), []);
   assert.ok(verifySupabaseAuthConfig({ ...expected, disable_signup: false }, expected).some((problem) => problem.startsWith('disable_signup:')));
   assert.match(expected.mailer_templates_invite_content, /TokenHash/);
+  assert.match(expected.mailer_templates_invite_content, /RedirectTo/);
   assert.doesNotMatch(expected.mailer_templates_invite_content, /ConfirmationURL/);
   assert.match(expected.mailer_templates_recovery_content, /\{\{ \.SiteURL \}\}\/aterstall\//);
   await assert.rejects(() => expectedSupabaseAuthConfig({

@@ -70,7 +70,7 @@ function recoveryInput(body: Record<string, unknown>): PasswordRecoveryInput {
   return { email: text(body.email, 'email', 3, 254) };
 }
 function completeInput(body: Record<string, unknown>): CompletePasswordInput {
-  allowed(body, ['accessToken','tokenHash','type','password']);
+  allowed(body, ['accessToken','tokenHash','type','destinationHostname','password']);
   const accessToken = optionalText(body.accessToken, 'accessToken', 32, 8192);
   const tokenHash = optionalText(body.tokenHash, 'tokenHash', 32, 1024);
   if ((!accessToken && !tokenHash) || (accessToken && tokenHash)) throw new AuthRequestError('AUTH_EMAIL_LINK_INVALID', 401, 'Aktiveringslänken är ogiltig eller har gått ut.');
@@ -80,6 +80,7 @@ function completeInput(body: Record<string, unknown>): CompletePasswordInput {
   return {
     ...(accessToken ? { accessToken } : {}),
     ...(tokenHash ? { tokenHash, type: type as 'invite' | 'recovery' } : {}),
+    ...(body.destinationHostname === undefined ? {} : { destinationHostname: text(body.destinationHostname, 'destinationHostname', 1, 253).toLowerCase() }),
     password: text(body.password, 'password', 12, 128),
   };
 }

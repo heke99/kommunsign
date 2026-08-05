@@ -34,7 +34,7 @@ Bootstrap-kommandot är idempotent. Service-role-nyckeln används endast server-
 4. I plattformsadmin öppnas organisationen och avsnittet **Organisationskonton**.
 5. Superadministratören anger namn, e-post och rollen **Organisationsadministratör**.
 6. API:t skapar eller kopplar Supabase Auth-identiteten, krypterar e-post i kontrollplanet, skapar medlemskap och skickar inbjudan.
-7. Mottagaren öppnar token-hashlänken på `app.kommunsign.se/aktivera/`. Token verifieras först när lösenordet skickas in, vilket skyddar länken mot automatisk förhandsöppning. Därefter skapas en hostbunden session för organisationens verifierade domän.
+7. Mottagaren öppnar token-hashlänken på `app.kommunsign.se/aktivera/`. Den allow-listade redirecten bär med sig organisationens exakta primära domän, så en person med åtkomst till flera organisationer aktiveras mot rätt miljö. Token verifieras först när lösenordet skickas in, vilket skyddar länken mot automatisk förhandsöppning. Därefter skapas en hostbunden session för den verifierade domänen.
 8. Inbjudan markeras `active` först när identiteten och medlemskapet har verifierats.
 
 ## Roller i gränssnittet
