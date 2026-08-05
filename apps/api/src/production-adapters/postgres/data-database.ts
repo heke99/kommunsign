@@ -65,7 +65,7 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
            values ($1, $2, $3, $4, $5::app.decision_mode, $6, $7, $8::jsonb)
            returning id, tenant_id, status::text as status, status_version, decision_mode::text as decision_mode,
                      title, external_reference, created_at`,
-          [context.tenantId, userId, input.externalReference ?? null, cleanText(input.title, 1, 300), input.decisionMode, policyRow.id, policyRow.version, JSON.stringify(policyRow.policy)],
+          [context.tenantId, userId, input.externalReference ?? null, cleanText(input.title, 1, 300), input.decisionMode, policyRow.id, policyRow.version, policyRow.policy],
         );
         const view = caseView(requireRow(inserted.rows[0], 'CASE_INSERT_FAILED'));
         await appendOutbox(transaction, context.tenantId, 'signature_case', view.id, 'signature_case.created', { signatureCaseId: view.id });
@@ -493,7 +493,7 @@ async function enqueueDurableJob(
     `insert into app.durable_jobs(tenant_id,job_type,payload,idempotency_key,status,available_at,maximum_attempts)
      values($1,$2,$3::jsonb,$4,'pending',now(),10)
      on conflict(tenant_id,job_type,idempotency_key) do update set updated_at=app.durable_jobs.updated_at
-     returning id`, [tenantId,jobType,JSON.stringify(payload),idempotencyKey],
+     returning id`, [tenantId,jobType,payload,idempotencyKey],
   );
   return { jobId:requireRow(result.rows[0],'JOB_ENQUEUE_FAILED').id };
 }
@@ -520,7 +520,7 @@ async function idempotent<T>(transaction: SqlTransaction, tenantId: string, oper
   await transaction.query(`insert into app.operation_idempotency(tenant_id,operation,idempotency_key,payload_sha256) values($1,$2,$3,$4)`, [tenantId,operation,key,payloadHash]);
   const response = await work();
   const responseJson = JSON.stringify(response);
-  await transaction.query(`update app.operation_idempotency set response_body=$4::jsonb,response_body_sha256=$5 where tenant_id=$1 and operation=$2 and idempotency_key=$3`, [tenantId,operation,key,responseJson,await sha256Hex(responseJson)]);
+  await transaction.query(`update app.operation_idempotency set response_body=$4::jsonb,response_body_sha256=$5 where tenant_id=$1 and operation=$2 and idempotency_key=$3`, [tenantId,operation,key,response,await sha256Hex(responseJson)]);
   return response;
 }
 
@@ -545,7 +545,7 @@ async function requireCase(transaction: SqlTransaction, tenantId: string, id: st
 }
 async function appendOutbox(transaction: SqlTransaction, tenantId: string, aggregateType: string, aggregateId: string, eventType: string, payload: Readonly<Record<string, unknown>>): Promise<void> {
   const payloadJson = JSON.stringify(payload);
-  await transaction.query(`insert into app.outbox_events(tenant_id,aggregate_type,aggregate_id,event_type,payload,payload_sha256) values($1,$2,$3,$4,$5::jsonb,$6)`, [tenantId,aggregateType,aggregateId,eventType,payloadJson,await sha256Hex(payloadJson)]);
+  await transaction.query(`insert into app.outbox_events(tenant_id,aggregate_type,aggregate_id,event_type,payload,payload_sha256) values($1,$2,$3,$4,$5::jsonb,$6)`, [tenantId,aggregateType,aggregateId,eventType,payload,await sha256Hex(payloadJson)]);
 }
 function pageBounds(page: PageInput): { readonly offset: number; readonly limit: number } {
   const limit = Math.min(Math.max(page.limit,1),200);

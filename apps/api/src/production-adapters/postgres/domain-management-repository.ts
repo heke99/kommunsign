@@ -96,7 +96,7 @@ export function createDomainManagementRepository(database:SqlDatabase,provider:D
           await transaction.query(
             `insert into control.domain_health_checks(tenant_id,environment_id,tenant_domain_id,check_type,status,safe_error_code,evidence)
              values($1,$2,$3,$4,$5,$6,$7::jsonb)`,
-            [row.tenant_id,row.environment_id,row.id,normalizeCheckType(checkType),passed?'healthy':'failed',passed?null:health.safeErrorCode??'DOMAIN_HEALTH_FAILED',JSON.stringify({passed})],
+            [row.tenant_id,row.environment_id,row.id,normalizeCheckType(checkType),passed?'healthy':'failed',passed?null:health.safeErrorCode??'DOMAIN_HEALTH_FAILED',{passed}],
           );
         }
         const status=health.status==='healthy'?'active':'failed';

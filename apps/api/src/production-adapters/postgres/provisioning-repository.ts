@@ -279,16 +279,16 @@ export function createProvisioningRepository(
 
         await runStep(controlDatabase, request, claimed.attemptNumber, 'create_branding_draft', workerId, async (transaction) => {
           const tenantId = await requiredTenantId(transaction, request.id);
-          const designTokens = JSON.stringify({ primaryColor: '#174A7E', accentColor: '#F2B705' });
-          const supportContact = JSON.stringify({ email: primaryEmail });
-          const brandingConfiguration = JSON.stringify({
+          const designTokens = { primaryColor: '#174A7E', accentColor: '#F2B705' };
+          const supportContact = { email: primaryEmail };
+          const brandingConfiguration = {
             productName: request.organization_name,
             primaryColor: '#174A7E',
             accentColor: '#F2B705',
             supportEmail: primaryEmail,
             locale: 'sv-SE',
             status: 'draft',
-          });
+          };
           await transaction.query(
             `insert into control.tenant_branding(tenant_id,display_name,design_tokens,support_contact)
              values($1,$2,$3::jsonb,$4::jsonb)
@@ -324,7 +324,7 @@ export function createProvisioningRepository(
             [
               request.application_id,
               tenantId,
-              JSON.stringify({ identityAndAccess: request.applicant_visible_profile.identityAndAccess ?? {} }),
+              { identityAndAccess: request.applicant_visible_profile.identityAndAccess ?? {} },
             ],
           );
           return `tenant:${tenantId}:auth-draft`;
@@ -374,11 +374,11 @@ export function createProvisioningRepository(
             [
               request.application_id,
               tenantId,
-              JSON.stringify({
+              {
                 managedBy: 'platform_super_admin',
                 applicantAccountCreated: false,
                 organizationAccountInvitationRequired: true,
-              }),
+              },
             ],
           );
           return `organization:${tenantId}:account-management-enabled`;
@@ -688,7 +688,7 @@ async function seedSharedDataPlane(
         `insert into app.roles(tenant_id,role_key,permissions)
          values($1,$2,$3::jsonb)
          on conflict(tenant_id,role_key) do update set permissions=excluded.permissions`,
-        [input.tenantId, roleKey, JSON.stringify(permissions)],
+        [input.tenantId, roleKey, permissions],
       );
     }
 
@@ -715,7 +715,7 @@ async function seedSharedDataPlane(
                and name=$2
                and version=1
           )`,
-        [input.tenantId, name, decisionMode, JSON.stringify(policy), systemUserId],
+        [input.tenantId, name, decisionMode, policy, systemUserId],
       );
     }
   });

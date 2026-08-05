@@ -159,7 +159,7 @@ async function handleDocumentCanonicalize(database: SqlDatabase, infrastructure:
       `insert into app.document_processor_reports(tenant_id,document_version_id,report_type,engine,engine_version,result,object_key,sha256,findings)
        values($1,$2,'PDFA_VALIDATION','veraPDF',$3,$4,$5,$6,$7::jsonb)
        on conflict(tenant_id,document_version_id,report_type) do nothing`,
-      [job.tenantId, row.id, validation.engineVersion, validation.compliant ? 'PASS' : 'FAIL', validationKey, reportSha, JSON.stringify(validation.compliant ? [] : [{ code: 'DOCUMENT_PDFA_VALIDATION_FAILED' }])],
+      [job.tenantId, row.id, validation.engineVersion, validation.compliant ? 'PASS' : 'FAIL', validationKey, reportSha, validation.compliant ? [] : [{ code: 'DOCUMENT_PDFA_VALIDATION_FAILED' }]],
     );
   });
   if (!validation.compliant) {
@@ -458,7 +458,7 @@ async function handleApplicationNotification(controlDatabase: SqlDatabase, infra
     const previousHash = previous.rows[0]?.event_hash ?? '0'.repeat(64);
     const auditPayload = { applicationId, template, jobId: job.id };
     const eventHash = await sha256Hex(JSON.stringify({ tenantId: null, actorId: null, eventType: 'onboarding.notification.accepted', payload: auditPayload, previousHash }));
-    await tx.query(`insert into control.control_audit_events(tenant_id,actor_id,event_type,payload,previous_event_hash,event_hash) values(null,null,'onboarding.notification.accepted',$1::jsonb,$2,$3)`, [JSON.stringify(auditPayload), previousHash, eventHash]);
+    await tx.query(`insert into control.control_audit_events(tenant_id,actor_id,event_type,payload,previous_event_hash,event_hash) values(null,null,'onboarding.notification.accepted',$1::jsonb,$2,$3)`, [auditPayload, previousHash, eventHash]);
   });
 }
 
@@ -594,15 +594,15 @@ async function saveProcessorReport(database: SqlDatabase, infrastructure: Produc
   await tenant(database, tenantId, async (tx) => tx.query(
     `insert into app.document_processor_reports(tenant_id,document_version_id,report_type,engine,engine_version,result,object_key,sha256,findings)
      values($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) on conflict(tenant_id,document_version_id,report_type) do nothing`,
-    [tenantId, row.id, reportType, engine, engineVersion, result, key, await sha256Hex(bytes), JSON.stringify(findings)],
+    [tenantId, row.id, reportType, engine, engineVersion, result, key, await sha256Hex(bytes), findings],
   ));
 }
 
 async function tenant<T>(database: SqlDatabase, tenantId: string, work: (tx: SqlTransaction) => Promise<T>): Promise<T> { return withTenantTransaction(database, workerContext(tenantId), 'worker', work); }
 function workerContext(tenantId: string): TenantContext { return { tenantId, subjectId: SYSTEM_ACTOR_ID, requestId: crypto.randomUUID(), authMethod: 'worker', source: 'deployment' }; }
-async function audit(tx: SqlTransaction, tenantId: string, category: 'TECHNICAL'|'BUSINESS', eventType: string, resourceType: string, resourceId: string, payload: Readonly<Record<string,unknown>>): Promise<void> { await tx.query(`select audit.append_event($1,$2,$3,'worker',$4,$5,$6,$7::jsonb,now())`, [tenantId, category, eventType, SYSTEM_ACTOR_ID, resourceType, resourceId, JSON.stringify(payload)]); }
-async function outbox(tx: SqlTransaction, tenantId: string, aggregateType: string, aggregateId: string, eventType: string, payload: Readonly<Record<string,unknown>>): Promise<void> { const serialized=JSON.stringify(payload); await tx.query(`insert into app.outbox_events(tenant_id,aggregate_type,aggregate_id,event_type,payload,payload_sha256) values($1,$2,$3,$4,$5::jsonb,$6)`, [tenantId,aggregateType,aggregateId,eventType,serialized,await sha256Hex(serialized)]); }
-async function enqueue(tx: SqlTransaction, tenantId: string, type: DurableJobType, key: string, payload: Readonly<Record<string,unknown>>): Promise<void> { await tx.query(`insert into app.durable_jobs(tenant_id,job_type,payload,idempotency_key,status,available_at,maximum_attempts) values($1,$2,$3::jsonb,$4,'pending',now(),10) on conflict(tenant_id,job_type,idempotency_key) do nothing`, [tenantId,type,JSON.stringify(payload),key]); }
+async function audit(tx: SqlTransaction, tenantId: string, category: 'TECHNICAL'|'BUSINESS', eventType: string, resourceType: string, resourceId: string, payload: Readonly<Record<string,unknown>>): Promise<void> { await tx.query(`select audit.append_event($1,$2,$3,'worker',$4,$5,$6,$7::jsonb,now())`, [tenantId, category, eventType, SYSTEM_ACTOR_ID, resourceType, resourceId, payload]); }
+async function outbox(tx: SqlTransaction, tenantId: string, aggregateType: string, aggregateId: string, eventType: string, payload: Readonly<Record<string,unknown>>): Promise<void> { const serialized=JSON.stringify(payload); await tx.query(`insert into app.outbox_events(tenant_id,aggregate_type,aggregate_id,event_type,payload,payload_sha256) values($1,$2,$3,$4,$5::jsonb,$6)`, [tenantId,aggregateType,aggregateId,eventType,payload,await sha256Hex(serialized)]); }
+async function enqueue(tx: SqlTransaction, tenantId: string, type: DurableJobType, key: string, payload: Readonly<Record<string,unknown>>): Promise<void> { await tx.query(`insert into app.durable_jobs(tenant_id,job_type,payload,idempotency_key,status,available_at,maximum_attempts) values($1,$2,$3::jsonb,$4,'pending',now(),10) on conflict(tenant_id,job_type,idempotency_key) do nothing`, [tenantId,type,payload,key]); }
 
 function uuidPayload(payload: Readonly<Record<string,unknown>>, key: string): string { const value=stringPayload(payload,key); if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) throw permanent(`WORKER_PAYLOAD_${key.toUpperCase()}_INVALID`); return value; }
 function optionalUuidPayload(payload: Readonly<Record<string,unknown>>, key: string): string|undefined { return payload[key]===undefined ? undefined : uuidPayload(payload,key); }

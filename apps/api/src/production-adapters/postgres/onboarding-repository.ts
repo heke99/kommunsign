@@ -77,7 +77,6 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
     },
     async createOrganization(context, input, key, payloadHash) {
       return controlIdempotent(database,infrastructure,'platform',context.subjectId,'organization:create',key,payloadHash,async (transaction) => {
-        await transaction.query(`select control.assert_organization_creation_runtime()`);
         const organizationNumber=normalizeOrganizationNumber(input.organizationNumber);
         const primaryEmail=normalizeEmail(input.primaryAdminEmail);
         const duplicate=await transaction.query<{readonly id:string}>(
@@ -104,7 +103,7 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
            values($1,'provisioning',2,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,now(),now(),now())
            returning ${applicationColumns}`,
           [requireRow(reference.rows[0],'APPLICATION_REFERENCE_FAILED').reference,cleanText(input.organizationName,2,300),organizationNumber,input.organizationType,
-           emailCiphertext,emailBlindIndex,cleanText(input.primaryAdminName,2,200),cleanText(input.primaryAdminTitle,2,200),JSON.stringify(profile),context.subjectId],
+           emailCiphertext,emailBlindIndex,cleanText(input.primaryAdminName,2,200),cleanText(input.primaryAdminTitle,2,200),profile,context.subjectId],
         );
         const applicationRow=requireRow(inserted.rows[0],'APPLICATION_INSERT_FAILED');
         const application=await applicationView(applicationRow,infrastructure);
@@ -190,7 +189,7 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
              status_version=status_version+1,updated_at=now()
            where id=$1 and status_version=$2 returning ${applicationColumns}`,
           [context.applicationId,current.statusVersion,input.organizationName?cleanText(input.organizationName,2,300):null,
-           input.primaryContactName?cleanText(input.primaryContactName,2,200):null,input.primaryContactTitle?cleanText(input.primaryContactTitle,2,200):null,JSON.stringify(profile)],
+           input.primaryContactName?cleanText(input.primaryContactName,2,200):null,input.primaryContactTitle?cleanText(input.primaryContactTitle,2,200):null,profile],
         );
         const view=await applicationView(requireRow(result.rows[0],'RESOURCE_VERSION_CONFLICT'),infrastructure);
         await saveApplicationVersion(transaction,view,'applicant',null);
@@ -414,7 +413,7 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
     async runReadiness(context,tenantId,key,payloadHash){
       return controlIdempotent(database,infrastructure,'tenant',tenantId,'readiness:run',key,payloadHash,async(transaction)=>{
         const checks=await collectReadinessChecks(transaction,tenantId);const result=evaluateReadiness('production',checks);
-        await transaction.query(`insert into control.tenant_readiness_results(tenant_id,environment,ready,blocking_checks,warning_checks,completed_checks,checked_by) values($1,'production',$2,$3::jsonb,$4::jsonb,$5::jsonb,$6)`,[tenantId,result.ready,JSON.stringify(result.blockingChecks),JSON.stringify(result.warningChecks),JSON.stringify(result.completedChecks),context.subjectId]);
+        await transaction.query(`insert into control.tenant_readiness_results(tenant_id,environment,ready,blocking_checks,warning_checks,completed_checks,checked_by) values($1,'production',$2,$3::jsonb,$4::jsonb,$5::jsonb,$6)`,[tenantId,result.ready,result.blockingChecks,result.warningChecks,result.completedChecks,context.subjectId]);
         await appendControlAudit(transaction,tenantId,context.subjectId,'tenant.readiness.evaluated',{tenantId,ready:result.ready,blockingCodes:result.blockingChecks.map((item)=>item.code)});
         return result;
       });
@@ -433,7 +432,7 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
         const inserted=await transaction.query<ActivationRow>(
           `insert into control.tenant_activation_requests(tenant_id,application_id,requested_by,status,readiness_snapshot,idempotency_key)
            values($1,$2,$3,'pending_approval',$4::jsonb,$5)
-           returning id,tenant_id,requested_by,status,created_at,decided_at`,[tenantId,applicationId,context.subjectId,JSON.stringify(readiness),key],
+           returning id,tenant_id,requested_by,status,created_at,decided_at`,[tenantId,applicationId,context.subjectId,readiness,key],
         );
         await appendControlAudit(transaction,tenantId,context.subjectId,'tenant.activation.requested',{tenantId,applicationId,requestId:inserted.rows[0]?.id??null});
         return activationView(requireRow(inserted.rows[0],'ACTIVATION_REQUEST_INSERT_FAILED'));
@@ -490,7 +489,7 @@ async function decideApplication(database:SqlDatabase,infrastructure:ProductionI
       if(highRisk){if(!input.secondApproverId)throw new Error('TWO_PERSON_APPROVAL_REQUIRED');assertDistinctApprovers(context.subjectId,input.secondApproverId);}
     }
     const updated=await transitionApplication(transaction,current,decision);
-    await transaction.query(`insert into control.onboarding_decisions(application_id,decision,decided_by,second_approver_id,external_reason,internal_reason,conditions,valid_until) values($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`,[applicationId,decision,context.subjectId,input.secondApproverId??null,cleanText(input.reason,2,5000),input.internalReason??null,JSON.stringify(input.conditions??[]),input.validUntil??null]);
+    await transaction.query(`insert into control.onboarding_decisions(application_id,decision,decided_by,second_approver_id,external_reason,internal_reason,conditions,valid_until) values($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`,[applicationId,decision,context.subjectId,input.secondApproverId??null,cleanText(input.reason,2,5000),input.internalReason??null,input.conditions??[],input.validUntil??null]);
     await appendControlAudit(transaction,null,context.subjectId,`onboarding.decision.${decision}`,{applicationId,reason:input.reason,secondApproverId:input.secondApproverId??null});
     return applicationView(updated,infrastructure);
   });
@@ -606,13 +605,13 @@ async function rawApplication(transaction:SqlTransaction,id:string,forUpdate=fal
 async function applicationView(row:ApplicationRow,infrastructure:ProductionInfrastructure):Promise<ApplicationView>{const primaryEmail=await infrastructure.sensitiveData.decryptText(row.primary_email_ciphertext,'onboarding.primary_email');return{id:row.id,status:row.status,statusVersion:Number(row.status_version),organizationName:row.organization_name,organizationNumber:row.organization_number,organizationType:row.organization_type,primaryEmail,primaryContactName:row.primary_contact_name,primaryContactTitle:row.primary_contact_title,profile:row.applicant_visible_profile,createdAt:iso(row.created_at),updatedAt:iso(row.updated_at),...(row.application_reference?{applicationReference:row.application_reference}:{}),...(row.email_verified_at?{emailVerifiedAt:iso(row.email_verified_at)}:{}),...(row.submitted_at?{submittedAt:iso(row.submitted_at)}:{}),...(row.decided_at?{decidedAt:iso(row.decided_at)}:{}),...(row.assigned_to?{assignedTo:row.assigned_to}:{}),...(row.linked_tenant_id?{tenantId:row.linked_tenant_id}:{})};}
 async function transitionApplication(transaction:SqlTransaction,current:ApplicationView,status:ApplicationView['status'],expectedVersion?:number,extra:Readonly<Record<string,string>>={}):Promise<ApplicationRow>{assertVersion(current,expectedVersion);const fields=[`status=$3::control.onboarding_application_status`,`status_version=status_version+1`,`updated_at=now()`];if(status==='submitted')fields.push(`submitted_at=coalesce(submitted_at,now())`);if(status==='approved'||status==='rejected')fields.push(`decided_at=now()`);for(const[key,value]of Object.entries(extra))fields.push(`${key}=${value}`);const result=await transaction.query<ApplicationRow>(`update control.onboarding_applications set ${fields.join(',')} where id=$1 and status_version=$2 returning ${applicationColumns}`,[current.id,current.statusVersion,status]);return requireRow(result.rows[0],'RESOURCE_VERSION_CONFLICT');}
 async function issueEmailVerification(transaction:SqlTransaction,infrastructure:ProductionInfrastructure,applicationId:string,email:string):Promise<string>{const token=randomToken(32);const tokenHash=await sha256Hex(token);const emailIndex=await infrastructure.sensitiveData.blindIndex(email,'onboarding.primary_email');await transaction.query(`insert into control.onboarding_email_verifications(application_id,email_blind_index,token_hash,expires_at) values($1,$2,decode($3,'hex'),now()+interval '30 minutes')`,[applicationId,emailIndex,tokenHash]);return token;}
-async function saveApplicationVersion(transaction:SqlTransaction,view:ApplicationView,source:'applicant'|'platform'|'system',createdBy:string|null):Promise<void>{const snapshot=JSON.stringify(view);await transaction.query(`insert into control.onboarding_application_versions(application_id,version_number,source,snapshot,payload_sha256,created_by) values($1,$2,$3,$4::jsonb,$5,$6) on conflict(application_id,version_number) do nothing`,[view.id,view.statusVersion,source,snapshot,await sha256Hex(snapshot),createdBy]);}
+async function saveApplicationVersion(transaction:SqlTransaction,view:ApplicationView,source:'applicant'|'platform'|'system',createdBy:string|null):Promise<void>{const snapshot=JSON.stringify(view);await transaction.query(`insert into control.onboarding_application_versions(application_id,version_number,source,snapshot,payload_sha256,created_by) values($1,$2,$3,$4::jsonb,$5,$6) on conflict(application_id,version_number) do nothing`,[view.id,view.statusVersion,source,view,await sha256Hex(snapshot),createdBy]);}
 async function encryptNotificationPayload(infrastructure:ProductionInfrastructure,payload:Readonly<Record<string,unknown>>):Promise<string>{
   const ciphertext=await infrastructure.sensitiveData.encryptText(JSON.stringify(payload),'onboarding.application_notification');
   return base64Encode(ciphertext);
 }
 
-async function appendControlAudit(transaction:SqlTransaction,tenantId:string|null,actorId:string|null,eventType:string,payload:Readonly<Record<string,unknown>>):Promise<void>{await transaction.query(`select pg_advisory_xact_lock(hashtextextended('control-audit-chain',0))`);const previous=await transaction.query<{readonly event_hash:string}>(`select event_hash from control.control_audit_events order by occurred_at desc,id desc limit 1`);const previousHash=previous.rows[0]?.event_hash??'0'.repeat(64);const material=JSON.stringify({tenantId,actorId,eventType,payload,previousHash});const eventHash=await sha256Hex(material);await transaction.query(`insert into control.control_audit_events(tenant_id,actor_id,event_type,payload,previous_event_hash,event_hash) values($1,$2,$3,$4::jsonb,$5,$6)`,[tenantId,actorId,eventType,JSON.stringify(payload),previousHash,eventHash]);}
+async function appendControlAudit(transaction:SqlTransaction,tenantId:string|null,actorId:string|null,eventType:string,payload:Readonly<Record<string,unknown>>):Promise<void>{await transaction.query(`select pg_advisory_xact_lock(hashtextextended('control-audit-chain',0))`);const previous=await transaction.query<{readonly event_hash:string}>(`select event_hash from control.control_audit_events order by occurred_at desc,id desc limit 1`);const previousHash=previous.rows[0]?.event_hash??'0'.repeat(64);const material=JSON.stringify({tenantId,actorId,eventType,payload,previousHash});const eventHash=await sha256Hex(material);await transaction.query(`insert into control.control_audit_events(tenant_id,actor_id,event_type,payload,previous_event_hash,event_hash) values($1,$2,$3,$4::jsonb,$5,$6)`,[tenantId,actorId,eventType,payload,previousHash,eventHash]);}
 function mergeProfile(current:ApplicationProfile,next:ApplicationProfile):ApplicationProfile{const deployment=next.deployment?{...current.deployment,...next.deployment}:current.deployment;return{...current,...next,...(deployment?{deployment}:{})};}
 function assertApplicationProfileComplete(profile:ApplicationProfile):void{if(!profile.officialEmailDomain)throw new Error('APPLICATION_OFFICIAL_EMAIL_DOMAIN_REQUIRED');if(!profile.deployment?.mode)throw new Error('APPLICATION_DEPLOYMENT_MODE_REQUIRED');}
 function assertVersion(current:ApplicationView,expected?:number):void{if(expected!==undefined&&current.statusVersion!==expected)throw new Error('RESOURCE_VERSION_CONFLICT');}

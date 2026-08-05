@@ -26,7 +26,7 @@ export async function createQueueAdapter(
              payload=case when app.durable_jobs.status='pending' then excluded.payload else app.durable_jobs.payload end,
              updated_at=now()
            returning id`,
-          [input.tenantId, input.jobType, JSON.stringify(input.payload), input.idempotencyKey],
+          [input.tenantId, input.jobType, input.payload, input.idempotencyKey],
         );
         const row = inserted.rows[0];
         if (!row) throw new Error('QUEUE_JOB_INSERT_FAILED');

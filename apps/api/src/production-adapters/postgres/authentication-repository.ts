@@ -459,7 +459,7 @@ async function provisionTenantUser(
     );
     await transaction.query(
       `select audit.append_event($1,'BUSINESS','organization.user_access_granted','platform',$2,'user',$3,$4::jsonb,now())`,
-      [tenantId, platformContext.subjectId, userId, JSON.stringify({ userId, membershipId, roleKey, providerSubjectHash: await sha256Hex(providerSubjectId) })],
+      [tenantId, platformContext.subjectId, userId, { userId, membershipId, roleKey, providerSubjectHash: await sha256Hex(providerSubjectId) }],
     );
   });
 }
@@ -496,7 +496,7 @@ async function setTenantUserEnabled(
     await transaction.query(
       `select audit.append_event($1,'BUSINESS',$2,'platform',$3,'user',$4,$5::jsonb,now())`,
       [tenantId, enabled ? 'organization.user_enabled' : 'organization.user_disabled', platformContext.subjectId, userId,
-       JSON.stringify({ userId, providerSubjectHash: await sha256Hex(providerSubjectId) })],
+       { userId, providerSubjectHash: await sha256Hex(providerSubjectId) }],
     );
   });
 }
@@ -556,7 +556,7 @@ async function appendControlAudit(transaction: SqlTransaction, tenantId: string 
   await transaction.query(
     `insert into control.control_audit_events(tenant_id,actor_id,event_type,payload,previous_event_hash,event_hash)
      values($1,$2,$3,$4::jsonb,$5,$6)`,
-    [tenantId, actorId, eventType, JSON.stringify(payload), previousHash, eventHash],
+    [tenantId, actorId, eventType, payload, previousHash, eventHash],
   );
 }
 
