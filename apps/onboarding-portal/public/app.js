@@ -23,7 +23,16 @@ function render(application) {
   $('#connection-status').textContent = `Ansluten: ${application.organizationName}`;
   $('#verification-panel').classList.toggle('hidden', application.status !== 'email_verification_pending');
   $('#submit-application').disabled = !['email_verified','resubmitted'].includes(application.status);
-  $('#profile-form').querySelectorAll('input,select,button').forEach((element) => { element.disabled = !['draft','email_verification_pending','email_verified','additional_information_requested','resubmitted'].includes(application.status); });
+  const profile = application.profile || {};
+  const deployment = profile.deployment || {};
+  const profileForm = $('#profile-form');
+  profileForm.elements.website.value = profile.website || '';
+  profileForm.elements.officialEmailDomain.value = profile.officialEmailDomain || '';
+  profileForm.elements.municipalityOrRegion.value = profile.municipalityOrRegion || '';
+  profileForm.elements.mode.value = deployment.mode || 'shared_saas';
+  profileForm.elements.region.value = deployment.region || 'se-central';
+  profileForm.elements.classification.value = deployment.classification || 'INTERNAL';
+  profileForm.querySelectorAll('input,select,button').forEach((element) => { element.disabled = !['draft','email_verification_pending','email_verified','additional_information_requested','resubmitted'].includes(application.status); });
 }
 async function refresh() {
   if (!state.applicationId || !state.accessToken) return;

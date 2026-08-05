@@ -15,6 +15,16 @@ BEGIN
     RAISE EXCEPTION 'DATABASE_RUNTIME_NOT_READY: shared SaaS data plane is not registered';
   END IF;
 
+  IF EXISTS (
+    SELECT 1
+      FROM control.tenant_provisioning_requests request
+      JOIN control.platform_tenants tenant ON tenant.id=request.tenant_id
+     WHERE request.status='completed'
+       AND tenant.status='provisioning'
+  ) THEN
+    RAISE EXCEPTION 'DATABASE_RUNTIME_NOT_READY: completed tenant still has provisioning status';
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1
       FROM pg_type t

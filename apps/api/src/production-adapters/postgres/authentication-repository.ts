@@ -265,13 +265,29 @@ export function createAuthenticationRepository(
       const email = normalizeEmail(input.email);
       const displayName = cleanText(input.displayName, 2, 200);
       const roleKey = input.roleKey;
+      const emailCiphertext = await infrastructure.sensitiveData.encryptText(email, 'organization.account_email');
+      const emailBlindIndex = await infrastructure.sensitiveData.blindIndex(email, 'organization.account_email');
       const existing = await controlDatabase.transaction(async (transaction) => transaction.query<InvitationRow>(
         `select id,tenant_id,provider_user_id,display_name,email_ciphertext,role_key,status,created_at
            from control.organization_account_invitations
           where tenant_id=$1 and idempotency_key=$2 limit 1`, [tenantId, idempotencyKey],
       ));
-      if (existing.rows[0]) return invitationView(existing.rows[0], infrastructure);
+      const existingRow = existing.rows[0];
+      if (existingRow) {
+        const existingEmail = normalizeEmail(await infrastructure.sensitiveData.decryptText(existingRow.email_ciphertext, 'organization.account_email'));
+        if (existingEmail !== email || existingRow.display_name !== displayName || existingRow.role_key !== roleKey) {
+          throw new Error('IDEMPOTENCY_CONFLICT');
+        }
+        if (existingRow.status !== 'failed') {
+          await assertOrganizationAccountProvisionable(controlDatabase, dataDatabase, context, tenantId, roleKey);
+          await provisionTenantUser(dataDatabase, infrastructure, context, tenantId, existingRow.provider_user_id, displayName, email, roleKey);
+          return invitationView(existingRow, infrastructure);
+        }
+      }
 
+      // Fail before contacting the identity provider. This prevents a real invite email
+      // from being sent when the tenant data environment or managed roles are not ready.
+      await assertOrganizationAccountProvisionable(controlDatabase, dataDatabase, context, tenantId, roleKey);
       const destination = await primaryTenantDestination(controlDatabase, tenantId, tenantDiscoveryHostname);
       const redirect = new URL('/aktivera/', authPortal);
       redirect.searchParams.set('destination', destination.hostname);
@@ -281,15 +297,14 @@ export function createAuthenticationRepository(
         organizationName: await organizationName(controlDatabase, tenantId),
         displayName,
       });
-      const emailCiphertext = await infrastructure.sensitiveData.encryptText(email, 'organization.account_email');
-      const emailBlindIndex = await infrastructure.sensitiveData.blindIndex(email, 'organization.account_email');
-      const intendedStatus = invitation.invited ? 'invited' : 'active';
+      const intendedStatus = invitation.state === 'active' ? 'active' : 'invited';
+      let emailSent = invitation.state === 'invited';
 
       const pendingRow = await controlDatabase.transaction(async (transaction) => {
         const inserted = await transaction.query<InvitationRow>(
           `insert into control.organization_account_invitations
              (tenant_id,provider,provider_user_id,display_name,email_ciphertext,email_blind_index,role_key,status,invited_by,idempotency_key,invite_sent_at,accepted_at,last_error_code,updated_at)
-           values($1,'supabase_auth',$2,$3,$4,$5,$6,$7,$8,$9,case when $7='invited' then now() end,case when $7='active' then now() end,null,now())
+           values($1,'supabase_auth',$2,$3,$4,$5,$6,$7,$8,$9,case when $10::boolean then now() end,case when $7='active' then now() end,null,now())
            on conflict(tenant_id,provider,provider_user_id) do update set
              display_name=excluded.display_name,
              email_ciphertext=excluded.email_ciphertext,
@@ -298,18 +313,37 @@ export function createAuthenticationRepository(
              status=excluded.status,
              invited_by=excluded.invited_by,
              idempotency_key=excluded.idempotency_key,
-             invite_sent_at=case when excluded.status='invited' then now() else control.organization_account_invitations.invite_sent_at end,
-             accepted_at=case when excluded.status='active' then coalesce(control.organization_account_invitations.accepted_at,now()) else null end,
+             invite_sent_at=case when $10::boolean then now() else control.organization_account_invitations.invite_sent_at end,
+             accepted_at=case when excluded.status='active' then coalesce(control.organization_account_invitations.accepted_at,now()) else control.organization_account_invitations.accepted_at end,
+             disabled_at=null,
              last_error_code=null,
              updated_at=now()
            returning id,tenant_id,provider_user_id,display_name,email_ciphertext,role_key,status,created_at`,
-          [tenantId, invitation.user.id, displayName, emailCiphertext, emailBlindIndex, roleKey, intendedStatus, context.subjectId, idempotencyKey],
+          [tenantId, invitation.user.id, displayName, emailCiphertext, emailBlindIndex, roleKey, intendedStatus, context.subjectId, idempotencyKey, emailSent],
         );
         return requiredRow(inserted.rows[0], 'ORGANIZATION_ACCOUNT_INVITATION_CREATE_FAILED');
       });
 
       try {
         await provisionTenantUser(dataDatabase, infrastructure, context, tenantId, invitation.user.id, displayName, email, roleKey);
+        if (invitation.state === 'pending') {
+          // The identity already exists because an earlier provider invite may have
+          // succeeded before local tenant provisioning failed. Repair authorization
+          // first, then send a fresh password link. This avoids both false-success
+          // UI states and duplicate messages during automatic idempotent retries.
+          const recoveryRedirect = new URL('/aterstall/', authPortal);
+          recoveryRedirect.searchParams.set('destination', destination.hostname);
+          await provider.sendPasswordRecovery(email, recoveryRedirect.toString());
+          emailSent = true;
+          await controlDatabase.transaction(async (transaction) => {
+            await transaction.query(
+              `update control.organization_account_invitations
+                  set invite_sent_at=now(),last_error_code=null,updated_at=now()
+                where id=$1`,
+              [pendingRow.id],
+            );
+          });
+        }
       } catch (cause) {
         const safeCode = cause instanceof Error && /^[A-Z0-9_]{3,100}$/.test(cause.message) ? cause.message : 'ORGANIZATION_ACCOUNT_PROVISION_FAILED';
         await controlDatabase.transaction(async (transaction) => {
@@ -325,6 +359,7 @@ export function createAuthenticationRepository(
             providerSubjectHash: await sha256Hex(invitation.user.id),
             roleKey,
             payloadHash,
+            providerState: invitation.state,
             safeErrorCode: safeCode,
           });
         });
@@ -338,7 +373,8 @@ export function createAuthenticationRepository(
           providerSubjectHash: await sha256Hex(invitation.user.id),
           roleKey,
           payloadHash,
-          inviteEmailSent: invitation.invited,
+          providerState: invitation.state,
+          inviteEmailSent: emailSent,
         });
       });
       return invitationView(pendingRow, infrastructure);
@@ -405,6 +441,65 @@ export function sessionTokenFromRequest(request: Request): string | null {
     if (rawName === SESSION_COOKIE_NAME) return decodeURIComponent(rawValue.join('='));
   }
   return null;
+}
+
+async function assertOrganizationAccountProvisionable(
+  controlDatabase: SqlDatabase,
+  dataDatabase: SqlDatabase,
+  platformContext: PlatformContext,
+  tenantId: string,
+  roleKey: OrganizationUserInput['roleKey'],
+): Promise<void> {
+  const control = await controlDatabase.transaction(async (transaction) => transaction.query<{
+    readonly tenant_status: string;
+    readonly provisioning_completed: boolean;
+    readonly environment_ready: boolean;
+  }>(
+    `select t.status::text as tenant_status,
+            exists (
+              select 1 from control.tenant_provisioning_requests request
+               where request.tenant_id=t.id and request.status='completed'
+            ) as provisioning_completed,
+            exists (
+              select 1
+                from control.tenant_environments environment
+                join control.data_planes plane on plane.id=environment.data_plane_id
+               where environment.tenant_id=t.id
+                 and environment.environment='production'
+                 and environment.status in ('onboarding','active')
+                 and plane.status='ready'
+                 and plane.storage_secret_reference is not null
+            ) as environment_ready
+       from control.platform_tenants t
+      where t.id=$1
+        and t.status not in ('suspended','decommissioning','decommissioned')
+      limit 1`,
+    [tenantId],
+  ));
+  const state = requiredRow(control.rows[0], 'ORGANIZATION_NOT_FOUND');
+  if (!state.provisioning_completed && !['onboarding','active'].includes(state.tenant_status)) {
+    throw new Error('ORGANIZATION_PROVISIONING_NOT_COMPLETED');
+  }
+  if (!state.environment_ready) throw new Error('ORGANIZATION_DATA_ENVIRONMENT_NOT_READY');
+
+  const context: TenantContext = {
+    tenantId,
+    subjectId: platformContext.subjectId,
+    requestId: platformContext.requestId,
+    authMethod: 'trusted_service',
+    source: 'deployment',
+  };
+  const data = await withTenantTransaction(dataDatabase, context, 'trusted_service', async (transaction) => transaction.query<{
+    readonly organization_ready: boolean;
+    readonly role_ready: boolean;
+  }>(
+    `select exists(select 1 from app.organizations where tenant_id=$1) as organization_ready,
+            exists(select 1 from app.roles where tenant_id=$1 and role_key=$2) as role_ready`,
+    [tenantId, roleKey],
+  ));
+  const readiness = requiredRow(data.rows[0], 'ORGANIZATION_DATA_ENVIRONMENT_NOT_READY');
+  if (!readiness.organization_ready) throw new Error('ORGANIZATION_DATA_ENVIRONMENT_NOT_READY');
+  if (!readiness.role_ready) throw new Error('ORGANIZATION_ROLE_NOT_PROVISIONED');
 }
 
 async function provisionTenantUser(

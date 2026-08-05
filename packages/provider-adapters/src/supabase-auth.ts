@@ -5,6 +5,11 @@ export interface SupabaseAuthUser {
   readonly userMetadata: Readonly<Record<string, unknown>>;
 }
 
+export interface SupabaseManagedUserResolution {
+  readonly user: SupabaseAuthUser;
+  readonly state: 'invited' | 'pending' | 'active';
+}
+
 export interface SupabasePasswordSession {
   readonly accessToken: string;
   readonly expiresIn: number;
@@ -129,17 +134,16 @@ export class SupabaseAuthProvider {
     throw new SupabaseAuthError('AUTH_PROVIDER_USER_LOOKUP_LIMIT', 503, true);
   }
 
-  async inviteOrFindUser(email: string, redirectTo: string, metadata: Readonly<Record<string, unknown>>): Promise<{ readonly user: SupabaseAuthUser; readonly invited: boolean }> {
+  async inviteOrFindUser(email: string, redirectTo: string, metadata: Readonly<Record<string, unknown>>): Promise<SupabaseManagedUserResolution> {
     const existing = await this.findUserByEmail(email);
-    if (existing?.emailConfirmedAt) return { user: existing, invited: false };
+    if (existing?.emailConfirmedAt) return { user: existing, state: 'active' };
     if (existing) {
-      // Supabase rejects a second administrative invite for an existing identity.
-      // A recovery link uses the same protected password-completion flow and safely
-      // re-delivers account activation without creating a duplicate identity.
-      await this.sendPasswordRecovery(email, redirectTo);
-      return { user: existing, invited: true };
+      // Reuse the existing unconfirmed identity without sending another message.
+      // This makes retries safe when the original invite email was delivered but
+      // local tenant provisioning failed after the provider call.
+      return { user: existing, state: 'pending' };
     }
-    return { user: await this.inviteUser(email, redirectTo, metadata), invited: true };
+    return { user: await this.inviteUser(email, redirectTo, metadata), state: 'invited' };
   }
 
   private publicHeaders(): Readonly<Record<string, string>> {

@@ -405,6 +405,18 @@ export function createProvisioningRepository(
             [request.id],
           );
           await transaction.query(
+            `update control.platform_tenants
+                set status='onboarding',updated_at=now(),version=version+1
+              where id=$1 and status='provisioning'`,
+            [tenantId],
+          );
+          await transaction.query(
+            `update control.tenant_environments
+                set status='onboarding',updated_at=now()
+              where tenant_id=$1 and environment='production' and status<>'active'`,
+            [tenantId],
+          );
+          await transaction.query(
             `update control.onboarding_applications
                 set status='onboarding',status_version=status_version+1,updated_at=now()
               where id=$1

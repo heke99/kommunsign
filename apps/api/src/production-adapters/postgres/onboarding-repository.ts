@@ -141,14 +141,20 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
           `select id from control.onboarding_applications where organization_number=$1 and status not in ('rejected','withdrawn','archived') order by created_at desc limit 1`,
           [organizationNumber],
         );
+        const officialEmailDomain = primaryEmail.split('@')[1] ?? '';
+        const initialProfile: ApplicationProfile = {
+          officialEmailDomain,
+          deployment: { mode: 'shared_saas', region: 'se-central' },
+        };
         const inserted = await transaction.query<ApplicationRow>(
           `insert into control.onboarding_applications
              (organization_name,organization_number,organization_type,primary_email_ciphertext,primary_email_blind_index,
-              primary_contact_name,primary_contact_title,possible_duplicate,duplicate_of_application_id)
-           values($1,$2,$3,$4,$5,$6,$7,$8,$9)
+              primary_contact_name,primary_contact_title,applicant_visible_profile,possible_duplicate,duplicate_of_application_id)
+           values($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)
            returning ${applicationColumns}`,
           [cleanText(input.organizationName,2,300),organizationNumber,input.organizationType,emailCiphertext,emailBlindIndex,
-           cleanText(input.primaryContactName,2,200),cleanText(input.primaryContactTitle,2,200),Boolean(duplicate.rows[0]),duplicate.rows[0]?.id??null],
+           cleanText(input.primaryContactName,2,200),cleanText(input.primaryContactTitle,2,200),initialProfile,
+           Boolean(duplicate.rows[0]),duplicate.rows[0]?.id??null],
         );
         const row=requireRow(inserted.rows[0],'APPLICATION_INSERT_FAILED');
         const accessToken=randomToken(32); const accessHash=await sha256Hex(accessToken);

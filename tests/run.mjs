@@ -23,6 +23,7 @@ import { normalizeTenantSlug, canonicalHostname as canonicalTenantHostname, crea
 import { TenantHostnameResolver, resolveRequestHostname, resolveTenantPublicUrl, isAllowedCredentialOrigin } from '../dist/packages/tenant-gateway/src/index.js';
 import { buildHostOnlySessionCookie, issueAuthorizationCode, exchangeAuthorizationCode } from '../dist/packages/auth-broker/src/index.js';
 import { createSensitiveDataAdapter } from '../dist/apps/api/src/adapters/aes-gcm-sensitive-data.js';
+import { createAuthenticationRepository } from '../dist/apps/api/src/production-adapters/postgres/authentication-repository.js';
 import { expectedSupabaseAuthConfig, verifySupabaseAuthConfig } from '../scripts/supabase-auth-config-lib.mjs';
 import { hasPlatformPermission } from '../dist/packages/authorization/src/index.js';
 
@@ -196,7 +197,7 @@ test('Railway API allows the canonical Vercel origins even when a CORS variable 
   assert.match(serverSource, /access-control-allow-credentials/);
 });
 
-test('an unconfirmed account receives a new activation link without a duplicate identity', async () => {
+test('an unconfirmed account is reused without duplicate identity or duplicate email', async () => {
   const calls = [];
   const provider = new SupabaseAuthProvider({
     projectUrl: 'https://example.supabase.co', anonKey: 'anon-key', serviceRoleKey: 'service-role-key',
@@ -205,14 +206,13 @@ test('an unconfirmed account receives a new activation link without a duplicate 
       if (String(url).includes('/admin/users?')) {
         return new Response(JSON.stringify({ users: [{ id: '22222222-2222-4222-8222-222222222222', email: 'ny@kommun.se', user_metadata: {} }] }), { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (String(url).includes('/recover?')) return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
       throw new Error(`unexpected ${url}`);
     },
   });
   const result = await provider.inviteOrFindUser('ny@kommun.se', 'https://app.kommunsign.se/aktivera/?destination=kommun.kommunsign.se', { displayName: 'Ny Admin' });
   assert.equal(result.user.id, '22222222-2222-4222-8222-222222222222');
-  assert.equal(result.invited, true);
-  assert.ok(calls.some((call) => call.url.includes('/auth/v1/recover?redirect_to=')));
+  assert.equal(result.state, 'pending');
+  assert.ok(!calls.some((call) => call.url.includes('/auth/v1/recover?')));
   assert.ok(!calls.some((call) => call.url.includes('/auth/v1/invite?')));
 });
 
@@ -238,6 +238,134 @@ test('Supabase Auth production configuration is machine-verifiable', async () =>
   }), /SUPABASE_AUTH_SITE_URL_INVALID/);
 });
 
+test('organization invitation does not contact Supabase before the tenant data environment is ready', async () => {
+  let providerCalls = 0;
+  const controlDatabase = {
+    transaction: async (work) => work({
+      query: async (sql) => {
+        if (sql.includes('from control.organization_account_invitations') && sql.includes('idempotency_key')) return { rows: [], rowCount: 0 };
+        if (sql.includes('from control.platform_tenants t')) return {
+          rows: [{ tenant_status: 'provisioning', provisioning_completed: false, environment_ready: false }], rowCount: 1,
+        };
+        throw new Error(`unexpected control query: ${sql}`);
+      },
+    }),
+  };
+  const dataDatabase = { transaction: async () => { throw new Error('data database must not be contacted'); } };
+  const infrastructure = {
+    sensitiveData: {
+      encryptText: async () => new Uint8Array([1, 2, 3]),
+      decryptText: async () => 'admin@kommun.se',
+      blindIndex: async () => new Uint8Array([4, 5, 6]),
+    },
+  };
+  const provider = {
+    inviteOrFindUser: async () => { providerCalls += 1; throw new Error('provider must not be contacted'); },
+  };
+  const repository = createAuthenticationRepository(controlDatabase, dataDatabase, infrastructure, provider, {
+    rootDomain: 'kommunsign.se', platformAdminHostname: 'admin.kommunsign.se',
+    tenantDiscoveryHostname: 'app.kommunsign.se', authPortalUrl: 'https://app.kommunsign.se', sessionLifetimeSeconds: 3600,
+  });
+  await assert.rejects(
+    () => repository.inviteOrganizationUser(
+      { subjectId: '99999999-9999-4999-8999-999999999999', requestId: 'invite-readiness-test', roles: ['platform_super_admin'] },
+      '22222222-2222-4222-8222-222222222222',
+      { displayName: 'Anna Admin', email: 'admin@kommun.se', roleKey: 'tenant_admin' },
+      'invite-readiness-test-0001',
+      'a'.repeat(64),
+    ),
+    /ORGANIZATION_PROVISIONING_NOT_COMPLETED/,
+  );
+  assert.equal(providerCalls, 0);
+});
+
+test('a repaired pending identity receives a fresh password link only after local access exists', async () => {
+  const events = [];
+  const tenantId = '22222222-2222-4222-8222-222222222222';
+  const providerUserId = '33333333-3333-4333-8333-333333333333';
+  const invitationId = '44444444-4444-4444-8444-444444444444';
+  const controlDatabase = {
+    transaction: async (work) => work({
+      query: async (sql) => {
+        if (sql.includes('from control.organization_account_invitations') && sql.includes('idempotency_key')) return { rows: [], rowCount: 0 };
+        if (sql.includes('from control.platform_tenants t')) return { rows: [{ tenant_status: 'onboarding', provisioning_completed: true, environment_ready: true }], rowCount: 1 };
+        if (sql.includes('select normalized_hostname from control.tenant_domains')) return { rows: [], rowCount: 0 };
+        if (sql.includes('select legal_name from control.platform_tenants')) return { rows: [{ legal_name: 'Testkommunen' }], rowCount: 1 };
+        if (sql.includes('insert into control.organization_account_invitations')) return {
+          rows: [{ id: invitationId, tenant_id: tenantId, provider_user_id: providerUserId, display_name: 'Anna Admin', email_ciphertext: new Uint8Array([1]), role_key: 'tenant_admin', status: 'invited', created_at: new Date().toISOString() }], rowCount: 1,
+        };
+        if (sql.includes('set invite_sent_at=now()')) { events.push('control:invite-sent'); return { rows: [], rowCount: 1 }; }
+        if (sql.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 1 };
+        if (sql.includes('select event_hash from control.control_audit_events')) return { rows: [], rowCount: 0 };
+        if (sql.includes('insert into control.control_audit_events')) return { rows: [], rowCount: 1 };
+        throw new Error(`unexpected control query: ${sql}`);
+      },
+    }),
+  };
+  const dataDatabase = {
+    transaction: async (work) => work({
+      query: async (sql) => {
+        if (sql.includes("select set_config('app.")) return { rows: [], rowCount: 1 };
+        if (sql.includes('select exists(select 1 from app.organizations')) return { rows: [{ organization_ready: true, role_ready: true }], rowCount: 1 };
+        if (sql.includes('select id from app.users')) return { rows: [], rowCount: 0 };
+        if (sql.includes('insert into app.users')) return { rows: [{ id: '55555555-5555-4555-8555-555555555555' }], rowCount: 1 };
+        if (sql.includes('select id from app.memberships')) return { rows: [], rowCount: 0 };
+        if (sql.includes('insert into app.memberships')) return { rows: [{ id: '66666666-6666-4666-8666-666666666666' }], rowCount: 1 };
+        if (sql.includes('select id from app.roles')) return { rows: [{ id: '77777777-7777-4777-8777-777777777777' }], rowCount: 1 };
+        if (sql.includes('delete from app.role_assignments')) return { rows: [], rowCount: 1 };
+        if (sql.includes('insert into app.role_assignments')) { events.push('data:role-assigned'); return { rows: [], rowCount: 1 }; }
+        if (sql.includes('select audit.append_event')) return { rows: [], rowCount: 1 };
+        throw new Error(`unexpected data query: ${sql}`);
+      },
+    }),
+  };
+  const infrastructure = {
+    sensitiveData: {
+      encryptText: async () => new Uint8Array([1]),
+      decryptText: async () => 'admin@kommun.se',
+      blindIndex: async () => new Uint8Array([2]),
+    },
+  };
+  const provider = {
+    inviteOrFindUser: async () => ({ user: { id: providerUserId, email: 'admin@kommun.se', userMetadata: {} }, state: 'pending' }),
+    sendPasswordRecovery: async () => { events.push('provider:recovery-sent'); },
+  };
+  const repository = createAuthenticationRepository(controlDatabase, dataDatabase, infrastructure, provider, {
+    rootDomain: 'kommunsign.se', platformAdminHostname: 'admin.kommunsign.se', tenantDiscoveryHostname: 'app.kommunsign.se',
+    authPortalUrl: 'https://app.kommunsign.se', sessionLifetimeSeconds: 3600,
+  });
+  const result = await repository.inviteOrganizationUser(
+    { subjectId: '99999999-9999-4999-8999-999999999999', requestId: 'pending-repair-test', roles: ['platform_super_admin'] },
+    tenantId,
+    { displayName: 'Anna Admin', email: 'admin@kommun.se', roleKey: 'tenant_admin' },
+    'pending-repair-test-0001',
+    'b'.repeat(64),
+  );
+  assert.equal(result.status, 'invited');
+  assert.ok(events.indexOf('data:role-assigned') >= 0);
+  assert.ok(events.indexOf('provider:recovery-sent') > events.indexOf('data:role-assigned'));
+  assert.ok(events.indexOf('control:invite-sent') > events.indexOf('provider:recovery-sent'));
+});
+
+test('organization invitation waits for a complete tenant and remains retry-safe after provider delivery', async () => {
+  const repository = await readFile('apps/api/src/production-adapters/postgres/authentication-repository.ts', 'utf8');
+  const provider = await readFile('packages/provider-adapters/src/supabase-auth.ts', 'utf8');
+  const provisioning = await readFile('apps/api/src/production-adapters/postgres/provisioning-repository.ts', 'utf8');
+  const migration = await readFile('migrations/control/0016_consistent_tenant_and_account_activation.sql', 'utf8');
+  const activationPage = await readFile('apps/auth-portal/public/aktivera/index.html', 'utf8');
+  assert.match(repository, /assertOrganizationAccountProvisionable[\s\S]*provider\.inviteOrFindUser/);
+  assert.match(repository, /existingRow[\s\S]*status !== 'failed'[\s\S]*provisionTenantUser/);
+  assert.match(repository, /providerState: invitation\.state/);
+  assert.match(repository, /provisionTenantUser[\s\S]*invitation\.state === 'pending'[\s\S]*sendPasswordRecovery/);
+  assert.match(provider, /state: 'invited' \| 'pending' \| 'active'/);
+  assert.match(provider, /existing\) \{[\s\S]*state: 'pending'/);
+  assert.doesNotMatch(provider, /existing\)[\s\S]{0,300}sendPasswordRecovery/);
+  assert.match(provisioning, /update control\.platform_tenants[\s\S]*status='onboarding'/);
+  assert.match(migration, /request\.status='completed'[\s\S]*tenant\.status='provisioning'/);
+  assert.match(activationPage, /Välj ett personligt lösenord/);
+  assert.match(activationPage, /minlength="12"/);
+});
+
 test('shared SaaS provisioning has a ready data plane and worker recovery', async () => {
   const migration = await readFile('migrations/control/0015_shared_saas_data_plane_runtime.sql', 'utf8');
   const worker = await readFile('apps/workers/src/postgres-production-adapter.ts', 'utf8');
@@ -250,6 +378,16 @@ test('shared SaaS provisioning has a ready data plane and worker recovery', asyn
   assert.match(onboarding, /'create_tenant','assign_data_plane','create_environment'/);
   assert.match(onboarding, /deployment\.mode==='shared_saas'\?'se-central'/);
   assert.doesNotMatch(onboarding, /'create_tenant','create_environment','assign_data_plane'/);
+});
+
+test('new applications start with simple shared SaaS defaults and a derived email domain', async () => {
+  const repository = await readFile('apps/api/src/production-adapters/postgres/onboarding-repository.ts', 'utf8');
+  const portal = await readFile('apps/onboarding-portal/public/index.html', 'utf8');
+  const portalRuntime = await readFile('apps/onboarding-portal/public/app.js', 'utf8');
+  assert.match(repository, /const officialEmailDomain = primaryEmail\.split\('@'\)\[1\]/);
+  assert.match(repository, /initialProfile[\s\S]*mode: 'shared_saas'[\s\S]*region: 'se-central'/);
+  assert.match(portal, /fylls automatiskt från kontaktadressen/);
+  assert.match(portalRuntime, /profileForm\.elements\.officialEmailDomain\.value = profile\.officialEmailDomain/);
 });
 
 test('organization provisioning never creates an applicant login automatically', async () => {
