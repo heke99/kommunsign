@@ -326,11 +326,13 @@ export function createAuthenticationRepository(
 
       try {
         await provisionTenantUser(dataDatabase, infrastructure, context, tenantId, invitation.user.id, displayName, email, roleKey);
-        if (invitation.state === 'pending') {
-          // The identity already exists because an earlier provider invite may have
-          // succeeded before local tenant provisioning failed. Repair authorization
-          // first, then send a fresh password link. This avoids both false-success
-          // UI states and duplicate messages during automatic idempotent retries.
+        if (invitation.state !== 'invited') {
+          // The identity already exists in Supabase Auth. It may be unconfirmed, or
+          // already email-confirmed without a usable password after an earlier invite.
+          // Repair local authorization first, then issue a fresh recovery link. A
+          // repeated browser action uses a new idempotency key and must therefore
+          // result in a new usable password link; transport retries with the same key
+          // are still deduplicated by the early idempotency lookup above.
           const recoveryRedirect = new URL('/aterstall/', authPortal);
           recoveryRedirect.searchParams.set('destination', destination.hostname);
           await provider.sendPasswordRecovery(email, recoveryRedirect.toString());

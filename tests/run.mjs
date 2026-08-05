@@ -279,7 +279,7 @@ test('organization invitation does not contact Supabase before the tenant data e
   assert.equal(providerCalls, 0);
 });
 
-test('a repaired pending identity receives a fresh password link only after local access exists', async () => {
+test('an existing confirmed identity receives a fresh password link only after local access exists', async () => {
   const events = [];
   const tenantId = '22222222-2222-4222-8222-222222222222';
   const providerUserId = '33333333-3333-4333-8333-333333333333';
@@ -292,7 +292,7 @@ test('a repaired pending identity receives a fresh password link only after loca
         if (sql.includes('select normalized_hostname from control.tenant_domains')) return { rows: [], rowCount: 0 };
         if (sql.includes('select legal_name from control.platform_tenants')) return { rows: [{ legal_name: 'Testkommunen' }], rowCount: 1 };
         if (sql.includes('insert into control.organization_account_invitations')) return {
-          rows: [{ id: invitationId, tenant_id: tenantId, provider_user_id: providerUserId, display_name: 'Anna Admin', email_ciphertext: new Uint8Array([1]), role_key: 'tenant_admin', status: 'invited', created_at: new Date().toISOString() }], rowCount: 1,
+          rows: [{ id: invitationId, tenant_id: tenantId, provider_user_id: providerUserId, display_name: 'Anna Admin', email_ciphertext: new Uint8Array([1]), role_key: 'tenant_admin', status: 'active', created_at: new Date().toISOString() }], rowCount: 1,
         };
         if (sql.includes('set invite_sent_at=now()')) { events.push('control:invite-sent'); return { rows: [], rowCount: 1 }; }
         if (sql.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 1 };
@@ -327,7 +327,7 @@ test('a repaired pending identity receives a fresh password link only after loca
     },
   };
   const provider = {
-    inviteOrFindUser: async () => ({ user: { id: providerUserId, email: 'admin@kommun.se', userMetadata: {} }, state: 'pending' }),
+    inviteOrFindUser: async () => ({ user: { id: providerUserId, email: 'admin@kommun.se', emailConfirmedAt: new Date().toISOString(), userMetadata: {} }, state: 'active' }),
     sendPasswordRecovery: async () => { events.push('provider:recovery-sent'); },
   };
   const repository = createAuthenticationRepository(controlDatabase, dataDatabase, infrastructure, provider, {
@@ -335,13 +335,13 @@ test('a repaired pending identity receives a fresh password link only after loca
     authPortalUrl: 'https://app.kommunsign.se', sessionLifetimeSeconds: 3600,
   });
   const result = await repository.inviteOrganizationUser(
-    { subjectId: '99999999-9999-4999-8999-999999999999', requestId: 'pending-repair-test', roles: ['platform_super_admin'] },
+    { subjectId: '99999999-9999-4999-8999-999999999999', requestId: 'existing-reinvite-test', roles: ['platform_super_admin'] },
     tenantId,
     { displayName: 'Anna Admin', email: 'admin@kommun.se', roleKey: 'tenant_admin' },
-    'pending-repair-test-0001',
+    'existing-reinvite-test-0001',
     'b'.repeat(64),
   );
-  assert.equal(result.status, 'invited');
+  assert.equal(result.status, 'active');
   assert.ok(events.indexOf('data:role-assigned') >= 0);
   assert.ok(events.indexOf('provider:recovery-sent') > events.indexOf('data:role-assigned'));
   assert.ok(events.indexOf('control:invite-sent') > events.indexOf('provider:recovery-sent'));
@@ -356,7 +356,7 @@ test('organization invitation waits for a complete tenant and remains retry-safe
   assert.match(repository, /assertOrganizationAccountProvisionable[\s\S]*provider\.inviteOrFindUser/);
   assert.match(repository, /existingRow[\s\S]*status !== 'failed'[\s\S]*provisionTenantUser/);
   assert.match(repository, /providerState: invitation\.state/);
-  assert.match(repository, /provisionTenantUser[\s\S]*invitation\.state === 'pending'[\s\S]*sendPasswordRecovery/);
+  assert.match(repository, /provisionTenantUser[\s\S]*invitation\.state !== 'invited'[\s\S]*sendPasswordRecovery/);
   assert.match(provider, /state: 'invited' \| 'pending' \| 'active'/);
   assert.match(provider, /existing\) \{[\s\S]*state: 'pending'/);
   assert.doesNotMatch(provider, /existing\)[\s\S]{0,300}sendPasswordRecovery/);
