@@ -106,3 +106,25 @@ FROM (SELECT DISTINCT tenant_id FROM app.organizations) o
 CROSS JOIN required_roles
 LEFT JOIN app.roles r ON r.tenant_id=o.tenant_id AND r.role_key=required_roles.role_key
 WHERE r.id IS NULL;
+
+
+-- Audit runtime invariants. These checks intentionally return zero rows on success.
+WITH pgcrypto AS (
+  SELECT namespace.nspname AS schema_name
+    FROM pg_extension extension
+    JOIN pg_namespace namespace ON namespace.oid = extension.extnamespace
+   WHERE extension.extname = 'pgcrypto'
+), append_function AS (
+  SELECT pg_get_functiondef(procedure.oid) AS definition
+    FROM pg_proc procedure
+    JOIN pg_namespace namespace ON namespace.oid = procedure.pronamespace
+   WHERE namespace.nspname = 'audit'
+     AND procedure.proname = 'append_event'
+     AND pg_get_function_identity_arguments(procedure.oid) = 'p_tenant_id uuid, p_category text, p_event_type text, p_actor_type text, p_actor_id uuid, p_resource_type text, p_resource_id uuid, p_payload jsonb, p_occurred_at timestamp with time zone'
+)
+SELECT 'audit_append_event_pgcrypto_not_schema_qualified' AS violation,
+       coalesce(pgcrypto.schema_name, 'pgcrypto_missing') AS resource_id
+  FROM pgcrypto
+  LEFT JOIN append_function ON true
+ WHERE append_function.definition IS NULL
+    OR position(format('%I.digest', pgcrypto.schema_name) in append_function.definition) = 0;

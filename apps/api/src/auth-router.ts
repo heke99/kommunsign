@@ -147,6 +147,11 @@ async function platformContext(dependencies: ApiDependencies, request: Request, 
 function safeKnown(cause: unknown): AuthRequestError {
   if (cause instanceof AuthRequestError) return cause;
   if (!(cause instanceof Error)) return new AuthRequestError('INTERNAL_ERROR', 500);
+  const postgresCause = cause as Error & { readonly code?: unknown };
+  const sqlState = typeof postgresCause.code === 'string' ? postgresCause.code : undefined;
+  if (sqlState && ['42P01','42703','42883','3F000'].includes(sqlState)) {
+    return new AuthRequestError('DATABASE_SCHEMA_OUTDATED', 503, 'Databasmigrationerna är inte aktuella.');
+  }
   const mapping: Readonly<Record<string, readonly [number,string]>> = {
     AUTH_INVALID_CREDENTIALS: [401,'E-post eller lösenord är felaktigt.'],
     AUTH_ACCOUNT_NOT_AUTHORIZED: [403,'Kontot saknar åtkomst till den valda organisationen.'],

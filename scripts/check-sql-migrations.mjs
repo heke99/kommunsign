@@ -24,4 +24,10 @@ for (const requirement of [
 ]) {
   if (!hardening.includes(requirement)) throw new Error(`data/0009 lacks ${requirement}`);
 }
+
+const auditRuntimeRepair = await readFile('migrations/data/0016_pgcrypto_audit_runtime_repair.sql', 'utf8');
+for (const requirement of ['pg_extension', 'extnamespace', '%I.digest', 'audit.append_event']) {
+  if (!auditRuntimeRepair.includes(requirement)) throw new Error(`data/0016 lacks ${requirement}`);
+}
+
 console.log('SQL migration verification: OK');
