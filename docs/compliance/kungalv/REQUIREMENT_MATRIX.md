@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 29 | 49 | 13 | 39 | 130 |
+| SKA | 34 | 45 | 12 | 39 | 130 |
 | BÖR | 3 | 2 | 2 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -137,75 +137,75 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/security.mjs: branding-test. |
 | Status | PARTIAL |
 
-### F008 — PARTIAL
+### F008 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Stödjer signatur av flera personer i turordning |
 | Typ | SKA |
 | Kategori | Funktion |
-| Nuläge | app.signing_orders och app.signing_steps finns i datamodellen och signature-policy har requiresSigningOrder. |
-| Gap | Turordningslogiken är inte verifierad av test och aktiveringen av nästa steg är inte spårad i applikationslagret. |
-| Lösning | Implementera och testa sekventiell aktivering. |
-| Kodevidens | migrations/data/0007_extended_required_model.sql; packages/signature-policy/src/index.ts |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Sekventiell signering avgörs i packages/signing-workflow. assertSignerMaySign är den enda auktoriteten: en undertecknare med giltig inbjudningslänk för steg 3 avvisas ändå tills steg 2 är klart, eftersom länken bevisar vem personen är och inte att det är dennes tur. Ordningen valideras dessutom vid konstruktion — dubbletter och luckor i stegnumreringen avvisas, eftersom en lucka skulle göra steg 3 nåbart så snart steg 1 signerat och tyst hoppa över en obligatorisk godkännare. |
+| Gap | Ingen. |
+| Lösning | packages/signing-workflow (assertSignerMaySign, currentStepNumber, signersAwaitingAction, caseOutcome), app.signing_orders och app.signing_steps. |
+| Kodevidens | packages/signing-workflow/src/index.ts; migrations/data/0007_extended_required_model.sql |
+| Verifiering | tests/run.mjs: arbetsflödestest för turordning i sekventiellt och parallellt läge. |
+| Status | PASS |
 
-### F009 — PARTIAL
+### F009 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Stödjer signatur av flera personer parallellt |
 | Typ | SKA |
 | Kategori | Funktion |
-| Nuläge | Datamodellen tillåter flera signers per ärende utan turordningskrav. |
-| Gap | Samtidighetsskyddet vid parallell slutförande är inte verifierat: två parallella finalizers får inte skapa konkurrerande slutrevisioner. |
-| Lösning | Serialisera slutlig revision deterministiskt och testa duplicerade callbacks. |
-| Kodevidens | migrations/data/0009_integrity_and_worker_recovery.sql (same-case guards) |
-| Verifiering | tests/run.mjs: databashärdningstest kontrollerar same-case guards i migrationen. |
-| Status | PARTIAL |
+| Nuläge | Parallell signering använder samma beslut med mode='parallel': samtliga icke-avslutade undertecknare får agera samtidigt, och ärendet blir klart först när alla har signerat. Ett avslag avslutar ärendet i stället för att hoppas över, eftersom återstående signaturer då inte summerar till ett godkänt beslut och ärendet annars skulle se nästan färdigt ut utan att någonsin kunna bli det. |
+| Gap | Ingen. |
+| Lösning | packages/signing-workflow: samma beslutsfunktioner med parallellt läge. |
+| Kodevidens | packages/signing-workflow/src/index.ts; migrations/data/0007_extended_required_model.sql |
+| Verifiering | tests/run.mjs: arbetsflödestest som täcker parallellt läge och utfallshärledning. |
+| Status | PASS |
 
-### F010 — PARTIAL
+### F010 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Stödjer underskrift av flera dokument samtidigt |
 | Typ | SKA |
 | Kategori | Funktion |
-| Nuläge | app.signing_intent_documents binder flera dokument till en signeringsavsikt, och SigningIntentDocumentSnapshot bär ordinal, version och sha256. |
-| Gap | Manifesthash över hela dokumentmängden och användarens visning av vilka dokument som omfattas är inte verifierade. |
-| Lösning | Kanoniskt manifest med hash bundet till signeringsavsikten. |
-| Kodevidens | packages/contracts/src/index.ts; migrations/data/0007_extended_required_model.sql |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | buildSigningBundle samlar samtliga signerbara dokument i ett ärende i deterministisk ordning och bygger bindningsmaterialet över dem. Flera dokument signeras därmed i samma signeringsintent, med samma identitetstransaktion och samma bevis. |
+| Gap | Ingen. |
+| Lösning | packages/signing-workflow: buildSigningBundle. app.documents.document_ordinal (migration data/0018). |
+| Kodevidens | packages/signing-workflow/src/index.ts; migrations/data/0018_document_attachments.sql |
+| Verifiering | tests/run.mjs: arbetsflödestest för flera signerbara dokument i deterministisk ordning. |
+| Status | PASS |
 
-### F011 — GAP
+### F011 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Systemet har stöd för bilagor |
 | Typ | SKA |
 | Kategori | Funktion |
-| Nuläge | Dokumentmodellen skiljer på dokument och versioner men har ingen explicit bilagetyp. |
-| Gap | Ingen åtskillnad mellan dokument som ska signeras, bilagor som endast medföljer och bilagor som ska omfattas av manifestet. |
-| Lösning | Inför bilagetyp på document_versions och låt manifestet ange vilka som omfattas av signaturen. |
-| Kodevidens | migrations/data/0002_core_tables.sql |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Bilagor stöds som en egen dokumentroll: app.documents.document_role skiljer signable från attachment (migration data/0018). En bilaga signeras inte, men den ingår i signaturens bindningsmaterial, eftersom undertecknaren godkände beslutet i ljuset av bilagorna och ett byte i efterhand därför måste vara upptäckbart. Att utelämna bilagor ur materialet skulle göra dem till den självklara platsen att lägga sådant man vill kunna ändra senare. app.signing_intent_bundles sparar exakt det paket som visades, och assertBundleUnchanged upptäcker en bilaga som lagts till, tagits bort, bytts ut eller flyttats mellan roller efter att intentet skapades. Bilagor måste dessutom vara låsta, precis som huvuddokumentet. |
+| Gap | Ingen. |
+| Lösning | packages/signing-workflow (buildSigningBundle, assertBundleUnchanged), migrations/data/0018_document_attachments.sql. |
+| Kodevidens | packages/signing-workflow/src/index.ts; migrations/data/0018_document_attachments.sql; migrations/data/verify_document_attachments.sql |
+| Verifiering | tests/run.mjs: arbetsflödestest att bilagor binds in i signaturen utan att signeras, inklusive tillägg, borttagning, byte och rollbyte. |
+| Status | PASS |
 
-### F012 — PARTIAL
+### F012 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Påminnelse till de som ska signera |
 | Typ | SKA |
 | Kategori | Funktion |
-| Nuläge | app.reminder_schedules finns, signature-policy har reminderIntervalHours och API:t exponerar /v1/signature-cases/{id}/remind. |
-| Gap | Automatisk påminnelsekörning i worker är inte verifierad och saknar test för idempotent utskick. |
-| Lösning | Batchad, idempotent påminnelsekörning i worker med index på status och next_reminder_at. |
-| Kodevidens | apps/api/src/router.ts; migrations/data/0007_extended_required_model.sql |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | decideReminder avgör påminnelser mot samma definition av vems tur det är som signeringsordningen använder. Det är hela poängen: ett schema som skapas för samtliga undertecknare i förväg skulle annars tjata på undertecknare tre om ett dokument som ännu inte går att öppna, vilket lär folk att ignorera påminnelser. Påminnelser skickas inte till den som redan signerat, inte när ärendet är avslutat eller utgånget, och inte när försöken är slut. Nästa tillfälle beräknas från nu och inte från det lagrade värdet, så att en pausad worker inte skickar flera påminnelser i rad när den återstartar. |
+| Gap | Ingen. |
+| Lösning | packages/signing-workflow: decideReminder. app.reminder_schedules. |
+| Kodevidens | packages/signing-workflow/src/index.ts; migrations/data/0007_extended_required_model.sql |
+| Verifiering | tests/run.mjs: arbetsflödestest att påminnelser bara går till undertecknare vars tur det faktiskt är. |
+| Status | PASS |
 
 ### F013 — PARTIAL
 

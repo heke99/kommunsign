@@ -71,6 +71,10 @@ import {
   assertSubjectLineIsSafe, assertSupportAccess, decideDisclosure, isSearchable,
   normaliseProtectionLevel, OUTPUT_CHANNELS, redactedPlaceholder,
 } from '../dist/packages/protected-identity/src/index.js';
+import {
+  assertBundleUnchanged, assertOrderIsWellFormed, assertSignerMaySign, buildSigningBundle,
+  caseOutcome, decideReminder, signersAwaitingAction,
+} from '../dist/packages/signing-workflow/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -2165,6 +2169,138 @@ test('support access to protected data is granted per person, by the customer, w
   assert.equal(accessCode(grant({ subjectId: PROT_ACTOR })), 'PROTECTED_ACCESS_NOT_GRANTED');
   assert.equal(accessCode(grant({ grantedTo: '00000000-0000-4000-8000-000000000105' })), 'PROTECTED_ACCESS_NOT_GRANTED');
   assert.equal(accessCode(grant({ tenantId: PROT_ACTOR })), 'PROTECTED_TENANT_MISMATCH');
+});
+
+const WF_TENANT = '00000000-0000-4000-8000-000000000201';
+const WF_CASE = '00000000-0000-4000-8000-000000000202';
+const S1 = '00000000-0000-4000-8000-000000000211';
+const S2 = '00000000-0000-4000-8000-000000000212';
+const S3 = '00000000-0000-4000-8000-000000000213';
+const WF_NOW = new Date('2026-08-07T12:00:00.000Z');
+const order = (mode, steps) => ({ tenantId: WF_TENANT, signatureCaseId: WF_CASE, mode, steps });
+const seq = (...statuses) => order('sequential', [S1, S2, S3].map((signerId, index) => ({ signerId, stepNumber: index + 1, status: statuses[index] ?? 'pending' })));
+const par = (...statuses) => order('parallel', [S1, S2, S3].map((signerId, index) => ({ signerId, stepNumber: 1, status: statuses[index] ?? 'pending' })));
+const wfCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+const doc = (overrides = {}) => ({
+  documentId: '00000000-0000-4000-8000-000000000221', documentVersionId: '00000000-0000-4000-8000-000000000231',
+  displayName: 'beslut.pdf', sha256: 'a'.repeat(64), role: 'signable', locked: true, ordinal: 1, ...overrides,
+});
+const attachment = (overrides = {}) => doc({
+  documentId: '00000000-0000-4000-8000-000000000222', documentVersionId: '00000000-0000-4000-8000-000000000232',
+  displayName: 'bilaga.pdf', sha256: 'b'.repeat(64), role: 'attachment', ordinal: 2, ...overrides,
+});
+
+test('sequential signing enforces turn order and parallel signing does not', () => {
+  // A valid invitation link proves who the signer is, not that it is their
+  // turn — so the ordering check cannot live in the invitation path.
+  assert.equal(wfCode(() => assertSignerMaySign(seq(), S2, true)), 'WORKFLOW_STEP_NOT_REACHED');
+  assert.equal(wfCode(() => assertSignerMaySign(seq(), S3, true)), 'WORKFLOW_STEP_NOT_REACHED');
+  assert.equal(wfCode(() => assertSignerMaySign(seq(), S1, true)), 'NO_ERROR');
+  assert.equal(wfCode(() => assertSignerMaySign(seq('signed'), S2, true)), 'NO_ERROR');
+  assert.equal(wfCode(() => assertSignerMaySign(seq('signed'), S3, true)), 'WORKFLOW_STEP_NOT_REACHED');
+  assert.equal(wfCode(() => assertSignerMaySign(seq('signed'), S1, true)), 'WORKFLOW_SIGNER_ALREADY_FINISHED');
+
+  // Parallel: order is irrelevant, everyone may act at once.
+  for (const signer of [S1, S2, S3]) assert.equal(wfCode(() => assertSignerMaySign(par(), signer, true)), 'NO_ERROR');
+  assert.equal(wfCode(() => assertSignerMaySign(par('signed'), S1, true)), 'WORKFLOW_SIGNER_ALREADY_FINISHED');
+
+  assert.equal(wfCode(() => assertSignerMaySign(seq(), '00000000-0000-4000-8000-0000000002ff', true)), 'WORKFLOW_SIGNER_NOT_IN_ORDER');
+  assert.equal(wfCode(() => assertSignerMaySign(seq(), S1, false)), 'WORKFLOW_CASE_NOT_ACTIVE');
+
+  assert.deepEqual(signersAwaitingAction(seq()), [S1]);
+  assert.deepEqual(signersAwaitingAction(seq('signed')), [S2]);
+  assert.deepEqual(signersAwaitingAction(par()).length, 3);
+  assert.deepEqual(signersAwaitingAction(seq('signed', 'signed', 'signed')), []);
+
+  // A malformed order has no defined "next", so whichever signer is read first
+  // would win. Rejected at construction rather than resolved arbitrarily.
+  const dup = order('sequential', [{ signerId: S1, stepNumber: 1, status: 'pending' }, { signerId: S2, stepNumber: 1, status: 'pending' }]);
+  assert.equal(wfCode(() => assertOrderIsWellFormed(dup)), 'WORKFLOW_STEP_NUMBERS_INVALID');
+  // A gap would let step 3 become reachable as soon as step 1 signs, silently
+  // skipping a required approver.
+  const gap = order('sequential', [{ signerId: S1, stepNumber: 1, status: 'pending' }, { signerId: S2, stepNumber: 3, status: 'pending' }]);
+  assert.equal(wfCode(() => assertOrderIsWellFormed(gap)), 'WORKFLOW_STEP_NUMBERS_INVALID');
+  assert.equal(wfCode(() => assertOrderIsWellFormed(order('parallel', []))), 'WORKFLOW_SIGNER_NOT_IN_ORDER');
+
+  // One refusal ends the case: the remaining signatures would not add up to an
+  // approved decision, and collecting them yields a case that can never complete.
+  assert.equal(caseOutcome(seq()), 'IN_PROGRESS');
+  assert.equal(caseOutcome(seq('signed', 'signed', 'signed')), 'COMPLETED');
+  assert.equal(caseOutcome(seq('signed', 'declined')), 'DECLINED');
+  assert.equal(caseOutcome(par('signed', 'expired')), 'EXPIRED');
+});
+
+test('attachments are bound into the signature without being signed themselves', () => {
+  const bundle = buildSigningBundle([attachment(), doc()]);
+  assert.deepEqual(bundle.signableDocuments.map((d) => d.displayName), ['beslut.pdf']);
+  assert.deepEqual(bundle.attachments.map((d) => d.displayName), ['bilaga.pdf']);
+
+  // The signer approved a decision in the light of the appendices, so swapping
+  // one afterwards must be detectable. Excluding attachments from the binding
+  // material would make them the obvious place to put anything you wanted to
+  // change later.
+  assert.equal(bundle.bundleSha256Material.length, 2);
+  assert.match(bundle.bundleSha256Material[1], /^attachment:/);
+
+  // Multiple signable documents in one go (F010), ordered deterministically.
+  const multi = buildSigningBundle([
+    doc({ ordinal: 2, displayName: 'b.pdf', documentVersionId: '00000000-0000-4000-8000-000000000234' }),
+    doc({ ordinal: 1, displayName: 'a.pdf' }),
+    attachment(),
+  ]);
+  assert.deepEqual(multi.signableDocuments.map((d) => d.displayName), ['a.pdf', 'b.pdf']);
+
+  // A case with only attachments is not a signing case.
+  assert.equal(wfCode(() => buildSigningBundle([attachment()])), 'WORKFLOW_NO_SIGNABLE_DOCUMENT');
+  // An unlocked document can change between display and signature — for an
+  // attachment exactly as much as for the main document.
+  assert.equal(wfCode(() => buildSigningBundle([doc(), attachment({ locked: false })])), 'WORKFLOW_DOCUMENT_NOT_LOCKED');
+
+  // An attachment added, removed or swapped after the intent was created.
+  assert.equal(wfCode(() => assertBundleUnchanged(bundle.bundleSha256Material, bundle.bundleSha256Material)), 'NO_ERROR');
+  assert.equal(wfCode(() => assertBundleUnchanged(bundle.bundleSha256Material, [bundle.bundleSha256Material[0]])), 'WORKFLOW_ATTACHMENT_NOT_BOUND');
+  const swapped = buildSigningBundle([doc(), attachment({ sha256: 'c'.repeat(64) })]);
+  assert.equal(wfCode(() => assertBundleUnchanged(bundle.bundleSha256Material, swapped.bundleSha256Material)), 'WORKFLOW_ATTACHMENT_NOT_BOUND');
+  // Moving a document between roles changes the material, thanks to the tag.
+  const rerolled = buildSigningBundle([doc(), attachment({ role: 'signable' })]);
+  assert.equal(wfCode(() => assertBundleUnchanged(bundle.bundleSha256Material, rerolled.bundleSha256Material)), 'WORKFLOW_ATTACHMENT_NOT_BOUND');
+});
+
+test('reminders go only to signers whose turn it actually is', () => {
+  const schedule = (overrides = {}) => ({
+    tenantId: WF_TENANT, signatureCaseId: WF_CASE, signerId: S1,
+    nextReminderAt: '2026-08-07T09:00:00.000Z', intervalHours: 24, remainingAttempts: 3, ...overrides,
+  });
+  const expiry = '2026-08-20T00:00:00.000Z';
+  const decide = (s, o = seq(), e = expiry) => decideReminder(schedule(s), o, e, WF_NOW);
+
+  assert.equal(decide({}).send, true);
+  assert.equal(decide({}).nextReminderAt, '2026-08-08T12:00:00.000Z');
+
+  // The check that matters: a schedule created for every signer up front would
+  // nag signer three about a document they cannot open yet, which teaches
+  // people to ignore reminders.
+  assert.deepEqual(decide({ signerId: S3 }), { send: false, reason: 'SIGNER_NOT_AWAITING_ACTION', nextReminderAt: null });
+  // In parallel mode the same signer is awaiting action and does get reminded.
+  assert.equal(decide({ signerId: S3 }, par()).send, true);
+
+  assert.equal(decide({ nextReminderAt: '2026-08-08T00:00:00.000Z' }).reason, 'NOT_DUE');
+  assert.equal(decide({ remainingAttempts: 0 }).reason, 'NO_ATTEMPTS_LEFT');
+  // The final reminder schedules no successor.
+  assert.equal(decide({ remainingAttempts: 1 }).nextReminderAt, null);
+
+  // Reminding someone to sign something that can no longer be signed invites a
+  // wasted attempt and a confusing error.
+  assert.equal(decide({}, seq(), '2026-08-01T00:00:00.000Z').reason, 'CASE_EXPIRED');
+  assert.equal(decide({}, seq('signed', 'signed', 'signed')).reason, 'CASE_CLOSED');
+  assert.equal(decide({}, seq('declined')).reason, 'CASE_CLOSED');
+
+  // The next slot is computed from now, not from the stored due time: a paused
+  // worker must not fire several reminders back to back once it resumes.
+  const stale = decideReminder(schedule({ nextReminderAt: '2026-08-01T00:00:00.000Z' }), seq(), expiry, WF_NOW);
+  assert.equal(stale.nextReminderAt, '2026-08-08T12:00:00.000Z');
+
+  assert.equal(wfCode(() => decideReminder(schedule({ tenantId: S1 }), seq(), expiry, WF_NOW)), 'WORKFLOW_TENANT_MISMATCH');
 });
 
 let failed = 0;
