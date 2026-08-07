@@ -38,6 +38,12 @@ import {
 import {
   buildDataSubjectResponse, erasureExemption, isOverdue,
 } from '../dist/packages/privacy/src/index.js';
+import {
+  assertSigningRuntimeUsable, beginSigningPipeline, collectSignatureEvidence, describeStage,
+  NotConfiguredSignatureValidator, NotConfiguredSigningEngine, NotConfiguredTimestampProvider,
+  pipelineIsComplete, recordAdmitted, recordIdentityVerified, recordPolicyResolved,
+  recordSignatureCreated, recordTimestamped, recordValidated,
+} from '../dist/packages/signing-engine/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1181,6 +1187,136 @@ test('erasure respects legal hold and the statutory log retention', () => {
   // Förfallodatum räknas mot PUB-avtalets frist.
   assert.equal(isOverdue(response, new Date('2026-09-01T00:00:00.000Z')), false);
   assert.equal(isOverdue(response, new Date('2026-09-10T00:00:00.000Z')), true);
+});
+
+const TENANT = '00000000-0000-4000-8000-0000000000a1';
+const CASE = '00000000-0000-4000-8000-0000000000a2';
+const INTENT = '00000000-0000-4000-8000-0000000000a3';
+const DOC_HASH = 'a'.repeat(64);
+const REV_HASH = 'b'.repeat(64);
+
+const signedData = { tenantId: TENANT, signatureCaseId: CASE, documentVersionId: '00000000-0000-4000-8000-0000000000a4', documentSha256: DOC_HASH };
+const beginPipeline = (overrides = {}) => beginSigningPipeline({
+  signedData, signingIntentId: INTENT, requiredLevel: 'LT', requiresTimestamp: true, documentLocked: true, ...overrides,
+});
+const artifact = (overrides = {}) => ({
+  artifactReference: 'artifact-1', coveredDocumentSha256: DOC_HASH, signedRevisionSha256: REV_HASH,
+  signingCertificateReference: 'cert-1', certificateChainReference: 'chain-1', producedAt: '2026-08-07T10:00:00.000Z', ...overrides,
+});
+const tsToken = (overrides = {}) => ({
+  tokenReference: 'tst-1', coveredSha256: REV_HASH, generatedAt: '2026-08-07T10:00:01.000Z', authorityName: 'tsa', ...overrides,
+});
+const report = (overrides = {}) => ({
+  result: 'TOTAL_PASSED', attainedLevel: 'LT', revocationEvidenceReferences: ['ocsp-1'],
+  trustListSnapshotReference: 'tl-1', archiveTimestampReference: null, reportReference: 'rep-1',
+  validatedAt: '2026-08-07T10:00:02.000Z', ...overrides,
+});
+const identity = (overrides = {}) => ({ signingIntentId: INTENT, signatureCaseId: CASE, tenantId: TENANT, assuranceLevel: 'HIGH', ...overrides });
+const signingCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('the signing pipeline runs every stage in order and cannot skip one', () => {
+  let state = beginPipeline();
+  assert.deepEqual(state.completedStages, ['DOCUMENT_LOCKED']);
+
+  // This is the defect the stage machine exists for: a case must not be able
+  // to reach a signature without a resolved policy and a verified identity.
+  assert.equal(signingCode(() => recordSignatureCreated(state, artifact())), 'SIGNING_STAGE_OUT_OF_ORDER');
+  assert.equal(signingCode(() => recordValidated(state, report())), 'SIGNING_STAGE_OUT_OF_ORDER');
+
+  state = recordPolicyResolved(state);
+  assert.equal(signingCode(() => recordPolicyResolved(state)), 'SIGNING_STAGE_ALREADY_COMPLETED');
+
+  state = recordIdentityVerified(state, identity(), ['HIGH', 'SUBSTANTIAL']);
+  state = recordSignatureCreated(state, artifact());
+  state = recordTimestamped(state, tsToken());
+  state = recordValidated(state, report());
+  assert.equal(pipelineIsComplete(state), false);
+  state = recordAdmitted(state);
+  assert.equal(pipelineIsComplete(state), true);
+
+  // The evidence handed to the PAdES gate is assembled only from what
+  // providers returned, and admits exactly the level it supports.
+  const evidence = collectSignatureEvidence(state);
+  assert.equal(evidence.signedRevisionSha256, REV_HASH);
+  assert.equal(attainedPadesLevel(evidence), 'LT');
+  assert.equal(
+    admitPadesSignature({ requiredPadesLevel: 'LT', requiresTimestamp: true, allowedValidationResults: ['TOTAL_PASSED'] }, evidence).admittedLevel,
+    'LT',
+  );
+  assert.match(describeStage('SIGNATURE_CREATED'), /Kryptografisk signatur/);
+});
+
+test('a signature is refused when it does not bind to the locked document', () => {
+  // An unlocked document means the bytes can change between display and
+  // signature, so the hash proves nothing.
+  assert.equal(signingCode(() => beginPipeline({ documentLocked: false })), 'SIGNING_DOCUMENT_NOT_LOCKED');
+  assert.equal(signingCode(() => beginPipeline({ signedData: { ...signedData, documentSha256: 'not-a-hash' } })), 'SIGNING_DOCUMENT_MISMATCH');
+
+  let state = recordPolicyResolved(beginPipeline());
+
+  // Identity evidence from another intent, case or tenant is the path by which
+  // a valid BankID session for one document completes a signature over another.
+  assert.equal(signingCode(() => recordIdentityVerified(state, identity({ signingIntentId: CASE }), ['HIGH'])), 'SIGNING_IDENTITY_NOT_BOUND');
+  assert.equal(signingCode(() => recordIdentityVerified(state, identity({ tenantId: CASE }), ['HIGH'])), 'SIGNING_IDENTITY_NOT_BOUND');
+  assert.equal(signingCode(() => recordIdentityVerified(state, identity({ assuranceLevel: 'LOW' }), ['HIGH'])), 'SIGNING_IDENTITY_ASSURANCE_TOO_LOW');
+
+  state = recordIdentityVerified(state, identity(), ['HIGH']);
+
+  // The backend says what it covered; the pipeline checks rather than trusts.
+  assert.equal(signingCode(() => recordSignatureCreated(state, artifact({ coveredDocumentSha256: REV_HASH }))), 'SIGNING_ARTIFACT_NOT_BOUND');
+  assert.equal(signingCode(() => recordSignatureCreated(state, artifact({ certificateChainReference: '' }))), 'SIGNING_ARTIFACT_MISSING');
+
+  const signed = recordSignatureCreated(state, artifact());
+  // A timestamp over some other digest proves nothing about our revision.
+  assert.equal(signingCode(() => recordTimestamped(signed, tsToken({ coveredSha256: DOC_HASH }))), 'SIGNING_ARTIFACT_NOT_BOUND');
+  // Any level above B needs a timestamp, whatever the policy flag says.
+  assert.equal(signingCode(() => recordTimestamped(signed, null)), 'SIGNING_TIMESTAMP_REQUIRED');
+
+  assert.equal(signingCode(() => recordValidated(recordTimestamped(signed, tsToken()), report({ result: 'TOTAL_FAILED' }))), 'SIGNING_VALIDATION_FAILED');
+  // Evidence may not be collected from an incomplete pipeline.
+  assert.equal(signingCode(() => collectSignatureEvidence(recordTimestamped(signed, tsToken()))), 'SIGNING_NOT_VALIDATED');
+});
+
+test('an unconfigured signing runtime refuses to sign instead of pretending to', async () => {
+  const blocked = {
+    environment: 'production',
+    engine: new NotConfiguredSigningEngine(),
+    timestamps: new NotConfiguredTimestampProvider(),
+    validator: new NotConfiguredSignatureValidator(),
+  };
+  // The default backend must refuse. A permissive stub would produce cases
+  // that look signed and are not (AGENTS.md rule 10).
+  await assert.rejects(() => blocked.engine.sign(), (error) => error.code === 'SIGNING_PROVIDER_NOT_CONFIGURED');
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(blocked, 'LT')), 'SIGNING_LEVEL_NOT_SUPPORTED');
+  // A policy that produces no signature must never enter the signing pipeline.
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(blocked, 'NONE')), 'SIGNING_POLICY_REQUIRES_SIGNATURE');
+
+  const capable = (overrides = {}) => ({
+    environment: 'production',
+    engine: { capabilities: { backendKey: 'x', supportedLevels: ['B', 'T', 'LT', 'LTA'], producesPdfA: true, productionReady: true, keyProtection: 'HSM', ...(overrides.capabilities ?? {}) }, sign: async () => artifact() },
+    timestamps: { authorityName: 'tsa', productionReady: true, timestamp: async () => tsToken() },
+    validator: { validatorKey: 'v', productionReady: true, validate: async () => report() },
+    ...overrides.runtime,
+  });
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(capable(), 'LT')), 'NO_ERROR');
+
+  // Every participant must be production ready in production: a stub validator
+  // would let an unvalidated signature reach the admission gate.
+  assert.equal(
+    signingCode(() => assertSigningRuntimeUsable(capable({ runtime: { validator: { validatorKey: 'v', productionReady: false, validate: async () => report() } } }), 'LT')),
+    'SIGNING_PROVIDER_NOT_PRODUCTION_READY',
+  );
+  assert.equal(
+    signingCode(() => assertSigningRuntimeUsable(capable({ runtime: { timestamps: { authorityName: 't', productionReady: false, timestamp: async () => tsToken() } } }), 'LT')),
+    'SIGNING_PROVIDER_NOT_PRODUCTION_READY',
+  );
+  // Long-term archival signatures may not rest on software-held keys.
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(capable({ capabilities: { keyProtection: 'SOFTWARE' } }), 'LTA')), 'SIGNING_PROVIDER_NOT_PRODUCTION_READY');
+  // ...but the same software backend is acceptable below LTA.
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(capable({ capabilities: { keyProtection: 'SOFTWARE' } }), 'T')), 'NO_ERROR');
+
+  // Outside production a non-ready backend is allowed, so developers can work.
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(capable({ runtime: { environment: 'development' }, capabilities: { productionReady: false } }), 'LT')), 'NO_ERROR');
 });
 
 let failed = 0;

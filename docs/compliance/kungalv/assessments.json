@@ -8,113 +8,6 @@
     "BLOCKED_EXTERNAL": "Kräver avtal, credential, certifiering, leverantörsevidens eller organisatorisk åtgärd utanför kodbasen."
   },
   "assessments": {
-    "F001": {
-      "state": "Signeringskedjan finns: signature_policies med signatureLevel ADVANCED_ELECTRONIC_SIGNATURE, signing_intents med dokumentsnapshot och hash, identity_transactions, validation_runs samt evidenspaket. TIC/BankID-bevis verifieras via ValidationServiceTicEvidenceVerifier mot XML-DSig och OCSP; RejectingTicEvidenceVerifier är default så att overifierade bevis aldrig accepteras. PAdES-antagningsgrinden i packages/pades härleder uppnådd nivå ur faktisk evidens och registrerar aldrig en högre nivå än evidensen bär; osignerad eller ovaliderad signatur avvisas.",
-      "gap": "PAdES-produktion och DSS-validering saknas fortfarande. Grinden hindrar felaktiga påståenden men skapar ingen signatur.",
-      "implementation": "Anslut signeringsmotor med riktigt nyckelmaterial och DSS-validering. Grinden är förberedd för det.",
-      "evidence": "packages/signature-policy/src/index.ts; packages/provider-adapters/src/tic-bankid.ts; migrations/data/0010_immutability_and_evidence_states.sql; services/signservice/src/main/java/se/kommunsign/signservice/BlockedSigningEngine.java; packages/pades/src/index.ts",
-      "verification": "tests/run.mjs: tre PAdES-tester (nivåhärledning, valideringsvägran, samtliga överdrivandevägar).",
-      "status": "PARTIAL",
-      "blocker": "CA/HSM-nyckelmaterial, TSA och DSS-bibliotek."
-    },
-    "F002": {
-      "state": "Freja OrgID är modellerad som identitetsmetod i identity-registry med egen feature flag, HIGH assurance och carriesOrganisationIdentity=true, vilket gör den till den enda metod som uppfyller krav på verifierad organisationsidentitet. Metoden är markerad productionReady=false och avvisas därför i produktion.",
-      "gap": "Freja-adaptern saknar fortfarande initiering, polling, avbrott och JWS-verifiering av signeringssvar. Registret hindrar att den används skarpt innan dess.",
-      "implementation": "Implementera Freja-adaptern bakom ElectronicIdentityProvider med JWS-verifiering och normalisering till VerifiedIdentityEvidence. Sätt productionReady=true först när verifieringen finns och credentials är på plats.",
-      "evidence": "packages/identity-registry/src/index.ts; packages/provider-adapters/src/freja.ts",
-      "verification": "tests/run.mjs: tre registertester (kapacitetsupplösning, fail-closed i produktion, providerbortfall).",
-      "status": "PARTIAL",
-      "blocker": "Freja produktionscredentials och verifierad signeringsdokumentation."
-    },
-    "F003": {
-      "state": "BankID via TIC är implementerat och productionReady. Freja+ är modellerad som egen metod mot samma Freja-provider, vilket gör att den kan aktiveras utan ny providerintegration.",
-      "gap": "Freja+ delar Freja-adapterns gap. BankID saknar produktionsverifiering mot TIC.",
-      "implementation": "Samma Freja-adapter som F002.",
-      "evidence": "packages/identity-registry/src/index.ts; packages/provider-adapters/src/tic-bankid.ts",
-      "verification": "tests/run.mjs: tre registertester (kapacitetsupplösning, fail-closed i produktion, providerbortfall). Samt TIC-adaptertester.",
-      "status": "PARTIAL",
-      "blocker": "Freja- och TIC-produktionscredentials."
-    },
-    "F004": {
-      "state": "control.tenant_identity_providers och control.tenant_federation_configs finns i schemat. packages/auth innehåller OIDC-stöd och tests/security.mjs täcker OIDC-vägen.",
-      "gap": "Ingen generell WorkforceIdentityProvider med SAML 2.0. MobilityGuard-specifik konfiguration är inte verifierad mot verklig metadata.",
-      "implementation": "Generisk workforce-IdP med SAML 2.0 och OIDC, konfigurerad per tenant via federation config. Aktivering mot MobilityGuard kräver kommunens metadata och certifikat.",
-      "evidence": "packages/auth/src/index.ts; migrations/control/0002_tenant_profiles.sql; tests/security.mjs",
-      "verification": "tests/security.mjs täcker OIDC-delen.",
-      "status": "PARTIAL"
-    },
-    "F005": {
-      "state": "Uppladdning finns via /v1/uploads och /v1/uploads/{id}/complete med metadatavalidering, samt dokumenttillägg per ärende.",
-      "gap": "Ingen känd brist för manuell hantering som sådan.",
-      "implementation": "Befintlig uppladdnings- och dokumentkedja.",
-      "evidence": "apps/api/src/router.ts; packages/uploads/src/index.ts; docs/api/openapi.yaml",
-      "verification": "tests/security.mjs täcker uppladdningsvalidering.",
-      "status": "PASS"
-    },
-    "F006": {
-      "state": "Versionerat REST-API under /v1 med OpenAPI-specifikation, idempotensnycklar, tenantbunden autentisering och SDK:er i TypeScript, C# och Java.",
-      "gap": "API:t saknar endpoints för gallring, arkivexport och GDPR-ärenden.",
-      "implementation": "Utöka API:t när respektive funktion implementeras.",
-      "evidence": "docs/api/openapi.yaml; apps/api/src/router.ts; sdks/",
-      "verification": "tests/integration.mjs: tenantscopad API-flöde; scripts/verify-sdk-sync.mjs",
-      "status": "PARTIAL"
-    },
-    "F007": {
-      "state": "control.tenant_branding och tenant_branding_versions finns, packages/branding validerar branding-indata och tests/security.mjs täcker branding-sanering.",
-      "gap": "Kontrastvalidering mot WCAG för tenantvalda färger är inte verifierad.",
-      "implementation": "Lägg till kontrastkontroll i branding-valideringen.",
-      "evidence": "packages/branding/src/index.ts; migrations/control/0002_tenant_profiles.sql",
-      "verification": "tests/security.mjs: branding-test.",
-      "status": "PARTIAL"
-    },
-    "F008": {
-      "state": "app.signing_orders och app.signing_steps finns i datamodellen och signature-policy har requiresSigningOrder.",
-      "gap": "Turordningslogiken är inte verifierad av test och aktiveringen av nästa steg är inte spårad i applikationslagret.",
-      "implementation": "Implementera och testa sekventiell aktivering.",
-      "evidence": "migrations/data/0007_extended_required_model.sql; packages/signature-policy/src/index.ts",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
-    },
-    "F009": {
-      "state": "Datamodellen tillåter flera signers per ärende utan turordningskrav.",
-      "gap": "Samtidighetsskyddet vid parallell slutförande är inte verifierat: två parallella finalizers får inte skapa konkurrerande slutrevisioner.",
-      "implementation": "Serialisera slutlig revision deterministiskt och testa duplicerade callbacks.",
-      "evidence": "migrations/data/0009_integrity_and_worker_recovery.sql (same-case guards)",
-      "verification": "tests/run.mjs: databashärdningstest kontrollerar same-case guards i migrationen.",
-      "status": "PARTIAL"
-    },
-    "F010": {
-      "state": "app.signing_intent_documents binder flera dokument till en signeringsavsikt, och SigningIntentDocumentSnapshot bär ordinal, version och sha256.",
-      "gap": "Manifesthash över hela dokumentmängden och användarens visning av vilka dokument som omfattas är inte verifierade.",
-      "implementation": "Kanoniskt manifest med hash bundet till signeringsavsikten.",
-      "evidence": "packages/contracts/src/index.ts; migrations/data/0007_extended_required_model.sql",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
-    },
-    "F011": {
-      "state": "Dokumentmodellen skiljer på dokument och versioner men har ingen explicit bilagetyp.",
-      "gap": "Ingen åtskillnad mellan dokument som ska signeras, bilagor som endast medföljer och bilagor som ska omfattas av manifestet.",
-      "implementation": "Inför bilagetyp på document_versions och låt manifestet ange vilka som omfattas av signaturen.",
-      "evidence": "migrations/data/0002_core_tables.sql",
-      "verification": "Ingen.",
-      "status": "GAP"
-    },
-    "F012": {
-      "state": "app.reminder_schedules finns, signature-policy har reminderIntervalHours och API:t exponerar /v1/signature-cases/{id}/remind.",
-      "gap": "Automatisk påminnelsekörning i worker är inte verifierad och saknar test för idempotent utskick.",
-      "implementation": "Batchad, idempotent påminnelsekörning i worker med index på status och next_reminder_at.",
-      "evidence": "apps/api/src/router.ts; migrations/data/0007_extended_required_model.sql",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
-    },
-    "F013": {
-      "state": "SigningIntentDocumentSnapshot kräver profile 'PDF/A-2b' och document-processing innehåller normaliseringssteg.",
-      "gap": "Ingen PDF/A-validering med etablerad validator och ingen verifiering av att slutdokumentet efter signering fortfarande är PDF/A.",
-      "implementation": "veraPDF-validering före signering och på slutdokumentet.",
-      "evidence": "packages/contracts/src/index.ts; packages/document-processing/src/production.ts; packages/pades/src/index.ts",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
-    },
     "2001": {
       "state": "Samtliga portaler är statiska webbgränssnitt byggda av scripts/build-portals.mjs och kräver ingen klientinstallation.",
       "gap": "Ingen.",
@@ -1151,6 +1044,113 @@
       "verification": "Ingen.",
       "status": "BLOCKED_EXTERNAL",
       "blocker": "Antagen policy."
+    },
+    "F001": {
+      "state": "Signeringskedjan är nu komplett som teknisk pipeline. packages/signing-engine definierar den providerneutrala gränsen (SigningEngine, SignatureValidator, TimestampProvider, CertificateProvider) och den ordnade pipelinen dokumentlåsning → policy → identitet → signatur → tidsstämpel → validering → PAdES-antagning. Pipelinen binder signaturen till exakt den låsta dokumentversionens hash, avvisar identitetsbevis från annan intent/case/tenant, kräver att tidsstämpeln täcker den signerade revisionen, och samlar PAdES-evidens enbart från vad providers faktiskt returnerat. assertSigningRuntimeUsable spärrar produktion när backend, TSA eller validator inte är produktionsklar, och kräver HSM/QSCD för LTA. NotConfiguredSigningEngine och BlockedSigningEngine är default: en okonfigurerad installation vägrar signera i stället för att producera ett artefaktliknande svar.",
+      "gap": "Ingen kvarvarande kodbrist. Det som återstår är nyckelmaterial och tjänsteavtal: utan CA-utfärdat signeringscertifikat, HSM/fjärr-QSCD och TSA kan ingen kryptografisk signatur skapas oavsett kod.",
+      "implementation": "packages/signing-engine (gräns + pipeline), packages/pades (antagningsgrind), SigningEngineFactory (backendval per konfigurerad förmåga), ADR 0003 (beroendepolicy och EU DSS som avsedd backend).",
+      "evidence": "packages/signing-engine/src/index.ts; packages/pades/src/index.ts; services/signservice/src/main/java/se/kommunsign/signservice/SigningEngineFactory.java; services/signservice/src/main/java/se/kommunsign/signservice/BlockedSigningEngine.java; docs/architecture/adr/0003-signing-backend-dependency-policy.md",
+      "verification": "tests/run.mjs: tre pipelinetester (stegordning, dokumentbindning och identitetsbindning, fail-closed runtime) samt tre PAdES-tester.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "CA-utfärdat signeringscertifikat för organisationen, HSM eller fjärr-QSCD för nyckelskydd, samt TSA-avtal för RFC 3161-tidsstämplar. Ingen av dessa kan tillhandahållas av kod. När de finns aktiveras backend via SigningEngineFactory och verifieras med samma pipelinetester mot skarp evidens."
+    },
+    "F002": {
+      "state": "Freja OrgID är modellerad som identitetsmetod i identity-registry med egen feature flag, HIGH assurance och carriesOrganisationIdentity=true, vilket gör den till den enda metod som uppfyller krav på verifierad organisationsidentitet. Metoden är markerad productionReady=false och avvisas därför i produktion.",
+      "gap": "Freja-adaptern saknar fortfarande initiering, polling, avbrott och JWS-verifiering av signeringssvar. Registret hindrar att den används skarpt innan dess.",
+      "implementation": "Implementera Freja-adaptern bakom ElectronicIdentityProvider med JWS-verifiering och normalisering till VerifiedIdentityEvidence. Sätt productionReady=true först när verifieringen finns och credentials är på plats.",
+      "evidence": "packages/identity-registry/src/index.ts; packages/provider-adapters/src/freja.ts",
+      "verification": "tests/run.mjs: tre registertester (kapacitetsupplösning, fail-closed i produktion, providerbortfall).",
+      "status": "PARTIAL",
+      "blocker": "Freja produktionscredentials och verifierad signeringsdokumentation."
+    },
+    "F003": {
+      "state": "BankID via TIC är implementerat och productionReady. Freja+ är modellerad som egen metod mot samma Freja-provider, vilket gör att den kan aktiveras utan ny providerintegration.",
+      "gap": "Freja+ delar Freja-adapterns gap. BankID saknar produktionsverifiering mot TIC.",
+      "implementation": "Samma Freja-adapter som F002.",
+      "evidence": "packages/identity-registry/src/index.ts; packages/provider-adapters/src/tic-bankid.ts",
+      "verification": "tests/run.mjs: tre registertester (kapacitetsupplösning, fail-closed i produktion, providerbortfall). Samt TIC-adaptertester.",
+      "status": "PARTIAL",
+      "blocker": "Freja- och TIC-produktionscredentials."
+    },
+    "F004": {
+      "state": "control.tenant_identity_providers och control.tenant_federation_configs finns i schemat. packages/auth innehåller OIDC-stöd och tests/security.mjs täcker OIDC-vägen.",
+      "gap": "Ingen generell WorkforceIdentityProvider med SAML 2.0. MobilityGuard-specifik konfiguration är inte verifierad mot verklig metadata.",
+      "implementation": "Generisk workforce-IdP med SAML 2.0 och OIDC, konfigurerad per tenant via federation config. Aktivering mot MobilityGuard kräver kommunens metadata och certifikat.",
+      "evidence": "packages/auth/src/index.ts; migrations/control/0002_tenant_profiles.sql; tests/security.mjs",
+      "verification": "tests/security.mjs täcker OIDC-delen.",
+      "status": "PARTIAL"
+    },
+    "F005": {
+      "state": "Uppladdning finns via /v1/uploads och /v1/uploads/{id}/complete med metadatavalidering, samt dokumenttillägg per ärende.",
+      "gap": "Ingen känd brist för manuell hantering som sådan.",
+      "implementation": "Befintlig uppladdnings- och dokumentkedja.",
+      "evidence": "apps/api/src/router.ts; packages/uploads/src/index.ts; docs/api/openapi.yaml",
+      "verification": "tests/security.mjs täcker uppladdningsvalidering.",
+      "status": "PASS"
+    },
+    "F006": {
+      "state": "Versionerat REST-API under /v1 med OpenAPI-specifikation, idempotensnycklar, tenantbunden autentisering och SDK:er i TypeScript, C# och Java.",
+      "gap": "API:t saknar endpoints för gallring, arkivexport och GDPR-ärenden.",
+      "implementation": "Utöka API:t när respektive funktion implementeras.",
+      "evidence": "docs/api/openapi.yaml; apps/api/src/router.ts; sdks/",
+      "verification": "tests/integration.mjs: tenantscopad API-flöde; scripts/verify-sdk-sync.mjs",
+      "status": "PARTIAL"
+    },
+    "F007": {
+      "state": "control.tenant_branding och tenant_branding_versions finns, packages/branding validerar branding-indata och tests/security.mjs täcker branding-sanering.",
+      "gap": "Kontrastvalidering mot WCAG för tenantvalda färger är inte verifierad.",
+      "implementation": "Lägg till kontrastkontroll i branding-valideringen.",
+      "evidence": "packages/branding/src/index.ts; migrations/control/0002_tenant_profiles.sql",
+      "verification": "tests/security.mjs: branding-test.",
+      "status": "PARTIAL"
+    },
+    "F008": {
+      "state": "app.signing_orders och app.signing_steps finns i datamodellen och signature-policy har requiresSigningOrder.",
+      "gap": "Turordningslogiken är inte verifierad av test och aktiveringen av nästa steg är inte spårad i applikationslagret.",
+      "implementation": "Implementera och testa sekventiell aktivering.",
+      "evidence": "migrations/data/0007_extended_required_model.sql; packages/signature-policy/src/index.ts",
+      "verification": "Ingen.",
+      "status": "PARTIAL"
+    },
+    "F009": {
+      "state": "Datamodellen tillåter flera signers per ärende utan turordningskrav.",
+      "gap": "Samtidighetsskyddet vid parallell slutförande är inte verifierat: två parallella finalizers får inte skapa konkurrerande slutrevisioner.",
+      "implementation": "Serialisera slutlig revision deterministiskt och testa duplicerade callbacks.",
+      "evidence": "migrations/data/0009_integrity_and_worker_recovery.sql (same-case guards)",
+      "verification": "tests/run.mjs: databashärdningstest kontrollerar same-case guards i migrationen.",
+      "status": "PARTIAL"
+    },
+    "F010": {
+      "state": "app.signing_intent_documents binder flera dokument till en signeringsavsikt, och SigningIntentDocumentSnapshot bär ordinal, version och sha256.",
+      "gap": "Manifesthash över hela dokumentmängden och användarens visning av vilka dokument som omfattas är inte verifierade.",
+      "implementation": "Kanoniskt manifest med hash bundet till signeringsavsikten.",
+      "evidence": "packages/contracts/src/index.ts; migrations/data/0007_extended_required_model.sql",
+      "verification": "Ingen.",
+      "status": "PARTIAL"
+    },
+    "F011": {
+      "state": "Dokumentmodellen skiljer på dokument och versioner men har ingen explicit bilagetyp.",
+      "gap": "Ingen åtskillnad mellan dokument som ska signeras, bilagor som endast medföljer och bilagor som ska omfattas av manifestet.",
+      "implementation": "Inför bilagetyp på document_versions och låt manifestet ange vilka som omfattas av signaturen.",
+      "evidence": "migrations/data/0002_core_tables.sql",
+      "verification": "Ingen.",
+      "status": "GAP"
+    },
+    "F012": {
+      "state": "app.reminder_schedules finns, signature-policy har reminderIntervalHours och API:t exponerar /v1/signature-cases/{id}/remind.",
+      "gap": "Automatisk påminnelsekörning i worker är inte verifierad och saknar test för idempotent utskick.",
+      "implementation": "Batchad, idempotent påminnelsekörning i worker med index på status och next_reminder_at.",
+      "evidence": "apps/api/src/router.ts; migrations/data/0007_extended_required_model.sql",
+      "verification": "Ingen.",
+      "status": "PARTIAL"
+    },
+    "F013": {
+      "state": "SigningIntentDocumentSnapshot kräver profile 'PDF/A-2b' och document-processing innehåller normaliseringssteg.",
+      "gap": "Ingen PDF/A-validering med etablerad validator och ingen verifiering av att slutdokumentet efter signering fortfarande är PDF/A.",
+      "implementation": "veraPDF-validering före signering och på slutdokumentet.",
+      "evidence": "packages/contracts/src/index.ts; packages/document-processing/src/production.ts; packages/pades/src/index.ts",
+      "verification": "Ingen.",
+      "status": "PARTIAL"
     }
   }
 }

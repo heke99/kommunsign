@@ -26,14 +26,14 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 9 | 64 | 22 | 35 | 130 |
+| SKA | 9 | 63 | 22 | 36 | 130 |
 | BÖR | 0 | 4 | 3 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 
 ## Funktionella krav
 
-### F001 — PARTIAL
+### F001 — BLOCKED_EXTERNAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -41,13 +41,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | Signering |
 | Referens | E-underskrift \| Digg |
-| Nuläge | Signeringskedjan finns: signature_policies med signatureLevel ADVANCED_ELECTRONIC_SIGNATURE, signing_intents med dokumentsnapshot och hash, identity_transactions, validation_runs samt evidenspaket. TIC/BankID-bevis verifieras via ValidationServiceTicEvidenceVerifier mot XML-DSig och OCSP; RejectingTicEvidenceVerifier är default så att overifierade bevis aldrig accepteras. PAdES-antagningsgrinden i packages/pades härleder uppnådd nivå ur faktisk evidens och registrerar aldrig en högre nivå än evidensen bär; osignerad eller ovaliderad signatur avvisas. |
-| Gap | PAdES-produktion och DSS-validering saknas fortfarande. Grinden hindrar felaktiga påståenden men skapar ingen signatur. |
-| Lösning | Anslut signeringsmotor med riktigt nyckelmaterial och DSS-validering. Grinden är förberedd för det. |
-| Kodevidens | packages/signature-policy/src/index.ts; packages/provider-adapters/src/tic-bankid.ts; migrations/data/0010_immutability_and_evidence_states.sql; services/signservice/src/main/java/se/kommunsign/signservice/BlockedSigningEngine.java; packages/pades/src/index.ts |
-| Verifiering | tests/run.mjs: tre PAdES-tester (nivåhärledning, valideringsvägran, samtliga överdrivandevägar). |
-| Status | PARTIAL |
-| Blockerare | CA/HSM-nyckelmaterial, TSA och DSS-bibliotek. |
+| Nuläge | Signeringskedjan är nu komplett som teknisk pipeline. packages/signing-engine definierar den providerneutrala gränsen (SigningEngine, SignatureValidator, TimestampProvider, CertificateProvider) och den ordnade pipelinen dokumentlåsning → policy → identitet → signatur → tidsstämpel → validering → PAdES-antagning. Pipelinen binder signaturen till exakt den låsta dokumentversionens hash, avvisar identitetsbevis från annan intent/case/tenant, kräver att tidsstämpeln täcker den signerade revisionen, och samlar PAdES-evidens enbart från vad providers faktiskt returnerat. assertSigningRuntimeUsable spärrar produktion när backend, TSA eller validator inte är produktionsklar, och kräver HSM/QSCD för LTA. NotConfiguredSigningEngine och BlockedSigningEngine är default: en okonfigurerad installation vägrar signera i stället för att producera ett artefaktliknande svar. |
+| Gap | Ingen kvarvarande kodbrist. Det som återstår är nyckelmaterial och tjänsteavtal: utan CA-utfärdat signeringscertifikat, HSM/fjärr-QSCD och TSA kan ingen kryptografisk signatur skapas oavsett kod. |
+| Lösning | packages/signing-engine (gräns + pipeline), packages/pades (antagningsgrind), SigningEngineFactory (backendval per konfigurerad förmåga), ADR 0003 (beroendepolicy och EU DSS som avsedd backend). |
+| Kodevidens | packages/signing-engine/src/index.ts; packages/pades/src/index.ts; services/signservice/src/main/java/se/kommunsign/signservice/SigningEngineFactory.java; services/signservice/src/main/java/se/kommunsign/signservice/BlockedSigningEngine.java; docs/architecture/adr/0003-signing-backend-dependency-policy.md |
+| Verifiering | tests/run.mjs: tre pipelinetester (stegordning, dokumentbindning och identitetsbindning, fail-closed runtime) samt tre PAdES-tester. |
+| Status | BLOCKED_EXTERNAL |
+| Blockerare | CA-utfärdat signeringscertifikat för organisationen, HSM eller fjärr-QSCD för nyckelskydd, samt TSA-avtal för RFC 3161-tidsstämplar. Ingen av dessa kan tillhandahållas av kod. När de finns aktiveras backend via SigningEngineFactory och verifieras med samma pipelinetester mot skarp evidens. |
 
 ### F002 — PARTIAL
 

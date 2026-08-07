@@ -5,12 +5,13 @@
 
 Bedömningsdatum: 2026-08-07
 
-36 av 138 krav kan inte avgöras i kodbasen.
+37 av 138 krav kan inte avgöras i kodbasen.
 De kräver avtal, credentials, certifiering, leverantörsevidens eller
 organisatoriska åtgärder. Kraven markeras medvetet inte som uppfyllda.
 
 | Krav | Typ | Vad som saknas | Vad som redan är implementerat |
 | --- | --- | --- | --- |
+| F001 | SKA | CA-utfärdat signeringscertifikat för organisationen, HSM eller fjärr-QSCD för nyckelskydd, samt TSA-avtal för RFC 3161-tidsstämplar. Ingen av dessa kan tillhandahållas av kod. När de finns aktiveras backend via SigningEngineFactory och verifieras med samma pipelinetester mot skarp evidens. | Signeringskedjan är nu komplett som teknisk pipeline. packages/signing-engine definierar den providerneutrala gränsen (SigningEngine, SignatureValidator, TimestampProvider, CertificateProvider) och den ordnade pipelinen dokumentlåsning → policy → identitet → signatur → tidsstämpel → validering → PAdES-antagning. Pipelinen binder signaturen till exakt den låsta dokumentversionens hash, avvisar identitetsbevis från annan intent/case/tenant, kräver att tidsstämpeln täcker den signerade revisionen, och samlar PAdES-evidens enbart från vad providers faktiskt returnerat. assertSigningRuntimeUsable spärrar produktion när backend, TSA eller validator inte är produktionsklar, och kräver HSM/QSCD för LTA. NotConfiguredSigningEngine och BlockedSigningEngine är default: en okonfigurerad installation vägrar signera i stället för att producera ett artefaktliknande svar. |
 | 2026 | SKA | Organisatorisk rutin och kontoregister hos leverantören. | control.platform_subjects och platform_role_assignments ger personliga plattformskonton med roller. |
 | 2027 | SKA | Utpekad roll hos Kungälv och avtalad samrådsrutin. | Ingen dokumenterad incidenthanteringsprocess finns i repot utöver THREAT_MODEL.md. |
 | 2029 | SKA | Leverantörsevidens för databehandlingsregion per underbiträde. | Hosting sker hos Supabase, Railway och Vercel. Ingen verifierad förteckning över regioner finns i repot. |
