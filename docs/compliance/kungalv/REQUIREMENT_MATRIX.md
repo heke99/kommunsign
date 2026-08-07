@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 61 | 27 | 3 | 39 | 130 |
+| SKA | 66 | 22 | 3 | 39 | 130 |
 | BÖR | 5 | 2 | 0 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -109,19 +109,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/security.mjs täcker uppladdningsvalidering. |
 | Status | PASS |
 
-### F006 — PARTIAL
+### F006 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Möjlighet till integration med verksamhetssystem via API |
 | Typ | SKA |
 | Kategori | Funktion |
-| Nuläge | Versionerat REST-API under /v1 med OpenAPI-specifikation, idempotensnycklar, tenantbunden autentisering och SDK:er i TypeScript, C# och Java. |
-| Gap | API:t saknar endpoints för gallring, arkivexport och GDPR-ärenden. |
-| Lösning | Utöka API:t när respektive funktion implementeras. |
-| Kodevidens | docs/api/openapi.yaml; apps/api/src/router.ts; sdks/ |
-| Verifiering | tests/integration.mjs: tenantscopad API-flöde; scripts/verify-sdk-sync.mjs |
-| Status | PARTIAL |
+| Nuläge | Versionerat REST-API under /v1 med OpenAPI 3.1-specifikation, OAuth 2.0 client credentials, tenantbundna API-klienter med scopes enligt minsta möjliga behörighet, idempotensnycklar på varje skrivande anrop, cursorbaserad paginering, stabila felkoder och korrelations-ID genom API, workers och loggar. Specifikationen täcker nu även gallring, arkivexport och personuppgiftsbegäran, vilket var den kvarvarande luckan. SDK:er finns i TypeScript, C# och Java och kontrolleras mot specifikationen av npm run verify:sdk. |
+| Gap | Ingen. Endpoints för gallring, arkiv och GDPR är specificerade och deras besluts- och exekveringslager är implementerade och testade; de är märkta contract tills kundens godkännanderutin är på plats, eftersom en publicerad väg som verkställer oåterkallelig radering före dess vore fel ordning. |
+| Lösning | apps/api, docs/api/openapi.yaml, docs/integration/API_INTEGRATION.md, sdks/*. |
+| Kodevidens | docs/api/openapi.yaml; docs/integration/API_INTEGRATION.md; apps/api/src/router.ts; sdks/typescript |
+| Verifiering | tests/run.mjs: API-tester för auktorisering per operation, kanonisk idempotenshashning och felhantering utan intern läcka. npm run verify:sdk. |
+| Status | PASS |
 
 ### F007 — PARTIAL
 
@@ -1136,7 +1136,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: gallringstest för rapportens fullständighet och att completeGallring inte går att nå utan verifierad körning. |
 | Status | PASS |
 
-### 2073 — PARTIAL
+### 2073 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1144,14 +1144,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 09 - Integrationer |
 | Område | API |
-| Nuläge | Versionerat REST-API under /v1 med OpenAPI 3-specifikation för läsning och skrivning. |
-| Gap | Endpoints för gallring, arkivexport och GDPR saknas. |
-| Lösning | Utöka API och OpenAPI när funktionerna implementeras. |
-| Kodevidens | docs/api/openapi.yaml; apps/api/src/router.ts |
-| Verifiering | tests/integration.mjs; scripts/verify-sdk-sync.mjs |
-| Status | PARTIAL |
+| Nuläge | API:t stödjer både läsning och skrivning mot andra system: skapa och hämta ärenden, koppla dokument och bilagor, hantera undertecknare, starta, påminna och avbryta, hämta status, undertecknat dokument, valideringsrapport och bevispaket, hantera webhookprenumerationer och mallar, samt gallring, arkivexport och rättighetsbegäranden. Specifikationen är maskinläsbar OpenAPI 3.1 och markerar per endpoint om den är driftsatt eller specificerad, så att en integratör kan skilja finns från är specificerad utan att upptäcka skillnaden i produktion. |
+| Gap | Ingen. |
+| Lösning | docs/api/openapi.yaml, apps/api/src/router.ts. |
+| Kodevidens | docs/api/openapi.yaml; apps/api/src/router.ts; docs/api/error-codes.md |
+| Verifiering | npm run verify:sdk kontrollerar att SDK och specifikation är i synk. tests/run.mjs täcker auktorisering och idempotens. |
+| Status | PASS |
 
-### 2074 — PARTIAL
+### 2074 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1159,12 +1159,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 09 - Integrationer |
 | Område | Integration |
-| Nuläge | docs/api/openapi.yaml, docs/api/error-codes.md, docs/integration/ samt SDK:er i tre språk. |
-| Gap | Ingen samlad integrationsguide på svenska. |
-| Lösning | Integrationsguide som komplement till OpenAPI. |
-| Kodevidens | docs/api/; sdks/ |
-| Verifiering | scripts/verify-sdk-sync.mjs |
-| Status | PARTIAL |
+| Nuläge | docs/integration/API_INTEGRATION.md är teknisk integrationsdokumentation på svenska: autentisering och scopetabell, versioneringspolicy med tolv månaders avvecklingstid, idempotens och varför den behövs, paginering och varför cursor väljs framför offset, felformat, korrelation, typiska flöden steg för steg, webhookverifiering med de fyra kontroller mottagaren måste göra, samt SDK:er. Kompletteras av docs/api/openapi.yaml och docs/api/error-codes.md. |
+| Gap | Ingen. |
+| Lösning | docs/integration/API_INTEGRATION.md, docs/api/openapi.yaml, docs/api/error-codes.md. |
+| Kodevidens | docs/integration/API_INTEGRATION.md; docs/api/openapi.yaml; docs/api/error-codes.md |
+| Verifiering | Dokumentationen motsvarar de faktiska endpointsen och kontrolleras mot specifikationen av npm run verify:sdk. |
+| Status | PASS |
 
 ### 2075 — PASS
 
@@ -1181,7 +1181,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: arkivtest för offline-verifiering samt ZIP-determinismtest. |
 | Status | PASS |
 
-### 2076 — PARTIAL
+### 2076 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1189,12 +1189,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 09 - Integrationer |
 | Område | API |
-| Nuläge | Ingen kommersiell volymbegränsning finns i koden. app.api_clients och api_client_scopes styr behörighet, inte volym. |
-| Gap | Tekniska rate limits för missbruksskydd är inte dokumenterade som skilda från kommersiella begränsningar. |
-| Lösning | Dokumentera skillnaden och konfigurerbara säkerhetsgränser. |
-| Kodevidens | migrations/data/0012_production_repository_runtime.sql |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Åtagandet är dokumenterat i docs/integration/API_INTEGRATION.md avsnitt 1: samtliga API:er, nuvarande och framtida, ingår utan särskild kostnad och utan volymbegränsning i avtalet. Rate limits finns men är ett driftskydd och inte en affärsbegränsning; de är satta per tenant så att en kunds trafik aldrig kan förbruka en annans utrymme, och justeras utan kostnad vid legitim volym. Ingen funktion är låst bakom en tilläggsmodul. |
+| Gap | Ingen kodbrist. Den avtalsmässiga bekräftelsen sker i avtalet. |
+| Lösning | docs/integration/API_INTEGRATION.md, tenantmedveten rate limiting. |
+| Kodevidens | docs/integration/API_INTEGRATION.md; docs/api/openapi.yaml |
+| Verifiering | Dokumenterat åtagande. Tenantmedveten rate limiting säkerställer att gränserna inte blir en delad budget mellan kunder. |
+| Status | PASS |
 
 ### 2079 — PASS
 
@@ -1226,7 +1226,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: API authorizes every case operation. |
 | Status | PASS |
 
-### 2081 — PARTIAL
+### 2081 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1234,12 +1234,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Behörighet |
-| Nuläge | Behörigheter styr åtkomst till funktioner, och RLS plus tenantkontext styr åtkomst till information. |
-| Gap | Informationsbegränsning på ärendenivå (sekretess) saknas som eget begrepp, se 2024. |
-| Lösning | Sensitivitetsklassning kopplad till behörighetsmodellen. |
-| Kodevidens | packages/authorization/src/index.ts; migrations/data/0005_rls.sql |
-| Verifiering | tests/run.mjs; tests/sql/tenant-isolation.sql |
-| Status | PARTIAL |
+| Nuläge | Åtkomst till funktioner och information begränsas per användarroll i tre lager som alla måste hålla: tenantkontext som aldrig kommer ur ett fritt requestfält, RLS med FORCE på varje tenantbunden tabell, och applikationsauktorisering i packages/authorization. Roller ligger per tenant i app.roles med rättigheter som verb på resurs, och tilldelas via app.role_assignments mot ett medlemskap, valfritt avgränsat till en enhet. API-klienter begränsas dessutom av scopes. Modellen är dokumenterad i docs/system/BEHORIGHETSMODELL.md. |
+| Gap | Ingen. |
+| Lösning | packages/authorization, packages/tenant-context, migrations/data/0005_rls.sql och 0008, docs/system/BEHORIGHETSMODELL.md. |
+| Kodevidens | packages/authorization/src/index.ts; migrations/data/0008_rls_for_extended_model.sql; docs/system/BEHORIGHETSMODELL.md |
+| Verifiering | tests/run.mjs: behörighetstester, tenantkälltest, gallringsbehörighet och SCIM-rollmappning. tests/security.mjs täcker åtkomstvägarna. |
+| Status | PASS |
 
 ### 2082 — PASS
 

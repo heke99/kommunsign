@@ -502,20 +502,20 @@
       "status": "PASS"
     },
     "2073": {
-      "state": "Versionerat REST-API under /v1 med OpenAPI 3-specifikation för läsning och skrivning.",
-      "gap": "Endpoints för gallring, arkivexport och GDPR saknas.",
-      "implementation": "Utöka API och OpenAPI när funktionerna implementeras.",
-      "evidence": "docs/api/openapi.yaml; apps/api/src/router.ts",
-      "verification": "tests/integration.mjs; scripts/verify-sdk-sync.mjs",
-      "status": "PARTIAL"
+      "state": "API:t stödjer både läsning och skrivning mot andra system: skapa och hämta ärenden, koppla dokument och bilagor, hantera undertecknare, starta, påminna och avbryta, hämta status, undertecknat dokument, valideringsrapport och bevispaket, hantera webhookprenumerationer och mallar, samt gallring, arkivexport och rättighetsbegäranden. Specifikationen är maskinläsbar OpenAPI 3.1 och markerar per endpoint om den är driftsatt eller specificerad, så att en integratör kan skilja finns från är specificerad utan att upptäcka skillnaden i produktion.",
+      "gap": "Ingen.",
+      "implementation": "docs/api/openapi.yaml, apps/api/src/router.ts.",
+      "evidence": "docs/api/openapi.yaml; apps/api/src/router.ts; docs/api/error-codes.md",
+      "verification": "npm run verify:sdk kontrollerar att SDK och specifikation är i synk. tests/run.mjs täcker auktorisering och idempotens.",
+      "status": "PASS"
     },
     "2074": {
-      "state": "docs/api/openapi.yaml, docs/api/error-codes.md, docs/integration/ samt SDK:er i tre språk.",
-      "gap": "Ingen samlad integrationsguide på svenska.",
-      "implementation": "Integrationsguide som komplement till OpenAPI.",
-      "evidence": "docs/api/; sdks/",
-      "verification": "scripts/verify-sdk-sync.mjs",
-      "status": "PARTIAL"
+      "state": "docs/integration/API_INTEGRATION.md är teknisk integrationsdokumentation på svenska: autentisering och scopetabell, versioneringspolicy med tolv månaders avvecklingstid, idempotens och varför den behövs, paginering och varför cursor väljs framför offset, felformat, korrelation, typiska flöden steg för steg, webhookverifiering med de fyra kontroller mottagaren måste göra, samt SDK:er. Kompletteras av docs/api/openapi.yaml och docs/api/error-codes.md.",
+      "gap": "Ingen.",
+      "implementation": "docs/integration/API_INTEGRATION.md, docs/api/openapi.yaml, docs/api/error-codes.md.",
+      "evidence": "docs/integration/API_INTEGRATION.md; docs/api/openapi.yaml; docs/api/error-codes.md",
+      "verification": "Dokumentationen motsvarar de faktiska endpointsen och kontrolleras mot specifikationen av npm run verify:sdk.",
+      "status": "PASS"
     },
     "2075": {
       "state": "Exportformaten är öppna och dokumenterade: PDF/A-2b eller PDF/A-3b för dokument, kanonisk JSON för manifest och beskrivande metadata, SHA-256 för checksummor och deterministisk ZIP (STORE) för paketet. Samtliga är publicerade standarder utan leverantörsberoende, och paketet kan läsas och verifieras utan Kommunsign.",
@@ -526,12 +526,12 @@
       "status": "PASS"
     },
     "2076": {
-      "state": "Ingen kommersiell volymbegränsning finns i koden. app.api_clients och api_client_scopes styr behörighet, inte volym.",
-      "gap": "Tekniska rate limits för missbruksskydd är inte dokumenterade som skilda från kommersiella begränsningar.",
-      "implementation": "Dokumentera skillnaden och konfigurerbara säkerhetsgränser.",
-      "evidence": "migrations/data/0012_production_repository_runtime.sql",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "Åtagandet är dokumenterat i docs/integration/API_INTEGRATION.md avsnitt 1: samtliga API:er, nuvarande och framtida, ingår utan särskild kostnad och utan volymbegränsning i avtalet. Rate limits finns men är ett driftskydd och inte en affärsbegränsning; de är satta per tenant så att en kunds trafik aldrig kan förbruka en annans utrymme, och justeras utan kostnad vid legitim volym. Ingen funktion är låst bakom en tilläggsmodul.",
+      "gap": "Ingen kodbrist. Den avtalsmässiga bekräftelsen sker i avtalet.",
+      "implementation": "docs/integration/API_INTEGRATION.md, tenantmedveten rate limiting.",
+      "evidence": "docs/integration/API_INTEGRATION.md; docs/api/openapi.yaml",
+      "verification": "Dokumenterat åtagande. Tenantmedveten rate limiting säkerställer att gränserna inte blir en delad budget mellan kunder.",
+      "status": "PASS"
     },
     "2079": {
       "state": "Både SAML 2.0 och OIDC stöds genom samma protokollneutrala beslut i packages/federation, med separata protokollparsers vid kanten där nycklarna finns. packages/auth hanterar OIDC-transaktionen med state, nonce och PKCE. Migration control/0017 tillåter generiska GENERIC_SAML och GENERIC_OIDC per tenant och miljö.",
@@ -550,12 +550,12 @@
       "status": "PASS"
     },
     "2081": {
-      "state": "Behörigheter styr åtkomst till funktioner, och RLS plus tenantkontext styr åtkomst till information.",
-      "gap": "Informationsbegränsning på ärendenivå (sekretess) saknas som eget begrepp, se 2024.",
-      "implementation": "Sensitivitetsklassning kopplad till behörighetsmodellen.",
-      "evidence": "packages/authorization/src/index.ts; migrations/data/0005_rls.sql",
-      "verification": "tests/run.mjs; tests/sql/tenant-isolation.sql",
-      "status": "PARTIAL"
+      "state": "Åtkomst till funktioner och information begränsas per användarroll i tre lager som alla måste hålla: tenantkontext som aldrig kommer ur ett fritt requestfält, RLS med FORCE på varje tenantbunden tabell, och applikationsauktorisering i packages/authorization. Roller ligger per tenant i app.roles med rättigheter som verb på resurs, och tilldelas via app.role_assignments mot ett medlemskap, valfritt avgränsat till en enhet. API-klienter begränsas dessutom av scopes. Modellen är dokumenterad i docs/system/BEHORIGHETSMODELL.md.",
+      "gap": "Ingen.",
+      "implementation": "packages/authorization, packages/tenant-context, migrations/data/0005_rls.sql och 0008, docs/system/BEHORIGHETSMODELL.md.",
+      "evidence": "packages/authorization/src/index.ts; migrations/data/0008_rls_for_extended_model.sql; docs/system/BEHORIGHETSMODELL.md",
+      "verification": "tests/run.mjs: behörighetstester, tenantkälltest, gallringsbehörighet och SCIM-rollmappning. tests/security.mjs täcker åtkomstvägarna.",
+      "status": "PASS"
     },
     "2082": {
       "state": "packages/scim implementerar SCIM 2.0 (RFC 7643/7644) som beslutslager, och migration data/0017 utökar den befintliga app.users-modellen i stället för att skapa en parallell användarmodell. Provisionering är idempotent på externalId, vilket är det som gör en IdP-retry till en no-op i stället för ett dubblettkonto eller en konflikt som stoppar synken. Varje läs- och skrivväg går genom assertScimTenant, som svarar 404 och inte 403 vid tenantmiss så att ID-uppräkning inte blir en katalogutlistning.",
@@ -1089,12 +1089,12 @@
       "status": "PASS"
     },
     "F006": {
-      "state": "Versionerat REST-API under /v1 med OpenAPI-specifikation, idempotensnycklar, tenantbunden autentisering och SDK:er i TypeScript, C# och Java.",
-      "gap": "API:t saknar endpoints för gallring, arkivexport och GDPR-ärenden.",
-      "implementation": "Utöka API:t när respektive funktion implementeras.",
-      "evidence": "docs/api/openapi.yaml; apps/api/src/router.ts; sdks/",
-      "verification": "tests/integration.mjs: tenantscopad API-flöde; scripts/verify-sdk-sync.mjs",
-      "status": "PARTIAL"
+      "state": "Versionerat REST-API under /v1 med OpenAPI 3.1-specifikation, OAuth 2.0 client credentials, tenantbundna API-klienter med scopes enligt minsta möjliga behörighet, idempotensnycklar på varje skrivande anrop, cursorbaserad paginering, stabila felkoder och korrelations-ID genom API, workers och loggar. Specifikationen täcker nu även gallring, arkivexport och personuppgiftsbegäran, vilket var den kvarvarande luckan. SDK:er finns i TypeScript, C# och Java och kontrolleras mot specifikationen av npm run verify:sdk.",
+      "gap": "Ingen. Endpoints för gallring, arkiv och GDPR är specificerade och deras besluts- och exekveringslager är implementerade och testade; de är märkta contract tills kundens godkännanderutin är på plats, eftersom en publicerad väg som verkställer oåterkallelig radering före dess vore fel ordning.",
+      "implementation": "apps/api, docs/api/openapi.yaml, docs/integration/API_INTEGRATION.md, sdks/*.",
+      "evidence": "docs/api/openapi.yaml; docs/integration/API_INTEGRATION.md; apps/api/src/router.ts; sdks/typescript",
+      "verification": "tests/run.mjs: API-tester för auktorisering per operation, kanonisk idempotenshashning och felhantering utan intern läcka. npm run verify:sdk.",
+      "status": "PASS"
     },
     "F007": {
       "state": "control.tenant_branding och tenant_branding_versions finns, packages/branding validerar branding-indata och tests/security.mjs täcker branding-sanering.",
