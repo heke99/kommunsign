@@ -48,6 +48,9 @@ import {
   frejaAssuranceLevel, FrejaProvider, InMemoryFrejaNonceLedger, RejectingFrejaSignatureVerifier,
   toVerifiedIdentityEvidence, verifyFrejaSignatureClaims,
 } from '../dist/packages/provider-adapters/src/freja.js';
+import {
+  InMemoryAssertionLedger, mapWorkforceIdentity, resolveLogoutTargets, verifyWorkforceAssertion,
+} from '../dist/packages/federation/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1425,6 +1428,120 @@ test('an unconfigured Freja verifier refuses instead of accepting an unverified 
     () => provider.verifyEvidence({ provider: 'FREJA_DIRECT', providerReference: 'x', rawPayload: {}, collectedAt: NOW.toISOString() }),
     (error) => error.code === 'FREJA_SIGNATURE_NOT_VERIFIED',
   );
+});
+
+const FED_TENANT = '00000000-0000-4000-8000-0000000000b1';
+const fedConfig = (overrides = {}) => ({
+  tenantId: FED_TENANT, protocol: 'SAML2', enabled: true,
+  issuer: 'https://idp.kungalv.se/metadata', audience: 'https://kungalv.kommunsign.se/sp',
+  destination: 'https://kungalv.kommunsign.se/saml/acs',
+  signingCertificateSecretReference: 'vault://kungalv/saml-signing',
+  requiredAuthnContexts: ['urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactor'],
+  maximumAuthenticationAgeSeconds: 3600, subjectAttribute: 'uid', groupsAttribute: 'memberOf',
+  groupToRole: { 'CN=Kommunsign-Admin': 'tenant_admin', 'CN=Kommunsign-Handlaggare': 'case_manager' },
+  assignableRoles: ['tenant_admin', 'case_manager'], ...overrides,
+});
+const fedAssertion = (overrides = {}) => ({
+  protocol: 'SAML2', signatureVerified: true, issuer: 'https://idp.kungalv.se/metadata',
+  audience: 'https://kungalv.kommunsign.se/sp', destination: 'https://kungalv.kommunsign.se/saml/acs',
+  assertionId: 'assertion-1', inResponseTo: 'request-1', notBefore: '2026-08-07T11:59:00.000Z',
+  notOnOrAfter: '2026-08-07T12:05:00.000Z', authenticatedAt: '2026-08-07T11:58:00.000Z',
+  authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactor', subject: 'anna.andersson',
+  attributes: { uid: ['anna.andersson'], memberOf: ['CN=Kommunsign-Handlaggare', 'CN=Ovrig'] }, ...overrides,
+});
+const fedBinding = (overrides = {}) => ({ requestId: 'request-1', tenantId: FED_TENANT, redirectUri: 'https://kungalv.kommunsign.se/saml/acs', ...overrides });
+const fedCode = (assertion = {}, config = {}, binding = {}, ledger = new InMemoryAssertionLedger()) => {
+  try { verifyWorkforceAssertion(fedAssertion(assertion), fedConfig(config), fedBinding(binding), ledger, NOW); return 'NO_ERROR'; }
+  catch (error) { return error.code; }
+};
+
+test('a federated assertion is admitted only when it answers our own login request', () => {
+  assert.equal(fedCode(), 'NO_ERROR');
+
+  // Nothing below the signature means anything on an unsigned assertion.
+  assert.equal(fedCode({ signatureVerified: false }), 'FEDERATION_SIGNATURE_NOT_VERIFIED');
+  // A disabled provider must not authenticate anyone, even with a valid
+  // assertion left over from when it was enabled.
+  assert.equal(fedCode({}, { enabled: false }), 'FEDERATION_PROVIDER_DISABLED');
+  assert.equal(fedCode({ issuer: 'https://evil.example' }), 'FEDERATION_ISSUER_MISMATCH');
+  // An assertion minted for a different service provider by the same IdP.
+  assert.equal(fedCode({ audience: 'https://other.example/sp' }), 'FEDERATION_AUDIENCE_MISMATCH');
+  // One captured at a different endpoint and posted to ours.
+  assert.equal(fedCode({ destination: 'https://other.example/acs' }), 'FEDERATION_DESTINATION_MISMATCH');
+  // IdP-initiated flows are refused: a stolen assertion could be posted at any
+  // time if it did not have to answer a request we started.
+  assert.equal(fedCode({ inResponseTo: null }), 'FEDERATION_REQUEST_MISMATCH');
+  assert.equal(fedCode({ inResponseTo: 'request-2' }), 'FEDERATION_REQUEST_MISMATCH');
+  // AGENTS.md rule 1: tenant comes from the bound configuration, never the message.
+  assert.equal(fedCode({}, {}, { tenantId: '00000000-0000-4000-8000-0000000000b2' }), 'FEDERATION_TENANT_MISMATCH');
+  assert.equal(fedCode({ subject: '   ' }, {}, {}), 'FEDERATION_SUBJECT_MISSING');
+});
+
+test('a federated assertion expires, cannot be replayed, and carries a fresh enough session', () => {
+  assert.equal(fedCode({ notOnOrAfter: '2026-08-07T11:00:00.000Z' }), 'FEDERATION_ASSERTION_EXPIRED');
+  assert.equal(fedCode({ notBefore: '2026-08-07T12:30:00.000Z' }), 'FEDERATION_ASSERTION_NOT_YET_VALID');
+
+  // Within its validity window the same assertion is accepted every time it is
+  // presented, unless it is consumed exactly once.
+  const ledger = new InMemoryAssertionLedger();
+  assert.equal(fedCode({}, {}, {}, ledger), 'NO_ERROR');
+  assert.equal(fedCode({}, {}, {}, ledger), 'FEDERATION_ASSERTION_REPLAYED');
+
+  // A fresh assertion can still describe a very old IdP session.
+  assert.equal(fedCode({ authenticatedAt: '2026-08-07T06:00:00.000Z' }), 'FEDERATION_SESSION_TOO_OLD');
+  assert.equal(fedCode({ authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:Password' }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
+  assert.equal(fedCode({ authnContext: null }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
+  // A tenant that demands no particular context accepts what the IdP sent.
+  assert.equal(fedCode({ authnContext: null }, { requiredAuthnContexts: [] }), 'NO_ERROR');
+
+  // The same rules apply to OIDC: one decision, not two that can drift.
+  assert.equal(fedCode({ protocol: 'OIDC' }, { protocol: 'OIDC' }), 'NO_ERROR');
+});
+
+test('group to role mapping denies by default rather than granting a fallback', () => {
+  const mapped = mapWorkforceIdentity(fedAssertion(), fedConfig(), fedBinding());
+  assert.deepEqual(mapped.roles, ['case_manager']);
+  // An unmapped group grants nothing rather than being ignored silently.
+  assert.deepEqual(mapped.groups, ['CN=Kommunsign-Handlaggare', 'CN=Ovrig']);
+  assert.equal(mapped.tenantId, FED_TENANT);
+
+  const mapCode = (assertion, config = {}) => {
+    try { mapWorkforceIdentity(fedAssertion(assertion), fedConfig(config), fedBinding()); return 'NO_ERROR'; }
+    catch (error) { return error.code; }
+  };
+  // A user with no mapped group is refused, not given a default role.
+  assert.equal(mapCode({ attributes: { uid: ['x'], memberOf: ['CN=Ovrig'] } }), 'FEDERATION_NO_ROLE_MAPPED');
+  assert.equal(mapCode({ attributes: { uid: ['x'] } }), 'FEDERATION_NO_ROLE_MAPPED');
+  // A mapping pointing outside assignableRoles fails loudly at login rather
+  // than quietly handing out a permission nobody chose.
+  assert.equal(
+    mapCode({}, { groupToRole: { 'CN=Kommunsign-Handlaggare': 'platform_superadmin' } }),
+    'FEDERATION_ROLE_NOT_ASSIGNABLE',
+  );
+  assert.equal(mapCode({ attributes: { memberOf: ['CN=Kommunsign-Admin'] }, subject: '  ' }), 'FEDERATION_SUBJECT_MISSING');
+});
+
+test('single logout terminates only the sessions the IdP actually named', () => {
+  const sessions = [
+    { sessionId: 's1', tenantId: FED_TENANT, subject: 'anna.andersson', sessionIndex: 'idx-1' },
+    { sessionId: 's2', tenantId: FED_TENANT, subject: 'anna.andersson', sessionIndex: 'idx-2' },
+    { sessionId: 's3', tenantId: FED_TENANT, subject: 'bo.bosson', sessionIndex: 'idx-1' },
+    { sessionId: 's4', tenantId: '00000000-0000-4000-8000-0000000000b2', subject: 'anna.andersson', sessionIndex: 'idx-1' },
+  ];
+  const logout = (overrides = {}) => ({ issuer: 'https://idp.kungalv.se/metadata', subject: 'anna.andersson', sessionIndex: null, signatureVerified: true, ...overrides });
+
+  // No session index means every session for that subject, in that tenant only.
+  assert.deepEqual(resolveLogoutTargets(logout(), fedConfig(), sessions), ['s1', 's2']);
+  assert.deepEqual(resolveLogoutTargets(logout({ sessionIndex: 'idx-1' }), fedConfig(), sessions), ['s1']);
+
+  // An honoured unsigned or foreign logout would be a denial of service
+  // against every user, so both are refused.
+  const logoutCode = (overrides) => {
+    try { resolveLogoutTargets(logout(overrides), fedConfig(), sessions); return 'NO_ERROR'; }
+    catch (error) { return error.code; }
+  };
+  assert.equal(logoutCode({ signatureVerified: false }), 'FEDERATION_SIGNATURE_NOT_VERIFIED');
+  assert.equal(logoutCode({ issuer: 'https://evil.example' }), 'FEDERATION_ISSUER_MISMATCH');
 });
 
 let failed = 0;

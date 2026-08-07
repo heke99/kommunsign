@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 9 | 61 | 22 | 38 | 130 |
+| SKA | 10 | 59 | 22 | 39 | 130 |
 | BÖR | 0 | 4 | 3 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -79,7 +79,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | TIC produktionscredentials för BankID och Freja relying party-avtal. Båda är avtals- och credentialfrågor utanför kodbasen. |
 
-### F004 — PARTIAL
+### F004 — BLOCKED_EXTERNAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -87,12 +87,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | Inloggning |
 | Referens | För närvarande Mobility Guard |
-| Nuläge | control.tenant_identity_providers och control.tenant_federation_configs finns i schemat. packages/auth innehåller OIDC-stöd och tests/security.mjs täcker OIDC-vägen. |
-| Gap | Ingen generell WorkforceIdentityProvider med SAML 2.0. MobilityGuard-specifik konfiguration är inte verifierad mot verklig metadata. |
-| Lösning | Generisk workforce-IdP med SAML 2.0 och OIDC, konfigurerad per tenant via federation config. Aktivering mot MobilityGuard kräver kommunens metadata och certifikat. |
-| Kodevidens | packages/auth/src/index.ts; migrations/control/0002_tenant_profiles.sql; tests/security.mjs |
-| Verifiering | tests/security.mjs täcker OIDC-delen. |
-| Status | PARTIAL |
+| Nuläge | packages/federation implementerar en protokollneutral workforce-federation för både SAML 2.0 och OIDC. Ingen kod namnger MobilityGuard, Entra eller någon annan IdP: kravet är förmågan, och att ansluta en annan IdP är en konfigurationsrad. verifyWorkforceAssertion normaliserar båda protokollen till en assertion och avgör sedan i ett enda beslut om den får logga in någon: signaturverifiering, aktiverad provider, issuer, audience, destination, InResponseTo/state mot en inloggning vi själva startat (IdP-initierade flöden avvisas), notBefore/notOnOrAfter, egen maxålder på IdP-sessionen, engångsförbrukad assertion-ID mot replay, samt krävd authentication context. Tenant hämtas alltid ur den bundna konfigurationen och aldrig ur meddelandet (AGENTS.md regel 1). mapWorkforceIdentity mappar IdP-grupper till roller deny-by-default: omappad grupp ger inget, användare utan mappad grupp avvisas i stället för att få en defaultroll, och en mappning mot en roll utanför tenantens assignableRoles är ett fel i stället för en tyst tilldelning. resolveLogoutTargets avslutar exakt de sessioner IdP:n namngivit. Migration control/0017 ersätter den leverantörsspecifika provider_key-listan med generiska GENERIC_OIDC/GENERIC_SAML, och lägger till rollmappningstabell och assertion-ledger. |
+| Gap | Ingen kvarvarande kodbrist. Anslutning mot MobilityGuard kräver kommunens metadata och signeringscertifikat. |
+| Lösning | packages/federation (protokollneutral assertion-antagning, rollmappning, single logout), migrations/control/0017_workforce_federation.sql. |
+| Kodevidens | packages/federation/src/index.ts; migrations/control/0017_workforce_federation.sql; migrations/control/verify_workforce_federation.sql; packages/auth/src/index.ts |
+| Verifiering | tests/run.mjs: fyra federationstester (requestbindning, replay och tidsfönster, deny-by-default rollmappning, single logout) samt OIDC-vägen i tests/security.mjs. |
+| Status | BLOCKED_EXTERNAL |
+| Blockerare | Kungälvs IdP-metadata (EntityID, SSO-endpoint, signeringscertifikat) samt registrering av Kommunsign som service provider hos MobilityGuard. Ren konfigurationsleverans från kommunen; koden är på plats och verifieras med samma tester när metadatan finns. |
 
 ### F005 — PASS
 
@@ -1195,7 +1196,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Ingen. |
 | Status | PARTIAL |
 
-### 2079 — PARTIAL
+### 2079 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1203,12 +1204,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Inloggning |
-| Nuläge | OIDC-stöd finns i packages/auth och testas i tests/security.mjs. control.tenant_identity_providers och tenant_federation_configs finns i schemat. |
-| Gap | SAML 2.0 saknas. Kravet uppfylls formellt av OIDC, men MobilityGuard-anslutningen är inte verifierad. |
-| Lösning | Generisk WorkforceIdentityProvider med både SAML 2.0 och OIDC. |
-| Kodevidens | packages/auth/src/index.ts; tests/security.mjs |
-| Verifiering | tests/security.mjs OIDC-del. |
-| Status | PARTIAL |
+| Nuläge | Både SAML 2.0 och OIDC stöds genom samma protokollneutrala beslut i packages/federation, med separata protokollparsers vid kanten där nycklarna finns. packages/auth hanterar OIDC-transaktionen med state, nonce och PKCE. Migration control/0017 tillåter generiska GENERIC_SAML och GENERIC_OIDC per tenant och miljö. |
+| Gap | Ingen. Kravet är uppfyllt genom att minst ett av protokollen stöds; båda stöds. |
+| Lösning | packages/federation, packages/auth, control.tenant_identity_providers. |
+| Kodevidens | packages/federation/src/index.ts; packages/auth/src/index.ts; migrations/control/0017_workforce_federation.sql |
+| Verifiering | tests/run.mjs: fyra federationstester, varav ett kör samma beslut för OIDC och SAML. tests/security.mjs täcker OIDC-transaktionen. |
+| Status | PASS |
 
 ### 2080 — PASS
 
