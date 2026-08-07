@@ -85,6 +85,13 @@ import {
   isForbiddenLogField, isSecurityEvent, METRICS, sanitiseLogPayload, securityHeaders,
   stuckSigningRatio, TLS_POLICY,
 } from '../dist/packages/observability/src/index.js';
+import {
+  admitConvertedDocument, ADOBE_READER_COMPATIBILITY, planOfficeIngestion,
+} from '../dist/packages/document-processing/src/office-ingestion.js';
+import {
+  formatSwedishDate, formatSwedishDateTime, formatSwedishTime,
+  formatSwedishTimestampWithOffset, messageFor, swedishUtcOffsetHours,
+} from '../dist/packages/locale/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -2523,6 +2530,99 @@ test('security and cache headers close the leaks a missing header causes', () =>
   // Forward secrecy only: a recorded session must not become readable later if
   // the server key is compromised.
   assert.ok(TLS_POLICY.allowedCipherSuites.every((suite) => /^TLS_|^ECDHE-/.test(suite)));
+});
+
+const office = (overrides = {}) => ({
+  fileName: 'beslut.docx',
+  mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  byteSize: 40_000, ...overrides,
+});
+const conversion = (overrides = {}) => ({
+  sourceSha256: 'a'.repeat(64), convertedSha256: 'b'.repeat(64), convertedPageCount: 3,
+  verifiedProfile: 'PDF/A-2b', inspectionAccepted: true, ...overrides,
+});
+const officeCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('an Office document is converted before signing, and only the PDF/A is signed', () => {
+  const plan = planOfficeIngestion(office());
+  assert.equal(plan.targetProfile, 'PDF/A-2b');
+  assert.equal(plan.requiresConversion, true);
+  for (const name of ['a.xlsx', 'a.pptx', 'a.odt', 'a.ods', 'a.rtf']) {
+    const mime = {
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      '.odt': 'application/vnd.oasis.opendocument.text',
+      '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+      '.rtf': 'application/rtf',
+    }[name.slice(name.lastIndexOf('.'))];
+    assert.equal(officeCode(() => planOfficeIngestion(office({ fileName: name, mimeType: mime }))), 'NO_ERROR', name);
+  }
+
+  // Macro-enabled formats are the standard delivery vehicle for Office malware,
+  // and a file about to be flattened has no legitimate need for a macro.
+  for (const name of ['beslut.docm', 'kalkyl.xlsm', 'bild.pptm']) {
+    assert.equal(officeCode(() => planOfficeIngestion(office({ fileName: name }))), 'OFFICE_MACRO_FORMAT_REJECTED', name);
+  }
+  // Extension and MIME must agree: checking one lets a caller present a macro
+  // file under a benign type, and the conversion service is what opens it.
+  assert.equal(officeCode(() => planOfficeIngestion(office({ mimeType: 'text/plain' }))), 'OFFICE_MIME_MISMATCH');
+  assert.equal(officeCode(() => planOfficeIngestion(office({ fileName: 'a.exe' }))), 'OFFICE_FORMAT_NOT_SUPPORTED');
+  assert.equal(officeCode(() => planOfficeIngestion(office({ byteSize: 0 }))), 'OFFICE_TOO_LARGE');
+
+  // The signed hash is always the converted file. An Office file is not a fixed
+  // representation of itself, so a signature over it would cover bytes whose
+  // visual meaning is not stable.
+  const ingested = admitConvertedDocument(plan, conversion(), { tenantId: 't', documentId: 'd' });
+  assert.equal(ingested.signableSha256, 'b'.repeat(64));
+  assert.notEqual(ingested.signableSha256, ingested.sourceSha256);
+  assert.equal(ingested.profile, 'PDF/A-2b');
+
+  // A converter reporting PDF/A is describing its intent; only a validator's
+  // verdict is evidence.
+  const admit = (result) => officeCode(() => admitConvertedDocument(plan, conversion(result), { tenantId: 't', documentId: 'd' }));
+  assert.equal(admit({ verifiedProfile: null }), 'OFFICE_CONVERSION_UNVERIFIED');
+  assert.equal(admit({ inspectionAccepted: false }), 'OFFICE_CONVERSION_UNVERIFIED');
+  // A conversion that produced its own input did not convert.
+  assert.equal(admit({ convertedSha256: 'a'.repeat(64) }), 'OFFICE_CONVERSION_UNVERIFIED');
+  assert.equal(admit({ convertedPageCount: 0 }), 'OFFICE_CONVERSION_PAGE_MISMATCH');
+
+  // PAdES appends an incremental update; a tool that rewrites the file instead
+  // invalidates every signature already on it, which is how a second signer
+  // silently destroys the first.
+  assert.equal(ADOBE_READER_COMPATIBILITY.incrementalUpdateOnly, true);
+  assert.equal(ADOBE_READER_COMPATIBILITY.forbidEncryption, true);
+});
+
+test('dates and times render in the Swedish standard regardless of host locale', () => {
+  // åååå-mm-dd and tt:mm, not whatever the server's locale happens to be. A
+  // server drifting to en-US would render 08/07/2026 — a different date to a
+  // Swedish reader, silently.
+  assert.equal(formatSwedishDate('2026-08-07T10:30:00.000Z'), '2026-08-07');
+  assert.equal(formatSwedishTime('2026-08-07T10:30:00.000Z'), '12:30'); // CEST
+  assert.equal(formatSwedishDateTime('2026-01-15T10:30:00.000Z'), '2026-01-15 11:30'); // CET
+
+  // Summer time starts and ends at 01:00 UTC on the last Sunday of March and
+  // October. Computed rather than read from tzdata, because a container with
+  // stale or stripped tzdata would shift every time by an hour without failing.
+  assert.equal(swedishUtcOffsetHours(new Date('2026-03-29T00:59:00Z')), 1);
+  assert.equal(swedishUtcOffsetHours(new Date('2026-03-29T01:00:00Z')), 2);
+  assert.equal(swedishUtcOffsetHours(new Date('2026-10-25T00:59:00Z')), 2);
+  assert.equal(swedishUtcOffsetHours(new Date('2026-10-25T01:00:00Z')), 1);
+
+  // A midnight-crossing conversion must move the date too.
+  assert.equal(formatSwedishDateTime('2026-08-07T23:30:00.000Z'), '2026-08-08 01:30');
+  // Evidence output states the offset so it stays unambiguous decades later.
+  assert.equal(formatSwedishTimestampWithOffset('2026-08-07T10:30:00.000Z'), '2026-08-07 12:30 (UTC+2)');
+
+  // Messages are Swedish, and an unknown code yields a Swedish fallback rather
+  // than the raw code — which would be both untranslated and a leak of internal
+  // structure.
+  assert.match(messageFor('WORKFLOW_STEP_NOT_REACHED'), /inte din tur/);
+  assert.match(messageFor('GALLRING_SELF_APPROVAL'), /någon annan än/);
+  assert.match(messageFor('PADES_NOT_VALIDATED'), /kunde inte valideras/);
+  const unknown = messageFor('SOME_INTERNAL_CODE_42');
+  assert.doesNotMatch(unknown, /SOME_INTERNAL_CODE_42/);
+  assert.match(unknown, /Något gick fel/);
 });
 
 let failed = 0;

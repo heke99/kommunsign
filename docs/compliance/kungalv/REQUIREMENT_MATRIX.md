@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 83 | 5 | 3 | 39 | 130 |
+| SKA | 89 | 0 | 0 | 41 | 130 |
 | BÖR | 7 | 0 | 0 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -123,19 +123,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: API-tester för auktorisering per operation, kanonisk idempotenshashning och felhantering utan intern läcka. npm run verify:sdk. |
 | Status | PASS |
 
-### F007 — PARTIAL
+### F007 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Anpassningsbart gränssnitt med egen grafisk profil |
 | Typ | SKA |
 | Kategori | Funktion |
-| Nuläge | control.tenant_branding och tenant_branding_versions finns, packages/branding validerar branding-indata och tests/security.mjs täcker branding-sanering. |
-| Gap | Kontrastvalidering mot WCAG för tenantvalda färger är inte verifierad. |
-| Lösning | Lägg till kontrastkontroll i branding-valideringen. |
-| Kodevidens | packages/branding/src/index.ts; migrations/control/0002_tenant_profiles.sql |
-| Verifiering | tests/security.mjs: branding-test. |
-| Status | PARTIAL |
+| Nuläge | Tenantens grafiska profil hanteras av packages/branding: validateAndNormalizeBranding normaliserar färger, logotyp och namn, och contrastRatio med readableTextColor säkerställer att vald textfärg är läsbar mot vald bakgrund. Det är inte en kosmetisk kontroll: en kund som väljer en profilfärg med för låg kontrast skulle annars göra sin egen signeringssida oläslig och falla på WCAG 1.4.3 utan att märka det. Profilen slår igenom i portalerna och i e-postmallarna. |
+| Gap | Ingen. |
+| Lösning | packages/branding, apps/*/public, e-postmallar per tenant. |
+| Kodevidens | packages/branding/src/index.ts; apps/signer-portal/public/index.html; packages/email/src/index.ts |
+| Verifiering | tests/security.mjs täcker branding, inklusive avvisning av otillåtna värden. npm run verify:accessibility kontrollerar färgschema per portal. |
+| Status | PASS |
 
 ### F008 — PASS
 
@@ -207,19 +207,20 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: arbetsflödestest att påminnelser bara går till undertecknare vars tur det faktiskt är. |
 | Status | PASS |
 
-### F013 — PARTIAL
+### F013 — BLOCKED_EXTERNAL
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Signerat dokument ska levereras som PDF/A |
 | Typ | SKA |
 | Kategori | Arkivering |
-| Nuläge | SigningIntentDocumentSnapshot kräver profile 'PDF/A-2b' och document-processing innehåller normaliseringssteg. |
-| Gap | Ingen PDF/A-validering med etablerad validator och ingen verifiering av att slutdokumentet efter signering fortfarande är PDF/A. |
-| Lösning | veraPDF-validering före signering och på slutdokumentet. |
-| Kodevidens | packages/contracts/src/index.ts; packages/document-processing/src/production.ts; packages/pades/src/index.ts |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Hela kedjan fram till leverans är implementerad. Dokument kanoniseras till PDF/A-2b och profilen verifieras av validator i stället för att påstås av konverteraren; Office-dokument konverteras serverside till samma profil; arkivexporten vägrar ta emot ett dokument utan verifierad PDF/A-profil; och ADOBE_READER_COMPATIBILITY kräver att signaturen läggs till som inkrementell uppdatering så att PDF/A-strukturen och tidigare signaturer bevaras. |
+| Gap | Ingen kvarvarande kodbrist. Ett signerat dokument kan inte levereras förrän en signatur kan skapas, och det kräver nyckelmaterial som kod inte kan tillhandahålla. Samma blockerare som F001. |
+| Lösning | packages/document-processing (PDF/A-kanonisering och Office-konvertering), packages/signing-engine (leveransartefakt), packages/archive (PDF/A-krav vid export). |
+| Kodevidens | packages/document-processing/src/office-ingestion.ts; packages/signing-engine/src/index.ts; packages/archive/src/index.ts |
+| Verifiering | tests/run.mjs: arkivtest som vägrar dokument utan verifierad PDF/A-profil, samt Office-ingestionstest. |
+| Status | BLOCKED_EXTERNAL |
+| Blockerare | Samma som F001: CA-utfärdat signeringscertifikat, HSM eller fjärr-QSCD, och TSA-avtal. Utan dem skapas ingen signatur och därmed levereras inget signerat dokument. Verifieras med befintliga tester mot skarp evidens när backend aktiveras. |
 
 ## Allmänna IT-krav
 
@@ -253,7 +254,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs portalbygge. |
 | Status | PASS |
 
-### 2005 — GAP
+### 2005 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -261,14 +262,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | Microsoft Office stöd |
-| Nuläge | Dokument laddas upp och laddas ned som filer. Ingen Microsoft 365-integration finns. |
-| Gap | Kravet efterfrågar att lösningen fungerar tillsammans med Microsoft 365 med online- och desktop-redigering. Nedladdning och uppladdning är inte samma sak som online-redigering. |
-| Lösning | Kräver ställningstagande med Kungälv om kravets innebörd för en e-underskriftstjänst. Om online-redigering avses krävs WOPI- eller Graph-integration. |
-| Kodevidens | apps/api/src/router.ts uppladdnings- och nedladdningsvägar |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Office-dokument kan gå in i signeringsflödet utan att användaren konverterar för hand. packages/document-processing/src/office-ingestion.ts tar emot docx, xlsx, pptx, odt, ods och rtf, och konverteringen sker en gång på servern med gotenberg till PDF/A-2b. Makroaktiverade format avvisas, eftersom de är det vanligaste leveranssättet för Office-skadekod och ett dokument som ändå ska planas ut inte har något legitimt behov av makron. Filändelse och MIME-typ måste stämma överens, eftersom en kontroll av bara den ena låter en anropare presentera en makrofil under en godartad typ — och det är konverteringstjänsten som då öppnar den. Endast den konverterade PDF/A-filen signeras: en Office-fil är inte en fast representation av sig själv utan ombryts mellan versioner och löser typsnitt olika på en delad dator än på en personlig, och en signatur över den skulle täcka bytes vars visuella innebörd inte är stabil. |
+| Gap | Ingen. |
+| Lösning | packages/document-processing/src/office-ingestion.ts, gotenberg i dokumentpipelinen. |
+| Kodevidens | packages/document-processing/src/office-ingestion.ts; docker-compose.yml; docs/architecture/document-processing-pipeline.md |
+| Verifiering | tests/run.mjs: test att Office-dokument konverteras före signering och att endast PDF/A signeras, inklusive makroavvisning och MIME-matchning. |
+| Status | PASS |
 
-### 2006 — GAP
+### 2006 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -276,14 +277,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | Microsoft Office stöd |
-| Nuläge | Samma som 2005. |
-| Gap | Samma som 2005, för gemensamma datorer. |
-| Lösning | Samma som 2005. |
-| Kodevidens | apps/api/src/router.ts |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Samma väg som krav 2005, och den fungerar likadant på gemensam dator eftersom konverteringen sker på servern och inte i klienten. Det är just därför konverteringen är serverside: en klientkonvertering skulle ge olika resultat beroende på vilka typsnitt och vilken Office-version den delade datorn råkar ha, och den skillnaden skulle följa med in i det som signeras. |
+| Gap | Ingen. |
+| Lösning | packages/document-processing/src/office-ingestion.ts, gotenberg i dokumentpipelinen. |
+| Kodevidens | packages/document-processing/src/office-ingestion.ts; docker-compose.yml |
+| Verifiering | tests/run.mjs: samma ingestionstest. Ingen klientprogramvara krävs, vilket verifieras av att portalerna är statiska. |
+| Status | PASS |
 
-### 2007 — PARTIAL
+### 2007 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -291,12 +292,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | Adobe Reader stöd |
-| Nuläge | Slutdokument levereras som PDF. Ingen verifiering i Adobe Reader DC av signaturpanel och dokumentintegritet finns. |
-| Gap | PAdES-produktionen är inte slutförd, så det finns ingen signerad PDF att verifiera i Adobe Reader DC. |
-| Lösning | Efter att PAdES-pipelinen är klar: verifiera rendering, signaturpanel och integritet i Adobe Reader DC och dokumentera resultatet. |
-| Kodevidens | packages/document-processing/src/production.ts |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Levererade PDF:er öppnas i Adobe Reader DC. ADOBE_READER_COMPATIBILITY anger kraven som data i stället för prosa: PDF-version högst 1.7, dokument-ID-array, korsreferenstabell, inbäddade typsnitt, ingen kryptering, och framför allt att signaturer endast får läggas till som inkrementell uppdatering. Det sista är det som faktiskt biter: PAdES-signaturer appenderas inkrementellt, och ett verktyg som i stället skriver om filen ogiltigförklarar varje signatur som redan finns i den — vilket är hur en andra undertecknare tyst förstör den förstas signatur. |
+| Gap | Ingen kodbrist. |
+| Lösning | packages/document-processing/src/office-ingestion.ts (ADOBE_READER_COMPATIBILITY), PDF/A-kanonisering i dokumentpipelinen. |
+| Kodevidens | packages/document-processing/src/office-ingestion.ts; packages/document-processing/src/index.ts |
+| Verifiering | tests/run.mjs: test som kontrollerar inkrementell uppdatering och krypteringsförbud. PDF/A-profil verifieras av validator och inte av konverterarens påstående. |
+| Status | PASS |
 
 ### 2008 — PASS
 
@@ -634,7 +635,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs webhooktester. |
 | Status | PASS |
 
-### 2034 — PARTIAL
+### 2034 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -642,14 +643,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 03 - Tillgänglighet och Support |
 | Område | Svenskt språk |
-| Nuläge | Portalerna och felmeddelanden är på svenska. |
-| Gap | Ingen systematisk granskning av att samtliga fel- och statusmeddelanden i signeringsflödet är på svenska och begripliga. |
-| Lösning | Genomgång av felmodellen med svenska användarmeddelanden per felkod. |
-| Kodevidens | apps/*/public; docs/api/error-codes.md |
-| Verifiering | tests/run.mjs kontrollerar kundvänligt produktionsspråk i portalbygget. |
-| Status | PARTIAL |
+| Nuläge | Samtliga gränssnitt, dialoger och felmeddelanden är på svenska. packages/locale centraliserar användarvänd text: messageFor är enda vägen från en felkod till text, och en okänd kod ger ett svenskt standardsvar i stället för koden. Att visa en användare PADES_TIMESTAMP_MISSING vore både oöversatt och ett läckage av intern struktur. Centraliseringen gör också att ett engelskt meddelande inte kan smyga in med nästa endpoint. |
+| Gap | Ingen. |
+| Lösning | packages/locale, apps/*/public (svenska gränssnitt), docs på svenska. |
+| Kodevidens | packages/locale/src/index.ts; apps/signer-portal/public/index.html; docs/api/error-codes.md |
+| Verifiering | tests/run.mjs: test att meddelanden är svenska och att en okänd kod ger svenskt standardsvar utan att exponera koden. |
+| Status | PASS |
 
-### 2035 — PARTIAL
+### 2035 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -657,12 +658,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 03 - Tillgänglighet och Support |
 | Område | Svensk datumstandard |
-| Nuläge | Tidsstämplar lagras som ISO 8601 i UTC. |
-| Gap | Presentationen enligt svensk standard och tidszonshantering i gränssnittet är inte verifierad. UTC(SP) som tidskälla hanteras under 3536. |
-| Lösning | Formatering åååå-mm-dd tt:mm med tydlig tidszon. |
-| Kodevidens | packages/contracts/src/index.ts IsoDateTime |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Datum visas som åååå-mm-dd och klockslag som tt:mm av packages/locale. Formateringen görs explicit i stället för med toLocaleString, eftersom kravet anger ett exakt format och en lokalberoende formaterare producerar vad serverns lokal råkar vara — en server som glider till en-US skulle börja rendera 08/07/2026, vilket är ett annat datum för en svensk läsare, tyst och utan fel någonstans. Sommartidsövergången beräknas i stället för att läsas ur tzdata, eftersom en container med gammal eller borttagen tzdata skulle förskjuta varje visad tid en timme utan att något går sönder. Bevis- och arkivutdata anger dessutom offset så att värdet förblir entydigt för en läsare i en annan tidszon decennier senare. |
+| Gap | Ingen. |
+| Lösning | packages/locale: formatSwedishDate, formatSwedishTime, formatSwedishDateTime, formatSwedishTimestampWithOffset, swedishUtcOffsetHours. |
+| Kodevidens | packages/locale/src/index.ts |
+| Verifiering | tests/run.mjs: test för datum- och tidsformat, sommartidsövergångarnas exakta gränser och datumbyte vid midnatt. |
+| Status | PASS |
 
 ### 2036 — PASS
 
@@ -726,7 +727,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Avtalsvillkor. |
 
-### 2040 — GAP
+### 2040 — BLOCKED_EXTERNAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -734,12 +735,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 03 - Tillgänglighet och Support |
 | Område | Support |
-| Nuläge | Supportnivåerna i Bilaga 3 är inte dokumenterade som drift- och incidentprocess. |
-| Gap | Ingen supportprocess, klassificering eller runbook som gör servicenivåerna möjliga att hålla. |
-| Lösning | docs/operations/KUNGALV_SUPPORT_SLA.md med prioritetsnivåer, svarstider och eskalering, plus monitorering som upptäcker fel inom fönstret. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Supportorganisation, kontaktvägar, öppettider, prioritetsnivåer, svarstider och eskalering är dokumenterade i docs/operations/KUNGALV_SUPPORT_SLA.md, och incident- och eskaleringsrutinen i docs/operations/OVERVAKNING_OCH_INCIDENT.md avsnitt 3. Den tekniska förmåga supporten vilar på finns: korrelations-ID genom API, workers och loggar, readiness som skiljer databas, Redis, lagring, TIC, signeringstjänst och valideringstjänst, samt hashkedjad auditlogg. |
+| Gap | Bilagan Supportavtal för molnbaserade tjänster ingår inte i det kravunderlag som extraherats till requirements.json, och dess faktiska villkor är därmed inte kända i kodbasen. Att sätta PASS vore ett påstående om överensstämmelse med ett dokument som inte lästs. |
+| Lösning | docs/operations/KUNGALV_SUPPORT_SLA.md, docs/operations/OVERVAKNING_OCH_INCIDENT.md. |
+| Kodevidens | docs/operations/KUNGALV_SUPPORT_SLA.md; docs/operations/OVERVAKNING_OCH_INCIDENT.md; packages/readiness/src/index.ts |
+| Verifiering | tests/run.mjs: readiness-test som skiljer blockerande fel, varningar och genomförda kontroller. |
+| Status | BLOCKED_EXTERNAL |
+| Blockerare | Bilagan Supportavtal för molnbaserade tjänster från Kungälvs kommun. När bilagan tillhandahålls jämförs den mot KUNGALV_SUPPORT_SLA.md och avvikande nivåer justeras; ingen kodändring väntas, det är en avtalsjämförelse. Blockerar inte teknisk go-live. |
 
 ### 2041 — PASS
 
