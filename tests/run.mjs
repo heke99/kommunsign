@@ -56,6 +56,9 @@ import {
   matchesScimFilter, paginateScim, parseScimFilter, resolveScimRoles, SCIM_MAXIMUM_PAGE_SIZE,
   ScimError, toScimUserResource,
 } from '../dist/packages/scim/src/index.js';
+import {
+  buildArchivePackage, buildDescriptiveMetadata, verifyArchivePackage,
+} from '../dist/packages/archive/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1683,6 +1686,122 @@ test('SCIM pagination is 1-based and filters are a strict subset', () => {
   assert.deepEqual(resource.schemas, ['urn:ietf:params:scim:schemas:core:2.0:User']);
   assert.equal(resource.meta.location, `/scim/v2/Users/${scimUser().id}`);
   assert.deepEqual(resource.roles, [{ value: 'case_manager' }]);
+});
+
+const bytesOf = (text) => new TextEncoder().encode(text);
+const archiveCase = (overrides = {}) => ({
+  tenantId: '00000000-0000-4000-8000-0000000000d1',
+  signatureCaseId: '00000000-0000-4000-8000-0000000000d2',
+  reference: 'KS2026-0001', title: 'Delegationsbeslut', decisionMode: 'ELECTRONIC_SIGNATURE',
+  status: 'archived', createdAt: '2026-08-01T00:00:00.000Z', closedAt: '2026-08-05T00:00:00.000Z',
+  documents: [{
+    documentId: '00000000-0000-4000-8000-0000000000d3', documentVersionId: '00000000-0000-4000-8000-0000000000d4',
+    displayName: 'beslut.pdf', sha256: 'e'.repeat(64), byteSize: 12, verifiedProfile: 'PDF/A-2b', isSignedArtifact: true,
+  }],
+  signatures: [{
+    signerId: '00000000-0000-4000-8000-0000000000d5', signedAt: '2026-08-04T00:00:00.000Z', padesLevel: 'LT',
+    signatureArtifactSha256: 'f'.repeat(64), validationReportSha256: '1'.repeat(64), timestampTokenSha256: '2'.repeat(64),
+  }],
+  identities: [{
+    signerId: '00000000-0000-4000-8000-0000000000d5', provider: 'TIC_BANKID', assuranceLevel: 'HIGH',
+    maskedIdentifier: '19800101-****', verifiedAt: '2026-08-04T00:00:00.000Z', evidenceSha256: '3'.repeat(64),
+  }],
+  auditTrailSha256: '4'.repeat(64), ...overrides,
+});
+const archiveFiles = () => [
+  { path: 'content/beslut.pdf', bytes: bytesOf('signed-pdf-1'), mediaType: 'application/pdf' },
+  { path: 'metadata/descriptive.json', bytes: bytesOf('{"a":1}'), mediaType: 'application/json' },
+  { path: 'evidence/validation-report.json', bytes: bytesOf('{"r":"ok"}'), mediaType: 'application/json' },
+];
+const archiveCode = async (fn) => { try { await fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('an archive package refuses to misrepresent what it contains', async () => {
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase(), archiveFiles())), 'NO_ERROR');
+
+  // Archiving a running case would freeze a half-finished record and imply it
+  // was final.
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase({ closedAt: null }), archiveFiles())), 'ARCHIVE_CASE_NOT_CLOSED');
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase({ documents: [] }), archiveFiles())), 'ARCHIVE_DOCUMENT_MISSING');
+
+  // RA-FS requires a preservation format. A profile the processor did not
+  // verify is a claim, not a format.
+  const unverified = archiveCase({ documents: [{ ...archiveCase().documents[0], verifiedProfile: null }] });
+  assert.equal(await archiveCode(() => buildArchivePackage(unverified, archiveFiles())), 'ARCHIVE_PROFILE_NOT_VERIFIED');
+
+  // An electronic signature exported without signature evidence would be a
+  // false statement about a legal act.
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase({ signatures: [] }), archiveFiles())), 'ARCHIVE_SIGNATURE_EVIDENCE_MISSING');
+  const noReport = archiveCase({ signatures: [{ ...archiveCase().signatures[0], validationReportSha256: null }] });
+  assert.equal(await archiveCode(() => buildArchivePackage(noReport, archiveFiles())), 'ARCHIVE_SIGNATURE_EVIDENCE_MISSING');
+  // A signature with no identity evidence cannot prove who signed.
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase({ identities: [] }), archiveFiles())), 'ARCHIVE_IDENTITY_EVIDENCE_MISSING');
+  // Without the audit trail the package records the outcome but not the process.
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase({ auditTrailSha256: null }), archiveFiles())), 'ARCHIVE_AUDIT_TRAIL_MISSING');
+
+  // A digital approval has no PAdES signature and must not be required to
+  // carry one — the completeness rules are asymmetric on purpose.
+  const approval = archiveCase({ decisionMode: 'DIGITAL_APPROVAL', signatures: [], identities: [] });
+  assert.equal(await archiveCode(() => buildArchivePackage(approval, archiveFiles())), 'NO_ERROR');
+
+  // Path traversal and stray namespaces are refused outright.
+  for (const path of ['../etc/passwd', 'content/../x', 'other/file.pdf', 'content/']) {
+    assert.equal(
+      await archiveCode(() => buildArchivePackage(archiveCase(), [{ path, bytes: bytesOf('x'), mediaType: 'application/pdf' }])),
+      'ARCHIVE_PATH_INVALID', path,
+    );
+  }
+  // A package with metadata but no content describes a delivery missing its files.
+  assert.equal(
+    await archiveCode(() => buildArchivePackage(archiveCase(), [{ path: 'metadata/only.json', bytes: bytesOf('{}'), mediaType: 'application/json' }])),
+    'ARCHIVE_DOCUMENT_MISSING',
+  );
+});
+
+test('an archive package is deterministic and verifiable with nothing but itself', async () => {
+  const first = await buildArchivePackage(archiveCase(), archiveFiles());
+  // Same case, files supplied in a different order.
+  const shuffled = [archiveFiles()[2], archiveFiles()[0], archiveFiles()[1]];
+  const second = await buildArchivePackage(archiveCase(), shuffled);
+
+  // If the same closed case exported twice differed, no one could prove the
+  // archive copy is the delivered copy.
+  assert.equal(first.manifestSha256, second.manifestSha256);
+  assert.deepEqual(first.manifest.entries.map((entry) => entry.path), second.manifest.entries.map((entry) => entry.path));
+  assert.deepEqual(first.manifest.entries.map((entry) => entry.path), ['content/beslut.pdf', 'evidence/validation-report.json', 'metadata/descriptive.json']);
+  assert.equal(first.manifest.regulation, 'RA-FS 2009:2');
+  assert.deepEqual(first.manifest.entries.map((entry) => entry.category), ['content', 'evidence', 'metadata']);
+
+  // Verification needs the package, the manifest and the separately delivered
+  // manifest hash — no database, no network.
+  assert.deepEqual(await verifyArchivePackage(first.manifest, archiveFiles(), first.manifestSha256), { verified: true, failures: [] });
+
+  // A tampered file is detected.
+  const tampered = archiveFiles().map((file) => file.path === 'content/beslut.pdf' ? { ...file, bytes: bytesOf('signed-pdf-2') } : file);
+  const tamperedResult = await verifyArchivePackage(first.manifest, tampered, first.manifestSha256);
+  assert.equal(tamperedResult.verified, false);
+  assert.match(tamperedResult.failures.join(' '), /Hash mismatch: content\/beslut\.pdf/);
+
+  // A missing file and an extra file are both failures: a package carrying
+  // content the manifest does not describe was not delivered as described.
+  assert.match((await verifyArchivePackage(first.manifest, archiveFiles().slice(1), first.manifestSha256)).failures.join(' '), /Missing file/);
+  assert.match(
+    (await verifyArchivePackage(first.manifest, [...archiveFiles(), { path: 'content/extra.pdf', bytes: bytesOf('x'), mediaType: 'application/pdf' }], first.manifestSha256)).failures.join(' '),
+    /Unexpected file/,
+  );
+
+  // The manifest hash is delivered outside the manifest. A checksum stored
+  // inside would re-certify any modification to the manifest itself.
+  const forged = { ...first.manifest, title: 'Något annat' };
+  const forgedResult = await verifyArchivePackage(forged, archiveFiles(), first.manifestSha256);
+  assert.equal(forgedResult.verified, false);
+  assert.deepEqual(forgedResult.failures, ['Manifest hash does not match the delivered manifest hash']);
+
+  // Descriptive metadata is technology-neutral and carries no full personal
+  // number: an archive package outlives every access control around it.
+  const metadata = buildDescriptiveMetadata(archiveCase());
+  assert.equal(metadata.signatories[0].identifier, '19800101-****');
+  assert.equal(metadata.documents[0].format, 'PDF/A-2b');
+  assert.doesNotMatch(canonicalJson(metadata), /\d{8}-?\d{4}/);
 });
 
 let failed = 0;

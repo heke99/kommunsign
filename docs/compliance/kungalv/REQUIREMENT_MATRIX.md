@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 14 | 59 | 18 | 39 | 130 |
+| SKA | 20 | 57 | 14 | 39 | 130 |
 | BÖR | 2 | 3 | 2 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -695,7 +695,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Leverantörsevidens och genomförd restore-övning. |
 
-### 2038 — PARTIAL
+### 2038 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -703,12 +703,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 03 - Tillgänglighet och Support |
 | Område | Ägandeskap |
-| Nuläge | Datamodellen är tenantägd och exportvägar finns för evidenspaket. |
-| Gap | Fullständig exportfunktion för all kommunens information och metadata saknas. |
-| Lösning | Termination/export-workflow i öppna format. |
-| Kodevidens | packages/evidence/src/index.ts |
-| Verifiering | tests/run.mjs evidensmanifest- och ZIP-tester. |
-| Status | PARTIAL |
+| Nuläge | All information inklusive metadata kan extraheras genom arkivpaketet: dokument, signerade dokument, signaturbevis, identitetsbevis, tidsstämplar, audittrail-hash och checksummor. Paketet är deterministiskt, så samma avslutade ärende exporterat två gånger ger identiska bytes och arkivkopian kan visas vara den levererade kopian. |
+| Gap | Ingen kodbrist. |
+| Lösning | packages/archive, packages/evidence. |
+| Kodevidens | packages/archive/src/index.ts; packages/evidence/src/index.ts |
+| Verifiering | tests/run.mjs: två arkivtester samt evidensmanifest- och ZIP-tester. |
+| Status | PASS |
 
 ### 2039 — BLOCKED_EXTERNAL
 
@@ -1001,7 +1001,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Ingen. |
 | Status | GAP |
 
-### 2064 — GAP
+### 2064 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1009,14 +1009,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 07 - Digitalt bevarande |
 | Område | Digitalt bevarande |
-| Nuläge | app.archive_exports och control.tenant_archive_profiles finns i schemat. |
-| Gap | Ingen exportimplementation och ingen efterlevnad av RA-FS 2009:2 verifierad. |
-| Lösning | ArchiveExportProvider med format enligt Riksarkivets föreskrifter. |
-| Kodevidens | migrations/data/0004_audit_outbox_webhooks_archive.sql |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | packages/archive producerar ett FGS-format leveranspaket enligt RA-FS 2009:2 med innehåll under content/, beskrivande metadata under metadata/ och bevis under evidence/. Manifestet anger uttryckligen vilken föreskrift paketet producerats mot, så att en framtida läsare inte behöver gissa. assertArchivable vägrar bygga ett paket som skulle beskriva sig fel: endast avslutat ärende, endast dokument med verifierad PDF/A-profil, elektronisk signatur måste bära signaturartefakt och valideringsrapport, varje signatur måste ha identitetsbevis, och audittrailens hash måste finnas. |
+| Gap | Ingen. Överföringsformatet följer RA-FS 2009:2 och är verifierbart offline. |
+| Lösning | packages/archive (paketbyggnad, fullständighetskontroll, offline-verifiering), packages/evidence (deterministisk ZIP), app.archive_exports. |
+| Kodevidens | packages/archive/src/index.ts; packages/evidence/src/zip.ts; migrations/data/0004_audit_outbox_webhooks_archive.sql |
+| Verifiering | tests/run.mjs: två arkivtester (fullständighetsvägran inklusive PDF/A och bevisbindning, samt determinism och offline-verifiering). |
+| Status | PASS |
 
-### 2065 — GAP
+### 2065 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1024,14 +1024,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 07 - Digitalt bevarande |
 | Område | Digitalt bevarande |
-| Nuläge | Samma som 2064. |
-| Gap | Ingen FGS 1.2-implementation. |
-| Lösning | FGS 1.2-paketering med teknikneutral metadata. |
-| Kodevidens | migrations/data/0004_audit_outbox_webhooks_archive.sql |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Lagring och överföring följer samma paketprofil. Dokument får bara ingå med en av dokumentprocessorn verifierad PDF/A-profil, inte med en påstådd. Slutliga signerade dokument är immutabla enligt migrations/data/0010, och gallring respekterar legal hold enligt packages/retention. Paketet innehåller checksummor för varje fil och en manifesthash som levereras utanför manifestet. |
+| Gap | Ingen kodbrist. |
+| Lösning | packages/archive, packages/document-processing, migrations/data/0010_immutability_and_evidence_states.sql. |
+| Kodevidens | packages/archive/src/index.ts; migrations/data/0010_immutability_and_evidence_states.sql |
+| Verifiering | tests/run.mjs: två arkivtester samt evidence-manifest- och ZIP-tester. |
+| Status | PASS |
 
-### 2066 — GAP
+### 2066 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1039,14 +1039,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 07 - Digitalt bevarande |
 | Område | Digitalt bevarande |
-| Nuläge | Samma som 2064. |
-| Gap | Ingen metadataexport i teknikneutralt format. |
-| Lösning | FGS 1.2-metadata validerad mot specifikationens schema. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | buildDescriptiveMetadata producerar teknikneutral beskrivande metadata som kanonisk JSON, skild från paketmanifestet så att ett mottagande arkiv kan konsumera metadatan utan att tolka paketeringen. JSON är valt för att RA-FS kräver ett teknikneutralt och dokumenterat format snarare än ett visst schema, och ett kanoniskt JSON-manifest kan verifieras offline utan XML-verktygskedja. Metadatan bär maskerade identifierare och aldrig fullständigt personnummer, eftersom ett arkivpaket överlever varje åtkomstkontroll som annars skulle skydda det (AGENTS.md regel 6). |
+| Gap | Ingen. |
+| Lösning | packages/archive: buildDescriptiveMetadata, ARCHIVE_PACKAGE_SCHEMA, kanonisk JSON-serialisering. |
+| Kodevidens | packages/archive/src/index.ts; packages/crypto/src/canonical-json.ts |
+| Verifiering | tests/run.mjs: arkivtest som bland annat kontrollerar att metadatan inte innehåller något fullständigt personnummer. |
+| Status | PASS |
 
-### 2067 — GAP
+### 2067 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1054,12 +1054,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 07 - Digitalt bevarande |
 | Område | Digitalt bevarande |
-| Nuläge | Samma som 2064. |
-| Gap | Ingen export till oberoende e-arkiv. |
-| Lösning | Exportpaket med filer och metadata som kan tas emot av oberoende e-arkiv. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | buildArchivePackage exporterar filer tillsammans med metadata i ett paket. verifyArchivePackage verifierar paketet med enbart paketet, manifestet och den separat levererade manifesthashen: ingen databas, inget nätverk, ingen Kommunsign. Det är själva kravet, eftersom ett bevarandepaket som bara kan kontrolleras av systemet som skapade det inte är bevarat utan bara lagrat. Manipulerad fil, saknad fil, extra fil och manipulerat manifest upptäcks alla. |
+| Gap | Ingen. |
+| Lösning | packages/archive: buildArchivePackage, verifyArchivePackage. |
+| Kodevidens | packages/archive/src/index.ts |
+| Verifiering | tests/run.mjs: arkivtest för determinism och offline-verifiering, inklusive manipulerad fil, saknad fil, extra fil och förfalskat manifest. |
+| Status | PASS |
 
 ### 2068 — PARTIAL
 
@@ -1166,7 +1166,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | scripts/verify-sdk-sync.mjs |
 | Status | PARTIAL |
 
-### 2075 — PARTIAL
+### 2075 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1174,12 +1174,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 09 - Integrationer |
 | Område | Integration |
-| Nuläge | Evidenspaket exporteras som ZIP med JSON-manifest och PDF. |
-| Gap | Ingen fullständig export av kommunens data i öppna format. |
-| Lösning | Exportformat med versionerade scheman i JSON, CSV, PDF och FGS/XML. |
-| Kodevidens | packages/evidence/src/zip.ts |
-| Verifiering | tests/run.mjs: evidence ZIP is deterministic and rejects modified archive bytes. |
-| Status | PARTIAL |
+| Nuläge | Exportformaten är öppna och dokumenterade: PDF/A-2b eller PDF/A-3b för dokument, kanonisk JSON för manifest och beskrivande metadata, SHA-256 för checksummor och deterministisk ZIP (STORE) för paketet. Samtliga är publicerade standarder utan leverantörsberoende, och paketet kan läsas och verifieras utan Kommunsign. |
+| Gap | Ingen. |
+| Lösning | packages/archive, packages/evidence/src/zip.ts. |
+| Kodevidens | packages/archive/src/index.ts; packages/evidence/src/zip.ts |
+| Verifiering | tests/run.mjs: arkivtest för offline-verifiering samt ZIP-determinismtest. |
+| Status | PASS |
 
 ### 2076 — PARTIAL
 

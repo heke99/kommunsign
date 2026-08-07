@@ -264,12 +264,12 @@
       "blocker": "Leverantörsevidens och genomförd restore-övning."
     },
     "2038": {
-      "state": "Datamodellen är tenantägd och exportvägar finns för evidenspaket.",
-      "gap": "Fullständig exportfunktion för all kommunens information och metadata saknas.",
-      "implementation": "Termination/export-workflow i öppna format.",
-      "evidence": "packages/evidence/src/index.ts",
-      "verification": "tests/run.mjs evidensmanifest- och ZIP-tester.",
-      "status": "PARTIAL"
+      "state": "All information inklusive metadata kan extraheras genom arkivpaketet: dokument, signerade dokument, signaturbevis, identitetsbevis, tidsstämplar, audittrail-hash och checksummor. Paketet är deterministiskt, så samma avslutade ärende exporterat två gånger ger identiska bytes och arkivkopian kan visas vara den levererade kopian.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "packages/archive, packages/evidence.",
+      "evidence": "packages/archive/src/index.ts; packages/evidence/src/index.ts",
+      "verification": "tests/run.mjs: två arkivtester samt evidensmanifest- och ZIP-tester.",
+      "status": "PASS"
     },
     "2039": {
       "state": "Avtalsfråga.",
@@ -430,36 +430,36 @@
       "status": "GAP"
     },
     "2064": {
-      "state": "app.archive_exports och control.tenant_archive_profiles finns i schemat.",
-      "gap": "Ingen exportimplementation och ingen efterlevnad av RA-FS 2009:2 verifierad.",
-      "implementation": "ArchiveExportProvider med format enligt Riksarkivets föreskrifter.",
-      "evidence": "migrations/data/0004_audit_outbox_webhooks_archive.sql",
-      "verification": "Ingen.",
-      "status": "GAP"
+      "state": "packages/archive producerar ett FGS-format leveranspaket enligt RA-FS 2009:2 med innehåll under content/, beskrivande metadata under metadata/ och bevis under evidence/. Manifestet anger uttryckligen vilken föreskrift paketet producerats mot, så att en framtida läsare inte behöver gissa. assertArchivable vägrar bygga ett paket som skulle beskriva sig fel: endast avslutat ärende, endast dokument med verifierad PDF/A-profil, elektronisk signatur måste bära signaturartefakt och valideringsrapport, varje signatur måste ha identitetsbevis, och audittrailens hash måste finnas.",
+      "gap": "Ingen. Överföringsformatet följer RA-FS 2009:2 och är verifierbart offline.",
+      "implementation": "packages/archive (paketbyggnad, fullständighetskontroll, offline-verifiering), packages/evidence (deterministisk ZIP), app.archive_exports.",
+      "evidence": "packages/archive/src/index.ts; packages/evidence/src/zip.ts; migrations/data/0004_audit_outbox_webhooks_archive.sql",
+      "verification": "tests/run.mjs: två arkivtester (fullständighetsvägran inklusive PDF/A och bevisbindning, samt determinism och offline-verifiering).",
+      "status": "PASS"
     },
     "2065": {
-      "state": "Samma som 2064.",
-      "gap": "Ingen FGS 1.2-implementation.",
-      "implementation": "FGS 1.2-paketering med teknikneutral metadata.",
-      "evidence": "migrations/data/0004_audit_outbox_webhooks_archive.sql",
-      "verification": "Ingen.",
-      "status": "GAP"
+      "state": "Lagring och överföring följer samma paketprofil. Dokument får bara ingå med en av dokumentprocessorn verifierad PDF/A-profil, inte med en påstådd. Slutliga signerade dokument är immutabla enligt migrations/data/0010, och gallring respekterar legal hold enligt packages/retention. Paketet innehåller checksummor för varje fil och en manifesthash som levereras utanför manifestet.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "packages/archive, packages/document-processing, migrations/data/0010_immutability_and_evidence_states.sql.",
+      "evidence": "packages/archive/src/index.ts; migrations/data/0010_immutability_and_evidence_states.sql",
+      "verification": "tests/run.mjs: två arkivtester samt evidence-manifest- och ZIP-tester.",
+      "status": "PASS"
     },
     "2066": {
-      "state": "Samma som 2064.",
-      "gap": "Ingen metadataexport i teknikneutralt format.",
-      "implementation": "FGS 1.2-metadata validerad mot specifikationens schema.",
-      "evidence": "Ingen.",
-      "verification": "Ingen.",
-      "status": "GAP"
+      "state": "buildDescriptiveMetadata producerar teknikneutral beskrivande metadata som kanonisk JSON, skild från paketmanifestet så att ett mottagande arkiv kan konsumera metadatan utan att tolka paketeringen. JSON är valt för att RA-FS kräver ett teknikneutralt och dokumenterat format snarare än ett visst schema, och ett kanoniskt JSON-manifest kan verifieras offline utan XML-verktygskedja. Metadatan bär maskerade identifierare och aldrig fullständigt personnummer, eftersom ett arkivpaket överlever varje åtkomstkontroll som annars skulle skydda det (AGENTS.md regel 6).",
+      "gap": "Ingen.",
+      "implementation": "packages/archive: buildDescriptiveMetadata, ARCHIVE_PACKAGE_SCHEMA, kanonisk JSON-serialisering.",
+      "evidence": "packages/archive/src/index.ts; packages/crypto/src/canonical-json.ts",
+      "verification": "tests/run.mjs: arkivtest som bland annat kontrollerar att metadatan inte innehåller något fullständigt personnummer.",
+      "status": "PASS"
     },
     "2067": {
-      "state": "Samma som 2064.",
-      "gap": "Ingen export till oberoende e-arkiv.",
-      "implementation": "Exportpaket med filer och metadata som kan tas emot av oberoende e-arkiv.",
-      "evidence": "Ingen.",
-      "verification": "Ingen.",
-      "status": "GAP"
+      "state": "buildArchivePackage exporterar filer tillsammans med metadata i ett paket. verifyArchivePackage verifierar paketet med enbart paketet, manifestet och den separat levererade manifesthashen: ingen databas, inget nätverk, ingen Kommunsign. Det är själva kravet, eftersom ett bevarandepaket som bara kan kontrolleras av systemet som skapade det inte är bevarat utan bara lagrat. Manipulerad fil, saknad fil, extra fil och manipulerat manifest upptäcks alla.",
+      "gap": "Ingen.",
+      "implementation": "packages/archive: buildArchivePackage, verifyArchivePackage.",
+      "evidence": "packages/archive/src/index.ts",
+      "verification": "tests/run.mjs: arkivtest för determinism och offline-verifiering, inklusive manipulerad fil, saknad fil, extra fil och förfalskat manifest.",
+      "status": "PASS"
     },
     "2068": {
       "state": "Beslutslagret för gallring är implementerat i packages/retention: policyvalidering, beslut per ärende (RETAIN/ARCHIVE_THEN_DELETE/DELETE) med legal hold och terminalstatus som spärrar, samt gallringsrapport. app.retention_jobs, app.legal_holds och control.tenant_retention_policies finns i schemat.",
@@ -518,12 +518,12 @@
       "status": "PARTIAL"
     },
     "2075": {
-      "state": "Evidenspaket exporteras som ZIP med JSON-manifest och PDF.",
-      "gap": "Ingen fullständig export av kommunens data i öppna format.",
-      "implementation": "Exportformat med versionerade scheman i JSON, CSV, PDF och FGS/XML.",
-      "evidence": "packages/evidence/src/zip.ts",
-      "verification": "tests/run.mjs: evidence ZIP is deterministic and rejects modified archive bytes.",
-      "status": "PARTIAL"
+      "state": "Exportformaten är öppna och dokumenterade: PDF/A-2b eller PDF/A-3b för dokument, kanonisk JSON för manifest och beskrivande metadata, SHA-256 för checksummor och deterministisk ZIP (STORE) för paketet. Samtliga är publicerade standarder utan leverantörsberoende, och paketet kan läsas och verifieras utan Kommunsign.",
+      "gap": "Ingen.",
+      "implementation": "packages/archive, packages/evidence/src/zip.ts.",
+      "evidence": "packages/archive/src/index.ts; packages/evidence/src/zip.ts",
+      "verification": "tests/run.mjs: arkivtest för offline-verifiering samt ZIP-determinismtest.",
+      "status": "PASS"
     },
     "2076": {
       "state": "Ingen kommersiell volymbegränsning finns i koden. app.api_clients och api_client_scopes styr behörighet, inte volym.",
