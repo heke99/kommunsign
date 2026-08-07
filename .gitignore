@@ -17,3 +17,11 @@ build/
 coverage/
 release/
 .local-data/
+
+# Resolved secret material must never be committed. Only *.example and
+# *.template files, which carry names without values, are allowed.
+*secrets*.env
+*.secrets
+*.env.local
+!*.env.example
+!*.env.template
