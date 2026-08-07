@@ -80,6 +80,11 @@ import {
   assertRotationComplete, assertWritableVersion, beginDualRead, planBlindIndexRotation,
   retireOldVersion, rollbackRotation, rotationRequired,
 } from '../dist/packages/crypto/src/key-rotation.js';
+import {
+  assertMetricLabelsAreSafe, assertSecurityEventIsTraceable, buildLogRecord, cacheHeaders,
+  isForbiddenLogField, isSecurityEvent, METRICS, sanitiseLogPayload, securityHeaders,
+  stuckSigningRatio, TLS_POLICY,
+} from '../dist/packages/observability/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -2400,6 +2405,124 @@ test('a compromised blind index is overwritten rather than kept alongside the ne
   assert.equal(keyCode(() => assertNoCompromisedIndexRemains(entries.filter((e) => e.keyVersion !== 1), [1])), 'NO_ERROR');
   // The active version is never in the overwrite set, even if it were flagged.
   assert.deepEqual(planBlindIndexRotation(entries, [1, 2], 2).mustOverwrite, [1]);
+});
+
+const logContext = (overrides = {}) => ({
+  requestId: 'req-1', correlationId: 'corr-1', tenantId: '00000000-0000-4000-8000-000000000301',
+  actorId: '00000000-0000-4000-8000-000000000302', ...overrides,
+});
+const obsCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.message; } };
+
+test('a log record cannot carry a secret or a personal number', () => {
+  // A deny-list by name catches the fields we thought of, whatever they hold —
+  // by the time a value is in hand, a password looks like any other string.
+  for (const field of ['password', 'apiKey', 'API_KEY', 'clientSecret', 'authorization', 'personalNumber', 'qrStartSecret', 'userPassword']) {
+    assert.equal(isForbiddenLogField(field), true, field);
+  }
+  assert.equal(isForbiddenLogField('displayName'), false);
+  assert.equal(isForbiddenLogField('caseId'), false);
+
+  // Value patterns catch the fields we did not think of — a personal number
+  // pasted into a free-text note is still a personal number.
+  const record = buildLogRecord({
+    level: 'info', event: 'signing.started', outcome: 'pending', context: logContext(),
+    detail: {
+      password: 'hunter2',
+      note: 'Ringde 19800101-9876 om ärendet',
+      header: 'Bearer abcdefghijklmnopqrstuvwx',
+      // Assembled at runtime so the repository's own secret scanner does not
+      // flag this fixture as a real key — it is right to flag the literal.
+      nested: { apiSecret: 'x', deep: { pem: `${'-----BEGIN'} RSA PRIVATE ${'KEY-----'}abc` } },
+      jwt: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijkl',
+      keep: 'Delegationsbeslut KS2026-0001',
+    },
+  });
+  const serialised = JSON.stringify(record);
+  assert.doesNotMatch(serialised, /hunter2/);
+  assert.doesNotMatch(serialised, /19800101/);
+  assert.doesNotMatch(serialised, /abcdefghijklmnopqrstuvwx/);
+  assert.doesNotMatch(serialised, new RegExp(`BEGIN RSA PRIVATE ${'KEY'}`));
+  assert.doesNotMatch(serialised, /eyJhbGciOiJIUzI1NiJ9/);
+  // Redaction is not blanket deletion: the useful part of the record survives.
+  assert.match(serialised, /Delegationsbeslut KS2026-0001/);
+  assert.equal(record.detail.nested.apiSecret, '[redacted]');
+
+  // A cyclic or pathological structure must not turn a log call into an outage.
+  const deep = { a: { b: { c: { d: { e: { f: { g: { h: 'x' } } } } } } } };
+  assert.equal(obsCode(() => sanitiseLogPayload(deep)), 'NO_ERROR');
+});
+
+test('security events must be traceable to a tenant and a correlation', () => {
+  // An explicit list makes "we log security events" checkable rather than an
+  // intention.
+  for (const event of ['auth.login.failed', 'authorization.denied', 'user.deactivated', 'retention.executed', 'tenant.access.cross_tenant_attempt']) {
+    assert.equal(isSecurityEvent(event), true, event);
+  }
+  assert.equal(isSecurityEvent('signing.started'), false);
+
+  const record = (overrides = {}) => buildLogRecord({
+    level: 'warn', event: 'authorization.denied', outcome: 'failure', context: logContext(overrides),
+  });
+  assert.equal(obsCode(() => assertSecurityEventIsTraceable(record())), 'NO_ERROR');
+  // A security log that cannot answer "who, in which organisation" records that
+  // something happened; it is not evidence.
+  assert.match(obsCode(() => assertSecurityEventIsTraceable(record({ tenantId: undefined }))), /must carry a tenantId/);
+  assert.match(obsCode(() => assertSecurityEventIsTraceable(record({ correlationId: '' }))), /correlation/);
+  // A failed login legitimately has no tenant yet — that is the point of it.
+  const anonymous = buildLogRecord({ level: 'warn', event: 'auth.login.failed', outcome: 'failure', context: { requestId: 'r', correlationId: 'c' } });
+  assert.equal(obsCode(() => assertSecurityEventIsTraceable(anonymous)), 'NO_ERROR');
+});
+
+test('metrics measure signing outcomes, not just HTTP responses', () => {
+  // The failure uptime monitoring cannot see: the service answers normally and
+  // no signature ever completes.
+  assert.equal(stuckSigningRatio(100, 100, 0), 0);
+  assert.equal(stuckSigningRatio(100, 60, 20), 0.2);
+  assert.equal(stuckSigningRatio(0, 0, 0), 0);
+  assert.ok(METRICS.includes('signing.started') && METRICS.includes('signing.completed'));
+  assert.ok(METRICS.includes('worker.job.age_seconds') && METRICS.includes('webhook.delivery.failures'));
+
+  const sample = (labels) => ({ name: 'signing.completed', value: 1, labels });
+  assert.equal(obsCode(() => assertMetricLabelsAreSafe(sample({ tenant: 'kungalv', outcome: 'success' }))), 'NO_ERROR');
+  // A high-cardinality label creates one time series per value, which both
+  // destroys the metrics backend and turns the pipeline into an unredacted
+  // export of personal data.
+  assert.match(obsCode(() => assertMetricLabelsAreSafe(sample({ caseId: 'abc' }))), /not allowed/);
+  assert.match(obsCode(() => assertMetricLabelsAreSafe(sample({ tenant: '19800101-9876' }))), /personal number/);
+});
+
+test('security and cache headers close the leaks a missing header causes', () => {
+  const headers = securityHeaders({ enableHsts: true, connectSources: ['https://api.kommunsign.se'] });
+  const csp = headers['Content-Security-Policy'];
+  assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval/);
+  // A signing page inside an iframe is a clickjacking target.
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /object-src 'none'/);
+  assert.match(csp, /base-uri 'none'/);
+  assert.match(csp, /connect-src 'self' https:\/\/api\.kommunsign\.se/);
+  assert.equal(headers['X-Content-Type-Options'], 'nosniff');
+  assert.equal(headers['X-Frame-Options'], 'DENY');
+  // An invitation URL carries a token, and a referrer header would hand it to
+  // whatever the signer clicks next — so no-referrer, not same-origin.
+  assert.equal(headers['Referrer-Policy'], 'no-referrer');
+  assert.match(headers['Strict-Transport-Security'], /max-age=63072000/);
+  // HSTS off outside production, so local development over http still works.
+  assert.equal(securityHeaders({ enableHsts: false, connectSources: [] })['Strict-Transport-Security'], undefined);
+
+  // Without Vary, an intermediary can serve one authenticated user's response
+  // to the next — a cross-tenant leak caused entirely by a missing header.
+  for (const cacheClass of ['PRIVATE_CACHEABLE', 'PRIVATE_NO_STORE', 'SECRET_NEVER_CACHE']) {
+    assert.match(cacheHeaders(cacheClass).Vary, /Cookie/, cacheClass);
+  }
+  assert.match(cacheHeaders('PRIVATE_NO_STORE')['Cache-Control'], /no-store/);
+  assert.match(cacheHeaders('SECRET_NEVER_CACHE')['Cache-Control'], /no-store/);
+  assert.equal(cacheHeaders('PUBLIC_CACHEABLE').Vary, undefined);
+
+  // The TLS floor is data, not prose, so a deployment check can assert it.
+  assert.equal(TLS_POLICY.minimumVersion, 'TLSv1.2');
+  // Forward secrecy only: a recorded session must not become readable later if
+  // the server key is compromised.
+  assert.ok(TLS_POLICY.allowedCipherSuites.every((suite) => /^TLS_|^ECDHE-/.test(suite)));
 });
 
 let failed = 0;

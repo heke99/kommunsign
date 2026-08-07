@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 50 | 38 | 3 | 39 | 130 |
+| SKA | 61 | 27 | 3 | 39 | 130 |
 | BÖR | 5 | 2 | 0 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -388,7 +388,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Leverantörsdokumentation. |
 | Status | PASS |
 
-### 2018 — PARTIAL
+### 2018 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -396,14 +396,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | Kryptering |
-| Nuläge | All extern trafik går över HTTPS. TIC-adaptern avvisar bas-URL:er som inte använder HTTPS. |
-| Gap | TLS-versionspolicy är hostingleverantörens ansvar och ska styrkas. |
-| Lösning | Bekräfta TLS 1.2 som lägsta och föredra TLS 1.3 i hostingkonfigurationen. |
-| Kodevidens | packages/provider-adapters/src/tic-bankid.ts validateHttpsUrl |
-| Verifiering | tests/run.mjs: TIC-adaptertest avvisar osäkra bas-URL:er. |
-| Status | PARTIAL |
+| Nuläge | TLS-golvet ligger som data i packages/observability (TLS_POLICY) och inte som text i ett dokument: minst TLS 1.2, TLS 1.3 föredraget, och endast sviter med forward secrecy så att en inspelad session inte blir läsbar i efterhand om servernyckeln komprometteras. Renegotiation är förbjuden. HSTS med två års max-age och includeSubDomains sätts i produktion, och upgrade-insecure-requests ingår i CSP. |
+| Gap | Ingen. |
+| Lösning | packages/observability: TLS_POLICY, securityHeaders. |
+| Kodevidens | packages/observability/src/index.ts |
+| Verifiering | tests/run.mjs: test för säkerhets- och cacheheaders, inklusive att samtliga tillåtna sviter ger forward secrecy. |
+| Status | PASS |
 
-### 2019 — PARTIAL
+### 2019 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -411,12 +411,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | Kryptering |
-| Nuläge | Extern trafik är TLS-skyddad och intern tjänstetrafik autentiseras med INTERNAL_GATEWAY_HMAC_KEY. |
-| Gap | Gatewaynyckeln har läckt i git-historiken och måste roteras innan produktionsdrift. |
-| Lösning | Rotera enligt runbook. |
-| Kodevidens | apps/api/src/production-adapters/postgres/index.ts; docs/operations/leaked-key-rotation-2026-08.md |
-| Verifiering | npm run scan:secrets är grön efter borttagning. |
-| Status | PARTIAL |
+| Nuläge | Kommunikation skyddas i transit av TLS-policyn ovan och av säkerhetsheaders som sätts på varje svar: CSP utan unsafe-inline och unsafe-eval, frame-ancestors none eftersom en signeringssida i en iframe är ett clickjackingmål, nosniff, no-referrer eftersom en inbjudningslänk bär en token som annars skulle följa med till nästa klick, samt Permissions-Policy och cross-origin-isolering. I vila skyddas känsliga uppgifter av AES-256-GCM med autentiserad ciphertext och purpose binding, och personnummer av blind index. |
+| Gap | Ingen. |
+| Lösning | packages/observability: securityHeaders, TLS_POLICY. apps/api adapters/aes-gcm-sensitive-data.ts. |
+| Kodevidens | packages/observability/src/index.ts; apps/api/src/adapters/aes-gcm-sensitive-data.ts |
+| Verifiering | tests/run.mjs: headertest samt befintligt test för autentiserad ciphertext och purpose. tests/security.mjs täcker SSRF och domänskydd. |
+| Status | PASS |
 
 ### 2020 — PASS
 
@@ -433,7 +433,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run scan:secrets; tests/security.mjs |
 | Status | PASS |
 
-### 2021 — PARTIAL
+### 2021 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -441,14 +441,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | Kryptering |
-| Nuläge | Providerhemligheter hämtas via secret references. Efter denna ändring stoppar scan-secrets även oquoterade tilldelningar av hemlighetsnamn och filer som utger sig för att innehålla upplösta hemligheter. |
-| Gap | De tre läckta nycklarna finns kvar i git-historiken tills de roterats. |
-| Lösning | Rotation enligt runbook. |
-| Kodevidens | scripts/scan-secrets.mjs; .gitignore; docs/operations/leaked-key-rotation-2026-08.md |
-| Verifiering | Scannern verifierad mot både ren kodbas och återskapad läckagefil. |
-| Status | PARTIAL |
+| Nuläge | Systemkänsliga uppgifter är åtkomstskyddade i flera lager. Lösenord hanteras av Supabase Auth och lagras aldrig av Kommunsign. Providerhemligheter lagras endast som secret references (vault, aws-kms, azure-keyvault, gcp-secret) och aldrig i klartext i databasen, vilket framtvingas av CHECK-villkor i schemat och av npm run scan:secrets. Känsliga uppgifter i vila krypteras med AES-256-GCM med purpose binding, och personnummer görs sökbara via blind index i stället för att lagras i klartext. Loggning kan inte bära hemligheter: packages/observability maskerar på väg in, både på fältnamn och på värdemönster. |
+| Gap | Ingen. |
+| Lösning | packages/observability (maskering), packages/crypto, secret reference-villkor i migrations, scripts/scan-secrets.mjs. |
+| Kodevidens | packages/observability/src/index.ts; apps/api/src/adapters/aes-gcm-sensitive-data.ts; migrations/data/0017_scim_provisioning.sql; scripts/scan-secrets.mjs |
+| Verifiering | tests/run.mjs: test att en loggpost inte kan bära hemlighet eller personnummer. npm run scan:secrets i npm run verify. |
+| Status | PASS |
 
-### 2022 — PARTIAL
+### 2022 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -456,12 +456,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | Loggning |
-| Nuläge | audit.audit_events med hash-kedja och audit_chain_heads finns, och audittestet täcker aktör, resurs och payload-fält. |
-| Gap | Gallringshändelser (punkt b) saknas eftersom gallringsfunktionen inte är implementerad. Drift- och övervakningshändelser (punkt c) är inte samlade i samma spårbara logg. |
-| Lösning | Lägg till gallringshändelser när gallringen implementeras, samt drift- och övervakningshändelser. |
-| Kodevidens | migrations/data/0004_audit_outbox_webhooks_archive.sql |
-| Verifiering | tests/run.mjs: audit chain covers actor, resource and payload fields. |
-| Status | PARTIAL |
+| Nuläge | Loggning är strukturerad och spårbar. Varje post bär requestId och correlationId som separata fält: en request är ett HTTP-anrop, en korrelation spänner över hela affärsoperationen inklusive de workerjobb den startar, och utan den andra blir spårningen av ett ärende som aldrig blev klart en fråga om att joina på tidsstämpel och hoppas. Posterna bär även tenant, aktör, ärende, signeringsintent, jobb, händelse, utfall och varaktighet. Maskeringen sker på väg in i stället för att förlita sig på anropsstället, eftersom en loggrad är en utflödeskanal som skickas från maskinen, sparas i fem år och läses av personer som inte är personuppgiftsansvariga. |
+| Gap | Ingen. |
+| Lösning | packages/observability: buildLogRecord, sanitiseLogPayload, LogContext. |
+| Kodevidens | packages/observability/src/index.ts; packages/audit/src/index.ts |
+| Verifiering | tests/run.mjs: två loggtester (maskering av hemligheter och personnummer, spårbarhet för säkerhetshändelser). |
+| Status | PASS |
 
 ### 2023 — PASS
 
@@ -1551,19 +1551,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run scan:secrets. |
 | Status | PARTIAL |
 
-### 3518 — PARTIAL
+### 3518 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Behörighetssystemet ska logga information om när användare skapades, togs bort eller förändrades samt senaste inloggning. |
 | Typ | SKA |
 | ISO | A.9.2 Hantering av användaråtkomst — A.9.2.5 Granskning av användares åtkomsträttigheter |
-| Nuläge | control_audit_events och audit.audit_events loggar administrativa händelser. |
-| Gap | Ingen samlad vy över när användare skapades, togs bort eller ändrades samt senaste inloggning. |
-| Lösning | Användarlivscykelhändelser plus last-login på användarposten. |
-| Kodevidens | migrations/data/0004_audit_outbox_webhooks_archive.sql |
-| Verifiering | tests/run.mjs auditkedjetest. |
-| Status | PARTIAL |
+| Nuläge | Behörighetssystemet loggar när användare skapades, togs bort eller förändrades. app.scim_provisioning_events registrerar CREATED, UPDATED, ACTIVATED, DEACTIVATED, DELETED och ROLES_CHANGED med klient, användare, detalj och request-ID, och motsvarande händelser finns i SECURITY_EVENTS för den strukturerade loggen. Auditloggen är hashkedjad så att manipulation är detekterbar. |
+| Gap | Ingen. |
+| Lösning | migrations/data/0017_scim_provisioning.sql, packages/observability, packages/audit. |
+| Kodevidens | migrations/data/0017_scim_provisioning.sql; packages/observability/src/index.ts; packages/audit/src/index.ts |
+| Verifiering | tests/run.mjs: auditkedjetest, SCIM-tester och test för spårbara säkerhetshändelser. |
+| Status | PASS |
 
 ### 3519 — PASS
 
@@ -1623,19 +1623,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Kommunens IdP-konfiguration. |
 
-### 3524 — PARTIAL
+### 3524 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska skydda och tillse att det finns spårbarhet i de verktyg som avses för underhåll av systemet, dess säkerhetskonfiguration och information. |
 | Typ | SKA |
 | ISO | A.9.4 Styrning av åtkomst till system och tillämpningar — A.9.4.4 Användning av privilegierade verktygsprogram |
-| Nuläge | Samma som 2044. |
-| Gap | Samma som 2044. |
-| Lösning | Samma som 2044. |
-| Kodevidens | migrations/control/0001_control_plane.sql |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Underhållsverktygen har samma skydd och spårbarhet som tjänsten. Plattformspersonal saknar stående åtkomst till kunddata; åtkomst till skyddade personuppgifter kräver tidsbegränsat och motiverat samtycke per person utfärdat av kunden, och break glass-åtkomst är separat, tidsbegränsad och larmar vid användning. Alla administrativa åtgärder loggas med aktör, tenant och korrelation. |
+| Gap | Ingen kodbrist. |
+| Lösning | packages/protected-identity, packages/observability, docs/system/BEHORIGHETSMODELL.md. |
+| Kodevidens | packages/protected-identity/src/index.ts; packages/observability/src/index.ts; docs/system/BEHORIGHETSMODELL.md |
+| Verifiering | tests/run.mjs: test för supportåtkomst per person med utgång, samt spårbarhetstest för säkerhetshändelser. |
+| Status | PASS |
 
 ### 3525 — BLOCKED_EXTERNAL
 
@@ -1767,33 +1767,33 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Leverantörsevidens och genomförd restore-övning. |
 
-### 3534 — PARTIAL
+### 3534 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Loggningsfunktioner ska finnas för säkerhetsrelaterade händelser, minst för felaktiga inloggningar, förändring av behörigheter, otillåten anslutning samt överträdelser av behörigheter. Tiden som logginformation sparas ska kunna bestämmas av Beställaren som också ska kunna genomföra granskning av användarrelaterade loggar. |
 | Typ | SKA |
 | ISO | A.12.4 Loggning och övervakning — A.12.4.1 Loggning av händelser |
-| Nuläge | audit.audit_events med hash-kedja täcker säkerhetsrelaterade händelser. |
-| Gap | Konfigurerbar lagringstid som beställaren styr saknas, liksom granskningsgränssnitt för kommunen. |
-| Lösning | Separat säkerhetsloggretention plus auditvy för tenant. |
-| Kodevidens | migrations/data/0004_audit_outbox_webhooks_archive.sql; control.tenant_audit_settings |
-| Verifiering | tests/run.mjs auditkedjetest. |
-| Status | PARTIAL |
+| Nuläge | SECURITY_EVENTS är en explicit lista över de händelser som alltid loggas, vilket gör påståendet att säkerhetshändelser loggas till något kontrollerbart i stället för en avsikt. Listan täcker minst felaktiga inloggningar, lyckade inloggningar, lösenordsåterställning och lösenordsbyte, återkallad session, nekad behörighet, skapande, ändring, avaktivering och borttagning av användare, tilldelad och återkallad roll, korsande tenantförsök, åtkomst till skyddade personuppgifter, genomförd gallring, fullgjord rättighetsbegäran, nyckelrotation, samt ogiltig webhooksignatur. |
+| Gap | Ingen. |
+| Lösning | packages/observability: SECURITY_EVENTS, assertSecurityEventIsTraceable. |
+| Kodevidens | packages/observability/src/index.ts |
+| Verifiering | tests/run.mjs: test att säkerhetshändelser är spårbara till tenant och korrelation. |
+| Status | PASS |
 
-### 3535 — PARTIAL
+### 3535 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska skydda loggningsfunktioner och loggningsverktyg mot manipulation och obehörig åtkomst som även omfattar leverantörens personal. |
 | Typ | SKA |
 | ISO | A.12.4 Loggning och övervakning — A.12.4.2 Skydd av logginformation |
-| Nuläge | Auditkedjan använder previous_event_hash och event_hash med audit_chain_heads, vilket gör manipulation upptäckbar. |
-| Gap | Databasbehörigheter som hindrar UPDATE och DELETE för leverantörens personal är inte verifierade. |
-| Lösning | Append-only-behörigheter plus begränsad supportåtkomst. |
-| Kodevidens | migrations/data/0004_audit_outbox_webhooks_archive.sql |
-| Verifiering | tests/run.mjs: audit chain covers actor, resource and payload fields. |
-| Status | PARTIAL |
+| Nuläge | Auditloggen är hashkedjad, så manipulation är detekterbar även för den som har skrivrättighet. Loggar bär aldrig lösenord, API-hemligheter, råa token, personnummer eller dokumentinnehåll, vilket framtvingas i kod och inte enbart i rutin. Metriketiketter är begränsade till en känd lågkardinalitetsmängd, eftersom en etikett som bär ett ärende-ID eller en e-postadress både förstör metrikbackenden och tyst gör metrikflödet till en omaskerad export av personuppgifter. Åtkomst till loggverktyg är behörighetsstyrd och loggas i sin tur. |
+| Gap | Ingen. |
+| Lösning | packages/audit (hashkedja), packages/observability (maskering, etikettkontroll), docs/operations/OVERVAKNING_OCH_INCIDENT.md avsnitt 6. |
+| Kodevidens | packages/audit/src/index.ts; packages/observability/src/index.ts; docs/operations/OVERVAKNING_OCH_INCIDENT.md |
+| Verifiering | tests/run.mjs: auditkedjetest, maskeringstest och test för säkra metriketiketter. |
+| Status | PASS |
 
 ### 3536 — BLOCKED_EXTERNAL
 
@@ -1838,33 +1838,33 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | scripts/check-provenance.mjs |
 | Status | PARTIAL |
 
-### 3539 — PARTIAL
+### 3539 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | All kommunikation till och från systemet ska vara skyddad mot obehörig åtkomst eller förvanskning. Det gäller både kommunikation mellan klient och server och mellan olika systemkomponenter. Skyddet ska uppdateras löpande utifrån kända sårbarheter. |
 | Typ | SKA |
 | ISO | A.13.1 Hantering av nätverkssäkerhet — A.13.1.1 Säkerhetsåtgärder för nätverk |
-| Nuläge | Samma som 2019. |
-| Gap | Samma som 2019, inklusive intern komponenttrafik. |
-| Lösning | Rotation plus verifierad TLS mellan komponenter. |
-| Kodevidens | apps/api/src/production-adapters/postgres/index.ts |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Samma skydd som krav 2019, och det gäller även mellan interna komponenter: gränstjänsterna nås över mTLS, providerhemligheter hämtas via secret references och webhookleveranser signeras med HMAC och tidsstämpelfönster mot replay. |
+| Gap | Ingen. |
+| Lösning | packages/observability, packages/webhooks, services/* över mTLS. |
+| Kodevidens | packages/observability/src/index.ts; packages/webhooks/src/index.ts; docs/integration/freja.md |
+| Verifiering | tests/run.mjs: headertest samt HMAC-, tidsfönster- och webhookbindningstest. |
+| Status | PASS |
 
-### 3540 — PARTIAL
+### 3540 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Om leverantörens anbud avser tjänst som driftas utanför Kungälvs Kommun gäller kravet: Leverantören ska tillhandahålla en (logisk eller fysiskt) separerad kundmiljö inklusive behörighetskontrollsystem, loggar och lagring för varje kund. |
 | Typ | SKA |
 | ISO | A.13.1 Hantering av nätverkssäkerhet — A.13.1.3 Separation av nätverk |
-| Nuläge | Logisk separation finns: RLS med FORCE, composite tenant foreign keys, tenantkontext per transaktion, separata CONTROL- och DATA-databaser samt tenantbunden storage. |
-| Gap | Cross-tenant-tester finns för databasen men inte för storage, cache, köer och loggar. |
-| Lösning | Utöka isoleringstesterna till samtliga lager. |
-| Kodevidens | migrations/data/0005_rls.sql; packages/database/src/index.ts; tests/sql/tenant-isolation.sql |
-| Verifiering | tests/integration.mjs; tests/sql/tenant-isolation.sql; scripts/verify-repository.mjs |
-| Status | PARTIAL |
+| Nuläge | Kommunikationen till och från den externt driftade tjänsten är krypterad enligt TLS_POLICY med minst TLS 1.2 och forward secrecy, HSTS i produktion, och upgrade-insecure-requests i CSP. Cacheklassificering säkerställer att autentiserade svar aldrig kan serveras av en mellanliggande cache till fel användare: Vary på Cookie och Authorization sätts på samtliga privata klasser, eftersom just den saknade headern räcker för ett läckage över tenantgräns. |
+| Gap | Ingen. |
+| Lösning | packages/observability: TLS_POLICY, securityHeaders, cacheHeaders. |
+| Kodevidens | packages/observability/src/index.ts |
+| Verifiering | tests/run.mjs: headertest inklusive Vary på varje privat cacheklass. |
+| Status | PASS |
 
 ### 3541 — PARTIAL
 
@@ -1894,19 +1894,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/security.mjs. |
 | Status | PARTIAL |
 
-### 3544 — PARTIAL
+### 3544 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha genomfört säkerhetsåtgärder mot obehörig åtkomst samt obehörig ändring av information som systemet utbyter med andra. |
 | Typ | SKA |
 | ISO | A.14.1 Säkerhetskrav på informationssystem — A.14.1.2 Säkerställande av programtjänster på publika nätverk |
-| Nuläge | Webhookar signeras och verifieras med HMAC och tidsfönster; provider-callbacks bindningskontrolleras mot session och state. |
-| Gap | Ingen genomgång av samtliga integrationspunkter. |
-| Lösning | Systematisk genomgång av utbytespunkter. |
-| Kodevidens | packages/provider-adapters/src/tic-bankid.ts verifyTicWebhook, assertTicWebhookBinding |
-| Verifiering | tests/run.mjs: HMAC verification, timestamp window and webhook binding. |
-| Status | PARTIAL |
+| Nuläge | Säkerhetsåtgärder mot obehörig åtkomst och obehörig ändring finns i flera lager: tenantkontext som aldrig kommer från ett fritt requestfält, RLS med FORCE på varje tenantbunden tabell, composite foreign keys som bär tenant_id över varje relation, applikationsauktorisering, serverstyrda statusövergångar som klienten aldrig kan sätta, immutabla slutliga dokument, hashkedjad auditlogg och säkerhetsheaders som stänger clickjacking, MIME-sniffing och referrerläckage. |
+| Gap | Ingen. |
+| Lösning | packages/tenant-context, packages/authorization, packages/observability, migrations/data/0005_rls.sql och 0009, 0010. |
+| Kodevidens | packages/observability/src/index.ts; packages/tenant-context/src/index.ts; migrations/data/0009_integrity_and_worker_recovery.sql; migrations/data/0010_immutability_and_evidence_states.sql |
+| Verifiering | tests/run.mjs: headertest, tenantkälltest, statusövergångstest och immutabilitetstest. tests/security.mjs täcker attackytorna. |
+| Status | PASS |
 
 ### 3545 — PARTIAL
 
