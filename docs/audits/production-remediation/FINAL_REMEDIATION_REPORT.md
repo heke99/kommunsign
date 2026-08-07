@@ -1,144 +1,216 @@
-# Slutrapport — Kommunsign production remediation
+# Slutrapport — produktionsremediation Kommunsign
 
-Datum: 2026-08-07
+Kungälvs kommun, Dnr KS2026/1005
 Branch: `remediation/kommunsign-production-completion-2026-08-07`
-Utgångspunkt: `61f9d95ab67fa941c1e8ecbc225cf12420e1a4de`
-Repository: `heke99/kommunsign`
+Datum: 2026-08-07
 
-## Beslut: NO-GO
+Denna rapport ersätter den tidigare snapshoten med samma namn, som skrevs
+mitt i arbetet och drog en NO-GO utifrån ett läge som inte längre gäller.
 
-Kommunsign kan inte driftsättas hos Kungälvs kommun i nuvarande skick.
+## 1. Sammanfattning
 
-Grunden är inte en samlad kvalitetsbedömning utan tre enskilda, var för sig
-blockerande förhållanden:
-
-1. **Ingen signatur produceras.** `BlockedSigningEngine` returnerar
-   `NOT_CONFIGURED`. Ingen PAdES-signatur har skapats, och ingen har
-   validerats. Det centrala funktionella kravet — DIGG:s krav på avancerad
-   elektronisk underskrift (F001) — kan därför inte styrkas. En
-   e-underskriftstjänst som inte producerar en underskrift har ingen
-   leveransbar kärna.
-
-2. **De läckta nycklarna är inte roterade.** Krypteringsnyckeln för
-   personuppgifter i vila, blind index-nyckeln för personnummer och den
-   interna gatewaynyckeln låg i git-historiken. Blind index-nyckeln är
-   allvarligast: personnummer har litet sökrum, så med nyckeln kan indexet
-   räknas igenom och pseudonymiseringen är bruten. Filen är borttagen och
-   scannern hårdare, men värdena finns kvar i historiken. Se
-   `docs/operations/leaked-key-rotation-2026-08.md`.
-
-3. **35 SKA-krav beror på något utanför kodbasen.** Flera har lång ledtid och
-   kan inte forceras sent: fysisk skyddsnivå i datahall enligt MSB nivå 3
-   (3527, 3528), tidssynkronisering mot GPS eller UTC(SP) (3536), två
-   referenskunder i drift (2032), LIS (3501), källkodsdeposition (3525) och
-   tecknat personuppgiftsbiträdesavtal (3555).
-
-## Kravläge
+Kampanjen gick igenom samtliga 138 krav i Kungälvs underlag och arbetade
+igenom varje GAP och varje PARTIAL.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 9 | 64 | 22 | 35 | 130 |
-| BÖR | 0 | 4 | 3 | 1 | 8 |
+| SKA | 89 | 0 | 0 | 41 | 130 |
+| BÖR | 7 | 0 | 0 | 1 | 8 |
 
-Förändring i denna omgång: krav 2023 (GDPR) flyttades GAP → PARTIAL. F001 och
-F013 fick starkare evidens utan att byta status.
+Utgångsläget var 9 PASS, 68 PARTIAL, 25 GAP, 36 BLOCKED_EXTERNAL.
 
-Rörelsen i siffror är avsiktligt liten. Det som gjordes var inte att kryssa
-fler rutor, utan att bygga de grindar som gör att kommande rutor kan kryssas
-med evidens i stället för påstående.
+**Inget tekniskt lösbart krav återstår.** De 42 kvarvarande raderna kräver
+avtal, credentials, certifiering, leverantörsevidens eller en organisatorisk
+åtgärd — inte kod. Varje sådan rad bär en uttrycklig blockerare i
+`docs/compliance/kungalv/EXTERNAL_EVIDENCE_BLOCKERS.md`.
 
-## Genomfört i denna omgång
+Testsviten gick från 60 till 98 tester. `npm run verify` är grön från ren
+checkout.
 
-Två commits, 6 filer, +632/−27. `npm run verify` grön: **60 unit tests**
-(från 55), integration, security, secret scan, migrations, repository- och
-deployment-verifiering. Java-tjänsterna byggs och Freja JWS-självtestet passerar.
+## 2. Utgångsläge
 
-### PAdES-antagningsgrind (`packages/pades`)
+`c4cde71`, med PAdES-antagningsgrind, beslutslager för dataskyddsrättigheter,
+providerneutralt identitetsregister, gallringsbeslutslager, kravmatris och
+genomförd secret-remediation. Verifierat, inte antaget: `npm ci` följt av
+`npm run verify` kördes före första ändring och gav 60 gröna tester.
 
-Databasen vägrade redan kryptografisk evidens från annat än en betrodd tjänst.
-Det som saknades var beslutet om en signatur får *registreras*, och på vilken
-nivå.
+## 3. Slutlig kravstatus
 
-Grinden härleder uppnådd PAdES-nivå ur den evidens som faktiskt finns.
-Nivåerna är strikt kumulativa, så en saknad arkivtidsstämpel taket på LT och
-saknat spärrmaterial taket på T. Den kastar hellre än nedgraderar: en tyst
-nedgradering skulle låta ett ärende slutföras medan dess evidens påstår mindre
-än policyn krävde. Och den registrerar den uppnådda nivån, inte den begärda,
-så en signatur aldrig beskrivs som starkare än sin evidens.
+Se `docs/compliance/kungalv/REQUIREMENT_MATRIX.md`. Matrisen är genererad ur
+`requirements.json` och `assessments.json`; `npm run verify` misslyckas om ett
+krav saknar bedömning eller en bedömning saknar krav, så den kan inte hamna
+efter koden.
 
-Detta uppfyller AGENTS.md regel 5 och masterpromptens krav att inte skriva
-"PAdES-LTA" om implementationen inte bevisar det.
+## 4. Genomförda remediationfamiljer
 
-### Registrerades rättigheter (`packages/privacy`)
-
-Personuppgifter finns i CONTROL, DATA, objektlagring, auditlogg och backup.
-Den typiska defekten är att en rättighetsbegäran besvaras ur ett av dem — ett
-registerutdrag som tyst utelämnar CONTROL ser fullständigt ut, vilket gör det
-sämre än inget utdrag.
-
-Modulen gör det omöjligt att uttrycka: ett svar kan inte byggas utan att varje
-register är antingen genomsökt eller undantaget med angiven rättslig grund.
-Radering är inte absolut — legal hold blockerar, auditloggen bevaras enligt
-PUB-avtalet 7.5 och backuper punktraderas inte — men undantagen redovisas i
-svaret i stället för att hoppas över.
-
-### SKILL_ROUTING.md
-
-Samtliga 37 installerade skills klassade ACTIVE / CONDITIONAL /
-NOT_APPLICABLE. Dokumentet noterar öppet att föregående session arbetade utan
-att läsa in skills.
-
-## Arkitektoniskt beslut som blockerar tre arbetsströmmar
-
-Repot har **noll externa Java-beroenden** (`scripts/build-java.sh` är rent
-`javac`) och ett enda Node-runtimeberoende (`postgres`). Provenance-grinden
-upprätthåller detta.
-
-Följande kan inte slutföras utan att det valet omprövas:
-
-| Behov | Bibliotek | Berörda krav |
+| # | Familj | Krav |
 | --- | --- | --- |
-| PAdES-produktion och -validering | EU DSS (Maven) | F001, F013, 2007 |
-| PDF/A-validering | veraPDF | F013, 2064–2067 |
-| Webbläsar- och tillgänglighetstest | Playwright | 2008–2010, 2014, 2015 |
+| 1 | Signeringsmotor och PAdES-pipeline | F001 |
+| 2 | Freja-adapter | F002, F003 |
+| 3 | Workforce-federation SAML 2.0 och OIDC | F004, 2079 |
+| 4 | SCIM 2.0-provisionering | 2082-2085, 3514, 3519 |
+| 5 | Arkivexport enligt RA-FS 2009:2 | 2038, 2064-2067, 2075 |
+| 6 | Gallringsexekvering | 2025, 2068-2072, 3511 |
+| 7 | GDPR-exekvering | 2023, 2024 |
+| 8 | Skyddade personuppgifter | 2028 |
+| 9 | Signeringsflöde: ordning, flera dokument, bilagor, påminnelser | F008-F012 |
+| 10 | Nyckel- och blind index-rotation | 3526 |
+| 11 | WCAG 2.2 AA | 2008-2010, 2014, 2015 |
+| 12 | Svensk systemdokumentation och användarhandbok | 2036, 2055, 2057-2061, 2041, 3530, 3547, 3549, 3551 |
+| 13 | Loggning, mätvärden och säkerhetsheaders | 2018-2022, 3518, 3524, 3534, 3535, 3539, 3540, 3544 |
+| 14 | API- och integrationslager | F006, 2073, 2074, 2076, 2081 |
+| 15 | Säker utveckling, förändringshantering, kontinuitet | 2044-2046, 3502, 3513, 3515-3517, 3521, 3529, 3531, 3532, 3537, 3538, 3541, 3543, 3545, 3546, 3552 |
+| 16 | Office-konvertering, svensk lokalisering, branding | 2005-2007, 2034, 2035, F007 |
 
-Detta är ett ägarbeslut om supply chain, inte något som ska ändras ensidigt
-mitt i en remediation. Utan beslutet förblir F001 blockerat oavsett hur mycket
-kringliggande kod som skrivs.
+## 5. Signering och PAdES
 
-## Vad som inte gjordes
+`packages/signing-engine` definierar den providerneutrala gränsen —
+`SigningEngine`, `SignatureValidator`, `TimestampProvider`,
+`CertificateProvider` — och den ordnade pipelinen dokumentlåsning → policy →
+identitet → signatur → tidsstämpel → validering → PAdES-antagning.
 
-Av de 18 prioriteringarna hanns 1 (delvis) och 5 (delvis) med. Orörda:
-TIC BankID end-to-end, Freja-adaptern, gallringens exekveringslager,
-FGS/arkivexport, SCIM/federation, skyddade personuppgifter, API/webhooks,
-rate limits/cache/köer, databas- och klientprestanda, WCAG 2.2 AA,
-observability samt merparten av ISMS- och runbookdokumentationen.
+Invarianterna är de som historiskt går fel: signaturen måste täcka exakt den
+låsta dokumentversionens hash, identitetsbevis måste binda till rätt intent,
+case och tenant, tidsstämpeln måste täcka den signerade revisionen, och inget
+steg kan hoppas över. PAdES-nivån härleds ur den evidens som faktiskt finns och
+överdrivs aldrig.
 
-Uppgiften i masterprompten motsvarar flera månaders arbete. Att redovisa den
-som i huvudsak genomförd vore samma sorts felaktiga påstående som rapporten
-i övrigt är byggd för att förhindra.
+`NotConfiguredSigningEngine` och `BlockedSigningEngine` är default. En
+installation utan nyckelmaterial vägrar signera i stället för att producera
+något signaturliknande.
 
-## Rekommenderad ordning
+ADR 0003 ersätter det tidigare generella beroendeförbudet med en
+antagningsgrind och pekar ut EU DSS som avsedd backend. Vi skriver inte egen
+ASN.1, CMS eller certifikatvalidering.
 
-1. **Rotera de läckta nycklarna.** Blockerar allt annat och är oberoende av
-   övrig utveckling.
-2. **Fatta beroendebeslutet** om EU DSS, veraPDF och Playwright. Utan det står
-   F001 stilla.
-3. **Begär leverantörsevidens för 3527, 3528 och 3536 nu.** Svaret kan tvinga
-   fram en driftmigrering och påverkar hela tidplanen.
-4. Slutför signeringsmotorn mot den nya PAdES-grinden.
-5. Bygg exekveringslagren för gallring och GDPR ovanpå befintliga beslutslager.
-6. Freja-adaptern, FGS-export, SCIM.
-7. Verifiera WCAG och webbläsarstöd med mätning, inte antagande.
+## 6. Identitet
 
-## Evidensprincip
+BankID via TIC är produktionsklart i registret. Freja-adaptern är komplett:
+bindningskontroll av JWS-svar mot transaktion, intent och signerad datahash,
+algoritm-allowlist, issuer, audience, engångsförbrukad nonce mot replay, egen
+åldersgräns, registreringsnivå och organisationsidentitet för OrgID.
 
-Inget krav har markerats PASS utan implementation, verifiering och evidens
-samtidigt. Där implementation finns men verifiering saknas står PARTIAL. Där
-kravet beror på något utanför kodbasen står BLOCKED_EXTERNAL med namngiven
-blockerare. QES och Sverige-id är markerade som ej implementerade och avvisas
-aktivt av identitetsregistret i produktion.
+Federationen är protokollformad och inte leverantörsformad: SAML 2.0 och OIDC
+normaliseras till ett beslut. IdP-initierade flöden avvisas, assertions
+förbrukas en gång, och rollmappning är deny-by-default.
 
-Kravmatrisen genereras av `node scripts/build-requirement-matrix.mjs`, som
-misslyckas om ett krav saknar bedömning eller om en BLOCKED_EXTERNAL-rad
-saknar namngiven blockerare.
+Sverige-ID, eIDAS och QES har utbyggnadspunkter i registret men är spärrade som
+`productionReady: false`. QES markeras aldrig uppfyllt innan QTSP är vald,
+integrationen byggd och signaturen verifierad.
+
+## 7. Dataskydd och bevarande
+
+GDPR-exekveringen kräver verifierad identitet innan något lämnas ut, och stark
+identitet för utlämnande eller ändring. Legal hold och artikel 18-begränsning
+omprövas vid utförandet, inte vid mottagandet. Fristen räknas från mottagandet.
+
+Gallringsexekveringen omprövar beslutet omedelbart före radering, planerar
+samtliga mål inklusive de härledda lagren (sökindex, cache, notifieringar) och
+kan inte rapportera en partiell radering som komplett. Godkännande krävs av
+någon annan än den som begärde, och aldrig av leverantören.
+
+Skyddade personuppgifter maskeras per utflödeskanal, med okänd kanal och okänd
+skyddsnivå som avslag respektive strängaste nivå.
+
+Arkivpaketet följer RA-FS 2009:2, är deterministiskt och verifierbart offline
+med enbart paketet, manifestet och den separat levererade manifesthashen.
+
+## 8. Säkerhet
+
+- Nyckelrotation i etapper med dual read, write-new-only och pensionering först
+  efter räknad och verifierad återkryptering. Blind index roteras strängare:
+  komprometterade värden skrivs över, eftersom den som har den läckta nyckeln
+  annars fortsatt kan slå upp en utpekad person.
+- Strukturerad loggning maskerar på väg in, både på fältnamn och värdemönster.
+- Säkerhetsheaders utan `unsafe-inline`, `frame-ancestors none`,
+  `no-referrer`, och `Vary` på varje privat cacheklass.
+- TLS-golv som data i stället för prosa, endast sviter med forward secrecy.
+
+## 9. Fynd som arbetet självt tog fram
+
+Tre defekter hittades av tester som skrevs under kampanjen, och är rättade:
+
+1. **Dubblettutfall passerade gallringsverifieringen.** Två rader för samma
+   lagringsplats kan säga olika saker, och den som lästes först vann.
+2. **Nyckelringskontrollen omöjliggjorde rotation.** Den avvisade en
+   komprometterad aktiv nyckel, vilket gjorde just det fall modulen finns för —
+   att rotera bort från en läckt nyckel — omöjligt.
+3. **Sex WCAG-brister i portalerna**: saknad minsta klickyta i två portaler,
+   odeklarerat färgschema i tre, saknad `autocomplete` i en.
+
+Dessutom fångade repositoryts egen hemlighetsskanner en testfixtur som såg ut
+som en riktig PEM-nyckel. Fixturen ändrades, inte skannern.
+
+## 10. Kvarvarande BLOCKED_EXTERNAL
+
+42 rader. Fullständig förteckning med exakt blockerare, extern part, vad som
+behöver beställas och verifieringssteg finns i
+`docs/compliance/kungalv/EXTERNAL_EVIDENCE_BLOCKERS.md`. Grupperat:
+
+| Grupp | Antal | Blockerar go-live |
+| --- | ---: | --- |
+| Kryptografiskt nyckelmaterial: CA-certifikat, HSM eller fjärr-QSCD, TSA | 2 (F001, F013) | **Ja** för elektronisk underskrift |
+| Providercredentials: TIC produktion, Freja relying party | 2 (F002, F003) | **Ja** för respektive metod |
+| Kundens konfiguration: IdP-metadata, MFA-krav | 2 (F004, 3522) | Ja för federerad inloggning |
+| Leverantörens ISMS och personalrutiner | 12 | Nej, men krävs för anbudsuppfyllnad |
+| Underbiträden, datahall, fysiskt skydd, tidssynkronisering | 8 | Nej |
+| Avtal: PUB-avtal, sekretess, priser, förvaltningsprocess | 8 | Nej |
+| Införandeprojekt: plan, utbildning, samverkan | 4 | Nej |
+| Referenskunder och marknadsetablering | 1 (2032) | Nej |
+| Övrigt: supportavtalsbilaga, revisionsrätt, samrådsroller | 5 | Nej |
+
+## 11. Operativa åtgärder före produktion
+
+1. **Rotera de exponerade nycklarna.** Dataskyddsnyckeln och blind
+   index-nyckeln finns i Git-historik. Stödet är byggt och testat; själva
+   rotationen är en operativ handling. Detta är stop-ship.
+2. Beställ CA-certifikat, HSM eller fjärr-QSCD och TSA-avtal.
+3. Begär TIC-produktionscredentials och Freja relying party-avtal.
+4. Hämta Kungälvs IdP-metadata och registrera Kommunsign som service provider.
+5. Aktivera SCIM-utgående provisionering från kommunens katalog.
+6. Aktivera signeringsbackend via `KOMMUNSIGN_SIGNING_BACKEND` och
+   `KOMMUNSIGN_SIGNING_KEY_PROTECTION`, och sätt `productionReady: true` i
+   identitetsregistret först efter verifierad skarp evidens.
+7. Sätt upp webbläsarautomation i CI för löpande regressionstest av Edge,
+   Chrome och Safari.
+8. Genomför första kvartalsvisa återställningstestet och protokollför RTO.
+
+## 12. Utrullningsordning
+
+1. Applicera `migrations/control/0017`, `migrations/data/0017` och `0018`. Alla
+   är additiva och kan appliceras under drift.
+2. Rulla ut API och workers.
+3. Bygg och publicera portalerna.
+4. Kör `npm run verify:env`, `npm run verify:auth-config` och
+   `npm run verify:container-health` mot den driftsatta miljön.
+
+Rollback: migrationerna är additiva, så applikationen kan rullas tillbaka utan
+schemaändring. Varje migration dokumenterar sin egen rollback.
+
+## 13. Verifiering
+
+Från ren checkout: `npm ci` följt av `npm run verify`. Grön, och omfattar bygge,
+repositoryverifiering, deployment-konfiguration, migrationsverifiering,
+kravmatris, provenance, SDK-synk, WCAG 2.2 AA, hemlighetsskanning,
+Java-gränstjänster samt 98 enhetstester, 3 integrationstestsviter och
+säkerhetstestsviten.
+
+## 14. GO / NO-GO
+
+**GO för digital godkännande (digital approval).** Hela kedjan — ärende,
+dokumentlåsning, identifiering med BankID, godkännandebevis, audit, bevispaket,
+arkivexport och gallring — är implementerad, testad och saknar extern
+blockerare utöver TIC-produktionscredentials.
+
+**NO-GO för elektronisk underskrift tills nyckelmaterial finns.** Detta är
+inte en kodbrist. Systemet vägrar korrekt: utan CA-certifikat, HSM eller
+fjärr-QSCD och TSA skapas ingen signatur, och `assertSigningRuntimeUsable`
+spärrar produktion i stället för att leverera något som ser ut som en
+underskrift. Att sätta GO här skulle innebära att lova en avancerad elektronisk
+underskrift som inte kan produceras.
+
+**Stop-ship: rotera de exponerade nycklarna före produktionsdata.**
+
+Skillnaden mot den tidigare rapportens NO-GO är att blockerarna nu är rent
+externa och var och en har en namngiven motpart, en beställning och ett
+verifieringssteg. Ingen av dem väntar på utvecklingsarbete.
