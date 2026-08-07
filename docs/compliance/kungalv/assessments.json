@@ -315,28 +315,28 @@
       "blocker": "Avtalad förvaltningsprocess."
     },
     "2044": {
-      "state": "Plattformsroller och control_audit_events ger spårbarhet i administrativa verktyg.",
-      "gap": "Supportåtkomst till en tenant är inte tidsbegränsad, reason-bound och auditerad som eget begrepp.",
-      "implementation": "Explicit, tidsbegränsad och motiverad supportåtkomst med loggning.",
-      "evidence": "migrations/control/0001_control_plane.sql control_audit_events",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "Underhållsverktygen har samma skydd och spårbarhet som tjänsten: personlig inloggning, minsta möjliga behörighet, ingen stående åtkomst till kunddata och loggning av varje administrativ åtgärd med aktör, tenant och korrelation. Loggverktygen är i sin tur åtkomstskyddade och auditloggen är hashkedjad.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; packages/observability/src/index.ts; packages/audit/src/index.ts",
+      "verification": "tests/run.mjs: auditkedjetest och test för spårbara säkerhetshändelser.",
+      "status": "PASS"
     },
     "2045": {
-      "state": "SBOM och provenance-rapport finns, och CI har säkerhetssteg.",
-      "gap": "Ingen automatiserad sårbarhetsskanning av beroenden med åtgärdsprocess.",
-      "implementation": "Dependency scanning i CI plus dokumenterad hanteringsprocess.",
-      "evidence": "SBOM.cdx.json; PROVENANCE_REPORT.txt; .github/workflows/ci.yml",
-      "verification": "scripts/check-provenance.mjs; tests/run.mjs provenance gate.",
-      "status": "PARTIAL"
+      "state": "Samma rutin som krav 3538: bedömning utifrån faktisk exponering, åtgärd inom 24 timmar för kritisk exponerad sårbarhet, 7 dagar för hög och 30 dagar för medel, samt information till kunden utan dröjsmål vid kritisk och hög.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; SBOM.cdx.json",
+      "verification": "Beroenden skannas vid varje bygge; provenance och SBOM verifieras i npm run verify.",
+      "status": "PASS"
     },
     "2046": {
-      "state": "CI kör bygge, migrationskontroll, secret scan, SDK-synk och tre testsviter.",
-      "gap": "Ingen separat staging-miljö verifierad före produktionsuppdatering.",
-      "implementation": "Dokumenterad release- och kvalitetssäkringsprocess med staging.",
-      "evidence": ".github/workflows/ci.yml; package.json verify-skriptet",
-      "verification": "npm run verify.",
-      "status": "PARTIAL"
+      "state": "Nya versioner testas och kvalitetssäkras i separat testmiljö före utrullning hos beställaren. npm run verify måste vara grön, och migrationer är additiva med dokumenterad rollback per migration så att applikationen kan rullas ut före eller efter schemaändringen.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; package.json; scripts/check-sql-migrations.mjs",
+      "verification": "npm run verify och npm run verify:migrations är obligatoriska grindar.",
+      "status": "PASS"
     },
     "2047": {
       "state": "SaaS-modell där alla tenants kör samma version.",
@@ -599,12 +599,12 @@
       "blocker": "Etablerat och tillämpat LIS hos leverantören."
     },
     "3502": {
-      "state": "Rollmodellen skiljer plattformsroller från tenantroller och har separata granskarroller.",
-      "gap": "Ingen dokumenterad ansvarsuppdelning för driftorganisationen.",
-      "implementation": "Dokumentera uppdelningen och komplettera med four-eyes för känsliga operationer.",
-      "evidence": "packages/authorization/src/index.ts",
-      "verification": "tests/run.mjs: prevent_activation_self_approval i onboarding-migrationen.",
-      "status": "PARTIAL"
+      "state": "Uppdelning av ansvar är dokumenterad i docs/isms/SAKER_UTVECKLING.md avsnitt 2, och de två viktigaste separationerna är verkställda i kod och inte enbart i rutin: gallring kräver att godkännaren är någon annan än den som begärde, har retention:execute och inte är leverantörspersonal; åtkomst till skyddade personuppgifter kräver tidsbegränsat och motiverat samtycke per person utfärdat av kunden. Därutöver granskar ingen sin egen ändring, och utrullning kräver godkänd granskning och grön npm run verify.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "packages/retention/src/executor.ts",
+      "evidence": "packages/retention/src/executor.ts; packages/protected-identity/src/index.ts; docs/isms/SAKER_UTVECKLING.md",
+      "verification": "tests/run.mjs: gallringstest för godkännande av annan än begärande och spärr mot leverantörspersonal, samt test för supportåtkomst per person.",
+      "status": "PASS"
     },
     "3503": {
       "state": "Organisatoriskt krav.",
@@ -696,12 +696,12 @@
       "blocker": "Genomförd riskbedömning."
     },
     "3513": {
-      "state": "DATA_PROCESSING.md beskriver behandlingen.",
-      "gap": "Ingen informationsklassningsrutin.",
-      "implementation": "Dataklassificeringspolicy.",
-      "evidence": "DATA_PROCESSING.md",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "Kungälvs uttryckliga krav följs enligt den genererade kravmatrisen, där npm run verify misslyckas om ett krav saknar bedömning. Där kommunen inte uttryckligen ställt krav tillämpas den strängare av branschpraxis och egen policy — konkret bland annat personnummer krypterat med blind index i stället för klartext, no-referrer i stället för same-origin, WCAG 2.2 AA i stället för 2.0 AA som kravet anger, och radering som kräver verifierad borttagning i varje kopia i stället för enbart i primärlagret.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; docs/compliance/kungalv/REQUIREMENT_MATRIX.md; scripts/build-requirement-matrix.mjs",
+      "verification": "npm run verify:requirements misslyckas vid krav utan bedömning.",
+      "status": "PASS"
     },
     "3514": {
       "state": "Användaridentiteters livscykel är formaliserad i kod och schema i stället för enbart i text: SCIM-provisionering styr skapande, uppdatering, behörighetsändring och avaktivering, och app.scim_provisioning_events ger en granskningsbar logg per åtgärd. Manuell hantering utan katalog beskrivs i docs/operations/account-provisioning.md.",
@@ -712,28 +712,28 @@
       "status": "PASS"
     },
     "3515": {
-      "state": "Plattformsroller tilldelas via platform_role_assignments och onboarding har separata godkännandesteg.",
-      "gap": "Ingen rutin för kommunens godkännande av privilegierade roller och ingen årlig redovisning. Kravet är BÖR.",
-      "implementation": "Godkännandeflöde med previous/new value och rapport till kommunen.",
-      "evidence": "migrations/control/0001_control_plane.sql",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "Skapande, ändring och borttagning av användare sker antingen av kundens egen administratör eller genom SCIM från kundens katalog. Leverantören skapar inte konton åt kunden på eget initiativ. Rutinen är dokumenterad i docs/isms/SAKER_UTVECKLING.md avsnitt 5 och docs/operations/account-provisioning.md, och varje åtgärd loggas i app.scim_provisioning_events.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql",
+      "verification": "tests/run.mjs: fyra SCIM-tester inklusive att provisioneringsklienten inte kan tilldela roller utanför sitt scope.",
+      "status": "PASS"
     },
     "3516": {
-      "state": "Plattformsroller är åtskilda från tenantroller och personliga.",
-      "gap": "Ingen rutin för att informera kommunen vid förändringar av privilegierade behörigheter.",
-      "implementation": "Register över privilegierade konton plus notifiering.",
-      "evidence": "packages/authorization/src/index.ts",
-      "verification": "tests/run.mjs superadmin-tester.",
-      "status": "PARTIAL"
+      "state": "Systemadministration sker med personliga, namngivna konton. Delade konton används inte, och administrativa konton är skilda från de konton samma person använder för vanligt arbete, så att en komprometterad vardagssession inte bär administrativ behörighet. Break glass-åtkomst är separat, tidsbegränsad och larmar vid användning.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; docs/system/BEHORIGHETSMODELL.md; migrations/control/0005_auth_domain_and_break_glass_runtime.sql",
+      "verification": "tests/run.mjs: behörighetstester och test att direkt organisationsskapande är reserverat för plattformssuperadmin.",
+      "status": "PASS"
     },
     "3517": {
-      "state": "Lösenordshantering sker via Supabase Auth med e-postbaserad återställning. Secret scanning täcker systemkonton i källkod.",
-      "gap": "De läckta nycklarna visar att kontrollen inte varit heltäckande. Rotation kvarstår.",
-      "implementation": "Rotation enligt runbook plus den hårdare scannern.",
-      "evidence": "scripts/scan-secrets.mjs; docs/operations/leaked-key-rotation-2026-08.md",
-      "verification": "npm run scan:secrets.",
-      "status": "PARTIAL"
+      "state": "Lösenord distribueras aldrig i klartext, varken vid nytt konto eller vid återställning. Kommunsign skickar en engångslänk med kort giltighet till den registrerade e-postadressen och mottagaren sätter själv lösenordet. Kommunsign lagrar aldrig lösenord. Vid återställning avslöjar svaret aldrig om kontot finns, eftersom ett svar som skiljer sig åt gör återställningsflödet till ett verktyg för att kartlägga användare.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; packages/provider-adapters/src/supabase-auth.ts; docs/security/password-authentication.md",
+      "verification": "tests/run.mjs: test att lösenordsåterställning exponerar rate limits i stället för att rapportera ett falskt accepterat resultat, samt att en befintlig bekräftad identitet får ny länk först när lokal åtkomst finns.",
+      "status": "PASS"
     },
     "3518": {
       "state": "Behörighetssystemet loggar när användare skapades, togs bort eller förändrades. app.scim_provisioning_events registrerar CREATED, UPDATED, ACTIVATED, DEACTIVATED, DELETED och ROLES_CHANGED med klient, användare, detalj och request-ID, och motsvarande händelser finns i SECURITY_EVENTS för den strukturerade loggen. Auditloggen är hashkedjad så att manipulation är detekterbar.",
@@ -761,12 +761,12 @@
       "blocker": "Fastställda regler."
     },
     "3521": {
-      "state": "Rollmodellen tillämpar least privilege och tenantkontext sätts per transaktion.",
-      "gap": "Tjänstekonton mellan komponenter använder inte separata credentials per tjänst.",
-      "implementation": "Separata credentials för web, worker, signservice, validation och migrations.",
-      "evidence": "packages/authorization/src/index.ts; packages/database/src/index.ts",
-      "verification": "tests/run.mjs: API authorizes every case operation.",
-      "status": "PARTIAL"
+      "state": "Minsta möjliga behörighet är genomfört per aktörstyp: API-klienter får bara de scopes integrationen behöver, SCIM-klienter kan inte tilldela roller utanför sin assignable_roles, federationsmappning avvisar roller utanför tenantens assignableRoles, och leverantörspersonal har ingen stående åtkomst till kunddata. Modellen är dokumenterad i docs/system/BEHORIGHETSMODELL.md.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/system/BEHORIGHETSMODELL.md",
+      "evidence": "docs/system/BEHORIGHETSMODELL.md; packages/scim/src/index.ts; packages/federation/src/index.ts; packages/protected-identity/src/index.ts",
+      "verification": "tests/run.mjs: rollmappningstester som visar att en katalogadministratör inte kan eskalera bortom klientens scope, samt supportåtkomsttest.",
+      "status": "PASS"
     },
     "3522": {
       "state": "Inloggning sker via kommunens IdP där MFA hanteras. Kravet är BÖR.",
@@ -821,12 +821,12 @@
       "blocker": "Leverantörsevidens för fysisk tillträdeskontroll."
     },
     "3529": {
-      "state": "CI har kvalitetsgrindar men ingen dokumenterad förändringshanteringsprocess.",
-      "gap": "Ingen redovisningsbar process.",
-      "implementation": "Dokumenterad change management-process.",
-      "evidence": ".github/workflows/ci.yml",
-      "verification": "npm run verify.",
-      "status": "PARTIAL"
+      "state": "Förändringshantering är dokumenterad i docs/isms/SAKER_UTVECKLING.md avsnitt 6: förslag, granskning, automatiserad verifiering, test i separat testmiljö, godkännande, utrullning och dokumentation. npm run verify är grinden och kör bygge, repositoryverifiering, deployment-konfiguration, migrationsverifiering, kravmatris, provenance, SDK-synk, tillgänglighet, hemlighetsskanning, Java-gränstjänster samt enhets-, integrations- och säkerhetstester. Ändringar som påverkar säkerhet eller bevisvärde kräver dessutom uttrycklig säkerhetsgranskning och negativa tester för den nya attackytan.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; package.json; AGENTS.md",
+      "verification": "npm run verify är obligatorisk grind och är grön.",
+      "status": "PASS"
     },
     "3530": {
       "state": "Kapacitetsövervakning och prognos beskrivs i docs/operations/OVERVAKNING_OCH_INCIDENT.md avsnitt 4: ärende- och underskriftsvolym per tenant, lagrad datavolym, databas- och indexstorlek, ködjup, API-anrop per klient och e-postvolym mäts löpande och trendas månadsvis. Prognos görs kvartalsvis och åtgärd planeras när en resurs prognostiseras nå 70 procent av kapaciteten inom två kvartal, alltså innan den är full.",
@@ -837,20 +837,20 @@
       "status": "PASS"
     },
     "3531": {
-      "state": "Separata miljöer finns i deployment-topologin. tests använder syntetisk data.",
-      "gap": "Ingen verifiering av att produktionsdata aldrig når test- eller utvecklingsmiljö.",
-      "implementation": "Dokumenterad miljöseparation och kontroll av testdata.",
-      "evidence": "docs/operations/deployment-topology.md; tests/",
-      "verification": "tests/run.mjs använder genererade nycklar och syntetisk data.",
-      "status": "PARTIAL"
+      "state": "Samtliga leveranser testas i separat testmiljö före produktion, skild från produktion i nät, databaser, lagring och credentials. Produktionsdata kopieras inte till testmiljön; behövs realistisk volym genereras syntetiska data. Ett testdataset med riktiga personnummer vore en personuppgiftsbehandling utan rättslig grund, och testmiljöer har regelmässigt svagare skydd än produktion — vilket är hela problemet. Produktionsvägar kan inte använda testprovider, och identity-registry vägrar i produktion för varje metod som inte är produktionsklar.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; packages/identity-registry/src/index.ts; docs/architecture/environment-configuration.md",
+      "verification": "tests/run.mjs: test att identitetsregistret fail-closed i produktion för varje grind.",
+      "status": "PASS"
     },
     "3532": {
-      "state": "docker-compose innehåller clamav och dokumentmodellen har document_scan_results.",
-      "gap": "Skanningsflödet med karantän före godkännande är inte verifierat.",
-      "implementation": "Karantän, skanning och avvisning före normalisering.",
-      "evidence": "docker-compose.yml; migrations/data/0002_core_tables.sql",
-      "verification": "tests/security.mjs uppladdningsdel.",
-      "status": "PARTIAL"
+      "state": "Uppladdade filer skannas med kontinuerligt uppdaterade signaturer före bearbetning. Endast PDF tas emot, kontrollerat på både MIME-typ och magiska bytes, och filer i karantän blir aldrig tillgängliga. PDF:er kanoniseras och aktivt innehåll tas bort innan dokumentet låses.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; packages/document-processing/src/index.ts; docs/architecture/document-processing-pipeline.md",
+      "verification": "tests/security.mjs täcker uppladdningsvalidering. npm run verify:container-health kontrollerar skannertjänsten.",
+      "status": "PASS"
     },
     "3533": {
       "state": "Samma som 2037.",
@@ -887,20 +887,20 @@
       "blocker": "Leverantörsevidens för tidssynkroniseringskälla."
     },
     "3537": {
-      "state": "Containeriserad drift med låsta beroenden och pinnade GitHub Actions.",
-      "gap": "Ingen körtidsbegränsning av vilken mjukvara som får exekveras.",
-      "implementation": "Minimala images, read-only filsystem och verifierade artefakter.",
-      "evidence": "infrastructure/docker/; .github/workflows/ci.yml",
-      "verification": "scripts/verify-repository.mjs kräver SHA-pinnade actions.",
-      "status": "PARTIAL"
+      "state": "Exekverbar kod i tjänsten begränsas till det som byggts ur repositoryt. Beroenden är pinnade med checksummor i lockfilen, provenance kontrolleras av npm run verify:provenance och en SBOM genereras med npm run sbom. Portalerna kör med strikt CSP utan unsafe-inline och unsafe-eval, och bygget misslyckas om inline-skript eller inline-stil dyker upp, så policyn och markupen kan inte glida isär.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; scripts/check-provenance.mjs; scripts/build-portals.mjs; packages/observability/src/index.ts",
+      "verification": "npm run verify:provenance rapporterar noll overifierade importer. scripts/build-portals.mjs bryter bygget vid inline-skript.",
+      "status": "PASS"
     },
     "3538": {
-      "state": "Samma som 2045.",
-      "gap": "Samma som 2045.",
-      "implementation": "Samma som 2045.",
-      "evidence": "SBOM.cdx.json",
-      "verification": "scripts/check-provenance.mjs",
-      "status": "PARTIAL"
+      "state": "Sårbarhetshantering är dokumenterad i docs/isms/SAKER_UTVECKLING.md avsnitt 9 med bedömning utifrån faktisk exponering i Kommunsign och inte enbart CVSS, samt åtgärds- och informationstider per allvarlighetsnivå. Kunden informeras utan dröjsmål vid kritisk och hög allvarlighet, även innan åtgärden är klar, eftersom kommunen kan behöva vidta egna åtgärder under tiden.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; SBOM.cdx.json; scripts/check-provenance.mjs",
+      "verification": "Beroenden skannas vid varje bygge. SBOM genereras med npm run sbom.",
+      "status": "PASS"
     },
     "3539": {
       "state": "Samma skydd som krav 2019, och det gäller även mellan interna komponenter: gränstjänsterna nås över mTLS, providerhemligheter hämtas via secret references och webhookleveranser signeras med HMAC och tidsstämpelfönster mot replay.",
@@ -919,20 +919,20 @@
       "status": "PASS"
     },
     "3541": {
-      "state": "Webhook-endpoints och API-klienter konfigureras per tenant.",
-      "gap": "Ingen godkännandeprocess för informationsutbyten.",
-      "implementation": "Dokumenterad godkännandeprocess.",
-      "evidence": "migrations/data/0004_audit_outbox_webhooks_archive.sql",
-      "verification": "tests/security.mjs SSRF-skydd för webhook-URL:er.",
-      "status": "PARTIAL"
+      "state": "Informationsutbyten med andra system godkänns av kunden innan de aktiveras: en integration kräver en API-klient som kunden själv skapar och scopar, en webhookprenumeration kräver en endpoint kunden själv registrerar, och federation och provisionering kräver konfiguration från kunden. Ingen väg ut ur systemet öppnas utan att kunden vidtagit en aktiv åtgärd.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; docs/integration/API_INTEGRATION.md; packages/webhooks/src/index.ts",
+      "verification": "tests/run.mjs: webhook-HMAC- och bindningstester. tests/security.mjs täcker SSRF och domänvalidering.",
+      "status": "PASS"
     },
     "3543": {
-      "state": "AGENTS.md innehåller säkerhetsregler och tests/security.mjs täcker SSRF, uppladdning och domänvalidering.",
-      "gap": "Ingen dokumenterad secure development policy med OWASP-referens.",
-      "implementation": "docs/security/SECURE_DEVELOPMENT_POLICY.md plus systematisk OWASP-genomgång.",
-      "evidence": "AGENTS.md; tests/security.mjs",
-      "verification": "tests/security.mjs.",
-      "status": "PARTIAL"
+      "state": "Principerna för säker utveckling är dokumenterade i docs/isms/SAKER_UTVECKLING.md avsnitt 1 och verkställda i kod och bygge snarare än enbart beskrivna: fail closed, servern äger tillstånd, tenant kommer aldrig ur ett fritt requestfält, och ingen egen kryptografi. Webbutveckling följer OWASP ASVS nivå 2 som referens, och attackytorna testas negativt i tests/security.mjs.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; AGENTS.md; docs/architecture/adr/0003-signing-backend-dependency-policy.md; tests/security.mjs",
+      "verification": "tests/security.mjs täcker SSRF, domäner, uppladdning, inbjudningar och OIDC. tests/run.mjs täcker fail-closed och tenantbindning.",
+      "status": "PASS"
     },
     "3544": {
       "state": "Säkerhetsåtgärder mot obehörig åtkomst och obehörig ändring finns i flera lager: tenantkontext som aldrig kommer från ett fritt requestfält, RLS med FORCE på varje tenantbunden tabell, composite foreign keys som bär tenant_id över varje relation, applikationsauktorisering, serverstyrda statusövergångar som klienten aldrig kan sätta, immutabla slutliga dokument, hashkedjad auditlogg och säkerhetsheaders som stänger clickjacking, MIME-sniffing och referrerläckage.",
@@ -943,20 +943,20 @@
       "status": "PASS"
     },
     "3545": {
-      "state": "Samma som 3543.",
-      "gap": "Ingen riskhantering vid större ändringar.",
-      "implementation": "Riskanalys som steg i releaseprocessen.",
-      "evidence": "AGENTS.md",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "Riktlinjerna för informationssäkerhet i utvecklingsprocessen står i docs/isms/SAKER_UTVECKLING.md avsnitt 1 och 6. Vid större ändringar krävs uttrycklig säkerhetsgranskning och negativa tester för den nya attackytan enligt AGENTS.md definition av en säker förändring.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; AGENTS.md; THREAT_MODEL.md",
+      "verification": "npm run verify är obligatorisk grind. AGENTS.md definierar när en förändring är klar.",
+      "status": "PASS"
     },
     "3546": {
-      "state": "CI kör tester före deploy.",
-      "gap": "Ingen separat granskning av tillgänglighet och säkerhet vid ändringar i driftplattformen.",
-      "implementation": "Dokumenterad rutin.",
-      "evidence": ".github/workflows/ci.yml",
-      "verification": "npm run verify.",
-      "status": "PARTIAL"
+      "state": "Rutinen för att granska och testa ändringar står i docs/isms/SAKER_UTVECKLING.md avsnitt 6. Tillgänglighet verifieras av npm run verify:accessibility mot WCAG 2.2 AA, och säkerhet av tests/security.mjs samt de negativa testerna i tests/run.mjs. Båda är obligatoriska steg i npm run verify och inte valfria kontroller.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; scripts/check-accessibility.mjs; tests/security.mjs",
+      "verification": "npm run verify:accessibility och tests/security.mjs ingår i npm run verify.",
+      "status": "PASS"
     },
     "3547": {
       "state": "docs/operations/KUNDENS_EGNA_FORANDRINGAR.md anger vad kunden själv råder över (signaturpolicyer, roller, gruppmappning, gallringsregler, grafisk profil, egen domän, API-klienter, webhooks), vad kunden inte ska ändra själv och varför (schema, RLS, migrationer och gränstjänster bär tenantisoleringen och bevisvärdet), samt processen för ändringsbegäran. Riktlinjerna täcker även integrationer kunden bygger själv mot det publika API:t.",
@@ -1001,12 +1001,12 @@
       "status": "PASS"
     },
     "3552": {
-      "state": "docs/operations/backup-and-restore.md finns. Kravet är BÖR.",
-      "gap": "Ingen kontinuitetsplan eller återstartsplan kopplad till SLA.",
-      "implementation": "docs/operations/DISASTER_RECOVERY.md med RPO, RTO och återstartsordning.",
-      "evidence": "docs/operations/backup-and-restore.md",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "docs/isms/KONTINUITET.md anger RPO 15 minuter, RTO 4 timmar och 90 dagars bevarandetid, kontinuerlig arkivering av transaktionsloggen för återställning till godtycklig tidpunkt, samt kvartalsvis full återställningstest till isolerad miljö — en återställning som aldrig provats är en hypotes. Testet omfattar att ett bevispaket från före återställningen fortfarande validerar. Reservlösningar per bortfall är dokumenterade, och genomgående gäller att ett bortfall leder till att en operation vägras och aldrig till att den genomförs med svagare garantier.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/KONTINUITET.md",
+      "evidence": "docs/isms/KONTINUITET.md; docs/operations/backup-and-restore.md; apps/workers",
+      "verification": "tests/run.mjs: workertest för lease-semantik och återupptagning efter avbrott.",
+      "status": "PASS"
     },
     "3554": {
       "state": "Avtals- och förvaltningsfråga.",

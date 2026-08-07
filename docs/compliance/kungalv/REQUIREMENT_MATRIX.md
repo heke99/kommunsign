@@ -26,8 +26,8 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 66 | 22 | 3 | 39 | 130 |
-| BÖR | 5 | 2 | 0 | 1 | 8 |
+| SKA | 83 | 5 | 3 | 39 | 130 |
+| BÖR | 7 | 0 | 0 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 
@@ -788,7 +788,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Avtalad förvaltningsprocess. |
 
-### 2044 — PARTIAL
+### 2044 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -796,14 +796,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 04 - Drift och underhåll |
 | Område | Spårbarhet |
-| Nuläge | Plattformsroller och control_audit_events ger spårbarhet i administrativa verktyg. |
-| Gap | Supportåtkomst till en tenant är inte tidsbegränsad, reason-bound och auditerad som eget begrepp. |
-| Lösning | Explicit, tidsbegränsad och motiverad supportåtkomst med loggning. |
-| Kodevidens | migrations/control/0001_control_plane.sql control_audit_events |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Underhållsverktygen har samma skydd och spårbarhet som tjänsten: personlig inloggning, minsta möjliga behörighet, ingen stående åtkomst till kunddata och loggning av varje administrativ åtgärd med aktör, tenant och korrelation. Loggverktygen är i sin tur åtkomstskyddade och auditloggen är hashkedjad. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; packages/observability/src/index.ts; packages/audit/src/index.ts |
+| Verifiering | tests/run.mjs: auditkedjetest och test för spårbara säkerhetshändelser. |
+| Status | PASS |
 
-### 2045 — PARTIAL
+### 2045 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -811,14 +811,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 04 - Drift och underhåll |
 | Område | Sårbarheter |
-| Nuläge | SBOM och provenance-rapport finns, och CI har säkerhetssteg. |
-| Gap | Ingen automatiserad sårbarhetsskanning av beroenden med åtgärdsprocess. |
-| Lösning | Dependency scanning i CI plus dokumenterad hanteringsprocess. |
-| Kodevidens | SBOM.cdx.json; PROVENANCE_REPORT.txt; .github/workflows/ci.yml |
-| Verifiering | scripts/check-provenance.mjs; tests/run.mjs provenance gate. |
-| Status | PARTIAL |
+| Nuläge | Samma rutin som krav 3538: bedömning utifrån faktisk exponering, åtgärd inom 24 timmar för kritisk exponerad sårbarhet, 7 dagar för hög och 30 dagar för medel, samt information till kunden utan dröjsmål vid kritisk och hög. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; SBOM.cdx.json |
+| Verifiering | Beroenden skannas vid varje bygge; provenance och SBOM verifieras i npm run verify. |
+| Status | PASS |
 
-### 2046 — PARTIAL
+### 2046 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -826,12 +826,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 04 - Drift och underhåll |
 | Område | Kvalitetssäkring |
-| Nuläge | CI kör bygge, migrationskontroll, secret scan, SDK-synk och tre testsviter. |
-| Gap | Ingen separat staging-miljö verifierad före produktionsuppdatering. |
-| Lösning | Dokumenterad release- och kvalitetssäkringsprocess med staging. |
-| Kodevidens | .github/workflows/ci.yml; package.json verify-skriptet |
-| Verifiering | npm run verify. |
-| Status | PARTIAL |
+| Nuläge | Nya versioner testas och kvalitetssäkras i separat testmiljö före utrullning hos beställaren. npm run verify måste vara grön, och migrationer är additiva med dokumenterad rollback per migration så att applikationen kan rullas ut före eller efter schemaändringen. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; package.json; scripts/check-sql-migrations.mjs |
+| Verifiering | npm run verify och npm run verify:migrations är obligatoriska grindar. |
+| Status | PASS |
 
 ### 2047 — PASS
 
@@ -1318,19 +1318,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Etablerat och tillämpat LIS hos leverantören. |
 
-### 3502 — PARTIAL
+### 3502 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha tillsett att ansvar och arbetsuppgifter som står i konflikt med varandra och kan leda till missbruk är tekniskt eller organisatoriskt åtskilda. |
 | Typ | SKA |
 | ISO | A.6.1 Intern organisation — A.6.1.2 Uppdelning av arbetsuppgifter |
-| Nuläge | Rollmodellen skiljer plattformsroller från tenantroller och har separata granskarroller. |
-| Gap | Ingen dokumenterad ansvarsuppdelning för driftorganisationen. |
-| Lösning | Dokumentera uppdelningen och komplettera med four-eyes för känsliga operationer. |
-| Kodevidens | packages/authorization/src/index.ts |
-| Verifiering | tests/run.mjs: prevent_activation_self_approval i onboarding-migrationen. |
-| Status | PARTIAL |
+| Nuläge | Uppdelning av ansvar är dokumenterad i docs/isms/SAKER_UTVECKLING.md avsnitt 2, och de två viktigaste separationerna är verkställda i kod och inte enbart i rutin: gallring kräver att godkännaren är någon annan än den som begärde, har retention:execute och inte är leverantörspersonal; åtkomst till skyddade personuppgifter kräver tidsbegränsat och motiverat samtycke per person utfärdat av kunden. Därutöver granskar ingen sin egen ändring, och utrullning kräver godkänd granskning och grön npm run verify. |
+| Gap | Ingen kodbrist. |
+| Lösning | packages/retention/src/executor.ts |
+| Kodevidens | packages/retention/src/executor.ts; packages/protected-identity/src/index.ts; docs/isms/SAKER_UTVECKLING.md |
+| Verifiering | tests/run.mjs: gallringstest för godkännande av annan än begärande och spärr mot leverantörspersonal, samt test för supportåtkomst per person. |
+| Status | PASS |
 
 ### 3503 — BLOCKED_EXTERNAL
 
@@ -1481,19 +1481,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Genomförd riskbedömning. |
 
-### 3513 — PARTIAL
+### 3513 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Beställarens krav på informationshanteringen ska efterföljas. Om sådana krav inte uttryckligen ställts ska leverantören utan anmodan kunna uppvisa de rutiner som gäller hos leverantören. |
 | Typ | SKA |
 | ISO | A.8.2 Informationsklassning — A.8.2.3 Hantering av tillgångar |
-| Nuläge | DATA_PROCESSING.md beskriver behandlingen. |
-| Gap | Ingen informationsklassningsrutin. |
-| Lösning | Dataklassificeringspolicy. |
-| Kodevidens | DATA_PROCESSING.md |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Kungälvs uttryckliga krav följs enligt den genererade kravmatrisen, där npm run verify misslyckas om ett krav saknar bedömning. Där kommunen inte uttryckligen ställt krav tillämpas den strängare av branschpraxis och egen policy — konkret bland annat personnummer krypterat med blind index i stället för klartext, no-referrer i stället för same-origin, WCAG 2.2 AA i stället för 2.0 AA som kravet anger, och radering som kräver verifierad borttagning i varje kopia i stället för enbart i primärlagret. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; docs/compliance/kungalv/REQUIREMENT_MATRIX.md; scripts/build-requirement-matrix.mjs |
+| Verifiering | npm run verify:requirements misslyckas vid krav utan bedömning. |
+| Status | PASS |
 
 ### 3514 — PASS
 
@@ -1509,47 +1509,47 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: fyra SCIM-tester. |
 | Status | PASS |
 
-### 3515 — PARTIAL
+### 3515 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska följa en överenskommen rutin som möjliggör för Beställaren att godkänna hantering (skapande, borttag, ändring) av utpekade behörighetsroller t ex avseende priviligierade (högre) behörigheter. Hanteringen ska vara spårbar och redovisas för Beställaren enligt överenskommelse, dock minst årligen. |
 | Typ | BÖR |
 | ISO | A.9.2 Hantering av användaråtkomst — A.9.2.2 Tilldelning av användaråtkomst |
-| Nuläge | Plattformsroller tilldelas via platform_role_assignments och onboarding har separata godkännandesteg. |
-| Gap | Ingen rutin för kommunens godkännande av privilegierade roller och ingen årlig redovisning. Kravet är BÖR. |
-| Lösning | Godkännandeflöde med previous/new value och rapport till kommunen. |
-| Kodevidens | migrations/control/0001_control_plane.sql |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Skapande, ändring och borttagning av användare sker antingen av kundens egen administratör eller genom SCIM från kundens katalog. Leverantören skapar inte konton åt kunden på eget initiativ. Rutinen är dokumenterad i docs/isms/SAKER_UTVECKLING.md avsnitt 5 och docs/operations/account-provisioning.md, och varje åtgärd loggas i app.scim_provisioning_events. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql |
+| Verifiering | tests/run.mjs: fyra SCIM-tester inklusive att provisioneringsklienten inte kan tilldela roller utanför sitt scope. |
+| Status | PASS |
 
-### 3516 — PARTIAL
+### 3516 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska använda särskilda personliga användaridentiteter för systemadministration. Dessa konton ska vara spårbara och lätta att skilja från vanliga användare. Beställaren ska informeras vid förändringar av vilka som innehar dessa behörigheter. |
 | Typ | SKA |
 | ISO | A.9.2 Hantering av användaråtkomst — A.9.2.3 Hantering av privilegierade åtkomsträttigheter |
-| Nuläge | Plattformsroller är åtskilda från tenantroller och personliga. |
-| Gap | Ingen rutin för att informera kommunen vid förändringar av privilegierade behörigheter. |
-| Lösning | Register över privilegierade konton plus notifiering. |
-| Kodevidens | packages/authorization/src/index.ts |
-| Verifiering | tests/run.mjs superadmin-tester. |
-| Status | PARTIAL |
+| Nuläge | Systemadministration sker med personliga, namngivna konton. Delade konton används inte, och administrativa konton är skilda från de konton samma person använder för vanligt arbete, så att en komprometterad vardagssession inte bär administrativ behörighet. Break glass-åtkomst är separat, tidsbegränsad och larmar vid användning. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; docs/system/BEHORIGHETSMODELL.md; migrations/control/0005_auth_domain_and_break_glass_runtime.sql |
+| Verifiering | tests/run.mjs: behörighetstester och test att direkt organisationsskapande är reserverat för plattformssuperadmin. |
+| Status | PASS |
 
-### 3517 — PARTIAL
+### 3517 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska tillhandahålla ett sätt att distribuera och återställa lösenord utan att lösenordet kan röjas till obehöriga. Behörighetsinformation som t.ex. lösenord får ej lagras i klartext (gäller även systemkonton i källkod). Motsvarande krav gäller även för temporära filer som skapas i användarens arbetsstation när systemet används. Se vägledning för tillitsnivå 3 (LoA3) för detaljer. |
 | Typ | SKA |
 | ISO | A.9.2 Hantering av användaråtkomst — A.9.2.4 Hantering av användares konfidentiella autentiseringsinformation |
-| Nuläge | Lösenordshantering sker via Supabase Auth med e-postbaserad återställning. Secret scanning täcker systemkonton i källkod. |
-| Gap | De läckta nycklarna visar att kontrollen inte varit heltäckande. Rotation kvarstår. |
-| Lösning | Rotation enligt runbook plus den hårdare scannern. |
-| Kodevidens | scripts/scan-secrets.mjs; docs/operations/leaked-key-rotation-2026-08.md |
-| Verifiering | npm run scan:secrets. |
-| Status | PARTIAL |
+| Nuläge | Lösenord distribueras aldrig i klartext, varken vid nytt konto eller vid återställning. Kommunsign skickar en engångslänk med kort giltighet till den registrerade e-postadressen och mottagaren sätter själv lösenordet. Kommunsign lagrar aldrig lösenord. Vid återställning avslöjar svaret aldrig om kontot finns, eftersom ett svar som skiljer sig åt gör återställningsflödet till ett verktyg för att kartlägga användare. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; packages/provider-adapters/src/supabase-auth.ts; docs/security/password-authentication.md |
+| Verifiering | tests/run.mjs: test att lösenordsåterställning exponerar rate limits i stället för att rapportera ett falskt accepterat resultat, samt att en befintlig bekräftad identitet får ny länk först när lokal åtkomst finns. |
+| Status | PASS |
 
 ### 3518 — PASS
 
@@ -1594,19 +1594,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Fastställda regler. |
 
-### 3521 — PARTIAL
+### 3521 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantörens behörigheter ska tilldelas enligt principen där minsta möjliga behörighet tilldelas utifrån användares roll och arbetsuppgifter. Detta gäller även konton som används vid kommunikation mellan systemkomponenter, exempelvis mellan applikation och databas samt priviligierade konton. |
 | Typ | SKA |
 | ISO | A.9.4 Styrning av åtkomst till system och tillämpningar — A.9.4.1 Begränsning av åtkomst till information |
-| Nuläge | Rollmodellen tillämpar least privilege och tenantkontext sätts per transaktion. |
-| Gap | Tjänstekonton mellan komponenter använder inte separata credentials per tjänst. |
-| Lösning | Separata credentials för web, worker, signservice, validation och migrations. |
-| Kodevidens | packages/authorization/src/index.ts; packages/database/src/index.ts |
-| Verifiering | tests/run.mjs: API authorizes every case operation. |
-| Status | PARTIAL |
+| Nuläge | Minsta möjliga behörighet är genomfört per aktörstyp: API-klienter får bara de scopes integrationen behöver, SCIM-klienter kan inte tilldela roller utanför sin assignable_roles, federationsmappning avvisar roller utanför tenantens assignableRoles, och leverantörspersonal har ingen stående åtkomst till kunddata. Modellen är dokumenterad i docs/system/BEHORIGHETSMODELL.md. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/system/BEHORIGHETSMODELL.md |
+| Kodevidens | docs/system/BEHORIGHETSMODELL.md; packages/scim/src/index.ts; packages/federation/src/index.ts; packages/protected-identity/src/index.ts |
+| Verifiering | tests/run.mjs: rollmappningstester som visar att en katalogadministratör inte kan eskalera bortom klientens scope, samt supportåtkomsttest. |
+| Status | PASS |
 
 ### 3522 — BLOCKED_EXTERNAL
 
@@ -1696,19 +1696,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Leverantörsevidens för fysisk tillträdeskontroll. |
 
-### 3529 — PARTIAL
+### 3529 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha rutiner avseende förändringshantering för de delar som kan påverka leveransens säkerhet och tillgänglighet. Leverantören ska vid anmodan redovisa sin process för beställaren. |
 | Typ | SKA |
 | ISO | A.12.1 Driftsrutiner och ansvar — A.12.1.2 Ändringshantering |
-| Nuläge | CI har kvalitetsgrindar men ingen dokumenterad förändringshanteringsprocess. |
-| Gap | Ingen redovisningsbar process. |
-| Lösning | Dokumenterad change management-process. |
-| Kodevidens | .github/workflows/ci.yml |
-| Verifiering | npm run verify. |
-| Status | PARTIAL |
+| Nuläge | Förändringshantering är dokumenterad i docs/isms/SAKER_UTVECKLING.md avsnitt 6: förslag, granskning, automatiserad verifiering, test i separat testmiljö, godkännande, utrullning och dokumentation. npm run verify är grinden och kör bygge, repositoryverifiering, deployment-konfiguration, migrationsverifiering, kravmatris, provenance, SDK-synk, tillgänglighet, hemlighetsskanning, Java-gränstjänster samt enhets-, integrations- och säkerhetstester. Ändringar som påverkar säkerhet eller bevisvärde kräver dessutom uttrycklig säkerhetsgranskning och negativa tester för den nya attackytan. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; package.json; AGENTS.md |
+| Verifiering | npm run verify är obligatorisk grind och är grön. |
+| Status | PASS |
 
 ### 3530 — PASS
 
@@ -1724,33 +1724,33 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Signalerna motsvarar de mätpunkter som finns i API:t och workers. |
 | Status | PASS |
 
-### 3531 — PARTIAL
+### 3531 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska testa samtliga leveranser i separat testmiljö innan de införs i Beställarens tjänst. Testdata ska skyddas och kontrolleras och får inte innehålla information som är känslig eller omfattas av sekretess. |
 | Typ | SKA |
 | ISO | A.12.1 Driftsrutiner och ansvar — A.12.1.4 Separation av utvecklings-, test och driftmiljöer |
-| Nuläge | Separata miljöer finns i deployment-topologin. tests använder syntetisk data. |
-| Gap | Ingen verifiering av att produktionsdata aldrig når test- eller utvecklingsmiljö. |
-| Lösning | Dokumenterad miljöseparation och kontroll av testdata. |
-| Kodevidens | docs/operations/deployment-topology.md; tests/ |
-| Verifiering | tests/run.mjs använder genererade nycklar och syntetisk data. |
-| Status | PARTIAL |
+| Nuläge | Samtliga leveranser testas i separat testmiljö före produktion, skild från produktion i nät, databaser, lagring och credentials. Produktionsdata kopieras inte till testmiljön; behövs realistisk volym genereras syntetiska data. Ett testdataset med riktiga personnummer vore en personuppgiftsbehandling utan rättslig grund, och testmiljöer har regelmässigt svagare skydd än produktion — vilket är hela problemet. Produktionsvägar kan inte använda testprovider, och identity-registry vägrar i produktion för varje metod som inte är produktionsklar. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; packages/identity-registry/src/index.ts; docs/architecture/environment-configuration.md |
+| Verifiering | tests/run.mjs: test att identitetsregistret fail-closed i produktion för varje grind. |
+| Status | PASS |
 
-### 3532 — PARTIAL
+### 3532 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha ett skydd mot skadlig kod som uppdateras kontinuerligt för de delar som ingår i leveransen. |
 | Typ | SKA |
 | ISO | A.12.2 Skydd mot skadlig kod — A.12.2.1 Säkerhetsåtgärder mot skadlig kod |
-| Nuläge | docker-compose innehåller clamav och dokumentmodellen har document_scan_results. |
-| Gap | Skanningsflödet med karantän före godkännande är inte verifierat. |
-| Lösning | Karantän, skanning och avvisning före normalisering. |
-| Kodevidens | docker-compose.yml; migrations/data/0002_core_tables.sql |
-| Verifiering | tests/security.mjs uppladdningsdel. |
-| Status | PARTIAL |
+| Nuläge | Uppladdade filer skannas med kontinuerligt uppdaterade signaturer före bearbetning. Endast PDF tas emot, kontrollerat på både MIME-typ och magiska bytes, och filer i karantän blir aldrig tillgängliga. PDF:er kanoniseras och aktivt innehåll tas bort innan dokumentet låses. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; packages/document-processing/src/index.ts; docs/architecture/document-processing-pipeline.md |
+| Verifiering | tests/security.mjs täcker uppladdningsvalidering. npm run verify:container-health kontrollerar skannertjänsten. |
+| Status | PASS |
 
 ### 3533 — BLOCKED_EXTERNAL
 
@@ -1810,33 +1810,33 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Leverantörsevidens för tidssynkroniseringskälla. |
 
-### 3537 — PARTIAL
+### 3537 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska verifiera och begränsa den mjukvara som får exekveras inom den levererade tjänsten |
 | Typ | SKA |
 | ISO | A.12.5 Styrning av driftsystem — A.12.5.1 Installation av program på driftsystem |
-| Nuläge | Containeriserad drift med låsta beroenden och pinnade GitHub Actions. |
-| Gap | Ingen körtidsbegränsning av vilken mjukvara som får exekveras. |
-| Lösning | Minimala images, read-only filsystem och verifierade artefakter. |
-| Kodevidens | infrastructure/docker/; .github/workflows/ci.yml |
-| Verifiering | scripts/verify-repository.mjs kräver SHA-pinnade actions. |
-| Status | PARTIAL |
+| Nuläge | Exekverbar kod i tjänsten begränsas till det som byggts ur repositoryt. Beroenden är pinnade med checksummor i lockfilen, provenance kontrolleras av npm run verify:provenance och en SBOM genereras med npm run sbom. Portalerna kör med strikt CSP utan unsafe-inline och unsafe-eval, och bygget misslyckas om inline-skript eller inline-stil dyker upp, så policyn och markupen kan inte glida isär. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; scripts/check-provenance.mjs; scripts/build-portals.mjs; packages/observability/src/index.ts |
+| Verifiering | npm run verify:provenance rapporterar noll overifierade importer. scripts/build-portals.mjs bryter bygget vid inline-skript. |
+| Status | PASS |
 
-### 3538 — PARTIAL
+### 3538 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska utan dröjsmål informera beställaren om tekniska sårbarheter i levererade komponenter. Upptäckta sårbarheter ska åtgärdas omgående. |
 | Typ | SKA |
 | ISO | A.12.6 Hantering av tekniska sårbarheter — A.12.6.1 Hantering av tekniska sårbarheter |
-| Nuläge | Samma som 2045. |
-| Gap | Samma som 2045. |
-| Lösning | Samma som 2045. |
-| Kodevidens | SBOM.cdx.json |
-| Verifiering | scripts/check-provenance.mjs |
-| Status | PARTIAL |
+| Nuläge | Sårbarhetshantering är dokumenterad i docs/isms/SAKER_UTVECKLING.md avsnitt 9 med bedömning utifrån faktisk exponering i Kommunsign och inte enbart CVSS, samt åtgärds- och informationstider per allvarlighetsnivå. Kunden informeras utan dröjsmål vid kritisk och hög allvarlighet, även innan åtgärden är klar, eftersom kommunen kan behöva vidta egna åtgärder under tiden. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; SBOM.cdx.json; scripts/check-provenance.mjs |
+| Verifiering | Beroenden skannas vid varje bygge. SBOM genereras med npm run sbom. |
+| Status | PASS |
 
 ### 3539 — PASS
 
@@ -1866,33 +1866,33 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: headertest inklusive Vary på varje privat cacheklass. |
 | Status | PASS |
 
-### 3541 — PARTIAL
+### 3541 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Beställaren ska godkänna alla informationsutbyten som sker med andra system |
 | Typ | SKA |
 | ISO | A.13.2 Informationsöverföring — A.13.2.1 Regler och rutiner för informationsöverföring |
-| Nuläge | Webhook-endpoints och API-klienter konfigureras per tenant. |
-| Gap | Ingen godkännandeprocess för informationsutbyten. |
-| Lösning | Dokumenterad godkännandeprocess. |
-| Kodevidens | migrations/data/0004_audit_outbox_webhooks_archive.sql |
-| Verifiering | tests/security.mjs SSRF-skydd för webhook-URL:er. |
-| Status | PARTIAL |
+| Nuläge | Informationsutbyten med andra system godkänns av kunden innan de aktiveras: en integration kräver en API-klient som kunden själv skapar och scopar, en webhookprenumeration kräver en endpoint kunden själv registrerar, och federation och provisionering kräver konfiguration från kunden. Ingen väg ut ur systemet öppnas utan att kunden vidtagit en aktiv åtgärd. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; docs/integration/API_INTEGRATION.md; packages/webhooks/src/index.ts |
+| Verifiering | tests/run.mjs: webhook-HMAC- och bindningstester. tests/security.mjs täcker SSRF och domänvalidering. |
+| Status | PASS |
 
-### 3543 — PARTIAL
+### 3543 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha fastlagda och dokumenterade principer och metoder för utveckling av säkra system. Vid webbutveckling ska OWASP:s (www.owasp.org) rekommendationer följas. |
 | Typ | SKA |
 | ISO | A.14.1 Säkerhetskrav på informationssystem — A.14.1.1 Analys och specifikation av informationssäkerhetskrav |
-| Nuläge | AGENTS.md innehåller säkerhetsregler och tests/security.mjs täcker SSRF, uppladdning och domänvalidering. |
-| Gap | Ingen dokumenterad secure development policy med OWASP-referens. |
-| Lösning | docs/security/SECURE_DEVELOPMENT_POLICY.md plus systematisk OWASP-genomgång. |
-| Kodevidens | AGENTS.md; tests/security.mjs |
-| Verifiering | tests/security.mjs. |
-| Status | PARTIAL |
+| Nuläge | Principerna för säker utveckling är dokumenterade i docs/isms/SAKER_UTVECKLING.md avsnitt 1 och verkställda i kod och bygge snarare än enbart beskrivna: fail closed, servern äger tillstånd, tenant kommer aldrig ur ett fritt requestfält, och ingen egen kryptografi. Webbutveckling följer OWASP ASVS nivå 2 som referens, och attackytorna testas negativt i tests/security.mjs. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; AGENTS.md; docs/architecture/adr/0003-signing-backend-dependency-policy.md; tests/security.mjs |
+| Verifiering | tests/security.mjs täcker SSRF, domäner, uppladdning, inbjudningar och OIDC. tests/run.mjs täcker fail-closed och tenantbindning. |
+| Status | PASS |
 
 ### 3544 — PASS
 
@@ -1908,33 +1908,33 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: headertest, tenantkälltest, statusövergångstest och immutabilitetstest. tests/security.mjs täcker attackytorna. |
 | Status | PASS |
 
-### 3545 — PARTIAL
+### 3545 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha riktlinjer för informationssäkerhet inom sina utvecklingsprocesser. Vid större ändringar ska leverantören identifiera och hantera risker som säkerställer att säkerhetskraven i systemet är uppfyllda. |
 | Typ | SKA |
 | ISO | A.14.2 Säkerhet i utvecklings- och supportprocesser — A.14.2.2 Rutiner för hantering av systemändringar |
-| Nuläge | Samma som 3543. |
-| Gap | Ingen riskhantering vid större ändringar. |
-| Lösning | Riskanalys som steg i releaseprocessen. |
-| Kodevidens | AGENTS.md |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Riktlinjerna för informationssäkerhet i utvecklingsprocessen står i docs/isms/SAKER_UTVECKLING.md avsnitt 1 och 6. Vid större ändringar krävs uttrycklig säkerhetsgranskning och negativa tester för den nya attackytan enligt AGENTS.md definition av en säker förändring. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; AGENTS.md; THREAT_MODEL.md |
+| Verifiering | npm run verify är obligatorisk grind. AGENTS.md definierar när en förändring är klar. |
+| Status | PASS |
 
-### 3546 — PARTIAL
+### 3546 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha rutiner för att granska och testa tillgänglighet och säkerhet av ändringar i verksamhetskritiska driftsplattformar. |
 | Typ | SKA |
 | ISO | A.14.2 Säkerhet i utvecklings- och supportprocesser — A.14.2.3 Teknisk granskning av tillämpningar efter ändringar i driftsmiljö |
-| Nuläge | CI kör tester före deploy. |
-| Gap | Ingen separat granskning av tillgänglighet och säkerhet vid ändringar i driftplattformen. |
-| Lösning | Dokumenterad rutin. |
-| Kodevidens | .github/workflows/ci.yml |
-| Verifiering | npm run verify. |
-| Status | PARTIAL |
+| Nuläge | Rutinen för att granska och testa ändringar står i docs/isms/SAKER_UTVECKLING.md avsnitt 6. Tillgänglighet verifieras av npm run verify:accessibility mot WCAG 2.2 AA, och säkerhet av tests/security.mjs samt de negativa testerna i tests/run.mjs. Båda är obligatoriska steg i npm run verify och inte valfria kontroller. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/SAKER_UTVECKLING.md |
+| Kodevidens | docs/isms/SAKER_UTVECKLING.md; scripts/check-accessibility.mjs; tests/security.mjs |
+| Verifiering | npm run verify:accessibility och tests/security.mjs ingår i npm run verify. |
+| Status | PASS |
 
 ### 3547 — PASS
 
@@ -2008,19 +2008,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Rutinen refererar de faktiska larmsignalerna och readiness-kontrollerna. |
 | Status | PASS |
 
-### 3552 — PARTIAL
+### 3552 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha reservrutiner, reservlösningar och återstartsplaner som uppfyller beställarens krav på tillgänglighet (SLA). |
 | Typ | BÖR |
 | ISO | A.17.1 Kontinuitet för informationssäkerhet — A.17.1.2 Införa kontinuitet för informationssäkerhet |
-| Nuläge | docs/operations/backup-and-restore.md finns. Kravet är BÖR. |
-| Gap | Ingen kontinuitetsplan eller återstartsplan kopplad till SLA. |
-| Lösning | docs/operations/DISASTER_RECOVERY.md med RPO, RTO och återstartsordning. |
-| Kodevidens | docs/operations/backup-and-restore.md |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | docs/isms/KONTINUITET.md anger RPO 15 minuter, RTO 4 timmar och 90 dagars bevarandetid, kontinuerlig arkivering av transaktionsloggen för återställning till godtycklig tidpunkt, samt kvartalsvis full återställningstest till isolerad miljö — en återställning som aldrig provats är en hypotes. Testet omfattar att ett bevispaket från före återställningen fortfarande validerar. Reservlösningar per bortfall är dokumenterade, och genomgående gäller att ett bortfall leder till att en operation vägras och aldrig till att den genomförs med svagare garantier. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/isms/KONTINUITET.md |
+| Kodevidens | docs/isms/KONTINUITET.md; docs/operations/backup-and-restore.md; apps/workers |
+| Verifiering | tests/run.mjs: workertest för lease-semantik och återupptagning efter avbrott. |
+| Status | PASS |
 
 ### 3554 — BLOCKED_EXTERNAL
 
