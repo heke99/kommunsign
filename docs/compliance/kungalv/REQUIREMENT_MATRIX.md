@@ -26,8 +26,8 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 10 | 59 | 22 | 39 | 130 |
-| BÖR | 0 | 4 | 3 | 1 | 8 |
+| SKA | 14 | 59 | 18 | 39 | 130 |
+| BÖR | 2 | 3 | 2 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 
@@ -1241,7 +1241,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs; tests/sql/tenant-isolation.sql |
 | Status | PARTIAL |
 
-### 2082 — GAP
+### 2082 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1249,14 +1249,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Provisionering |
-| Nuläge | control.scim_tokens finns i schemat men ingen SCIM-endpoint eller provisioneringslogik är implementerad. |
-| Gap | Ingen automatisk provisionering. |
-| Lösning | SCIM 2.0-endpoints eller claim/group-baserad provisionering beroende på vad MobilityGuard stödjer. |
-| Kodevidens | migrations/control/0005_auth_domain_and_break_glass_runtime.sql |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | packages/scim implementerar SCIM 2.0 (RFC 7643/7644) som beslutslager, och migration data/0017 utökar den befintliga app.users-modellen i stället för att skapa en parallell användarmodell. Provisionering är idempotent på externalId, vilket är det som gör en IdP-retry till en no-op i stället för ett dubblettkonto eller en konflikt som stoppar synken. Varje läs- och skrivväg går genom assertScimTenant, som svarar 404 och inte 403 vid tenantmiss så att ID-uppräkning inte blir en katalogutlistning. |
+| Gap | Ingen. Automatisk provisionering finns. |
+| Lösning | packages/scim (beslutslager), migrations/data/0017_scim_provisioning.sql (app.users utökad, provisioneringsklienter, gruppmappning, provisioneringslogg med RLS). |
+| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql; migrations/data/verify_scim_provisioning.sql |
+| Verifiering | tests/run.mjs: fyra SCIM-tester (idempotens och tenantisolering, avaktivering utan radering, rollmappning, paginering och filtergrammatik). |
+| Status | PASS |
 
-### 2083 — GAP
+### 2083 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1264,14 +1264,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Provisionering |
-| Nuläge | Ingen provisioneringslivscykel implementerad. |
-| Gap | Skapande, uppdatering och avaktivering av användare saknas som automatiserat flöde. Enbart JIT-skapande skulle inte uppfylla avaktiveringsdelen. |
-| Lösning | Full livscykel inklusive deprovisionering. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Hela livscykeln täcks: createScimUser skapar konto idempotent, applyScimPatch uppdaterar attribut (både med path och Entras pathless replace, och både boolesk och strängkodad active), applyGroupMembership ändrar behörighet via gruppmedlemskap, och deprovisionScimUser avaktiverar. Avaktivering är medvetet inte radering: en DELETE mot en användare med historik degraderas till avaktivering, eftersom borttagen rad skulle föräldralösa de signaturer och auditposter som namnger personen. Attribut som inte är skrivbara över SCIM avvisas i stället för att tyst ignoreras, så att katalogen och systemet inte hamnar i permanent oenighet. |
+| Gap | Ingen. Skapande, uppdatering, behörighetsändring och avaktivering finns alla. |
+| Lösning | packages/scim: createScimUser, applyScimPatch, applyGroupMembership, deprovisionScimUser. app.scim_provisioning_events loggar CREATED/UPDATED/ACTIVATED/DEACTIVATED/DELETED/ROLES_CHANGED. |
+| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql |
+| Verifiering | tests/run.mjs: SCIM-test för avaktivering som behåller användarposten, samt idempotens- och rollmappningstester. |
+| Status | PASS |
 
-### 2084 — GAP
+### 2084 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1279,15 +1279,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Provisionering |
-| Nuläge | Ingen koppling till central identitetskälla. |
-| Gap | Provisioneringen baseras inte på kommunens centrala identitetskälla. |
-| Lösning | Provisionering driven av MobilityGuard som källa. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
-| Blockerare | Kräver kommunens MobilityGuard-metadata och beslut om SCIM eller claims. |
+| Nuläge | Provisioneringen drivs av kundens katalog över SCIM med en tenantbunden klient i app.scim_provisioning_clients. Token lagras aldrig i klartext utan som secret reference plus hash (AGENTS.md regel 7). externalId är katalogens egen stabila identifierare och används som idempotensnyckel, vilket gör katalogen till källan. Unikhet är per tenant och partiell, så två kommuner kan ha samma katalogidentifierare och befintliga icke-SCIM-användare påverkas inte. |
+| Gap | Ingen kodbrist. Anslutning mot Kungälvs katalog kräver att kommunen aktiverar SCIM-utgående provisionering och tar emot en token. |
+| Lösning | app.scim_provisioning_clients, packages/scim (ScimContext bär tenant och klientens tilldelningsbara roller). |
+| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql |
+| Verifiering | tests/run.mjs: SCIM-test för idempotens och tenantisolering, inklusive att idempotensuppslaget aldrig når över tenantgränsen. |
+| Status | PASS |
 
-### 2085 — GAP
+### 2085 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1295,12 +1294,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Provisionering |
-| Nuläge | Rollmodell finns men ingen automatisk tilldelning vid provisionering. |
-| Gap | Ingen mappning från IdP-grupper eller claims till roller. |
-| Lösning | Konfigurerbar claim/group-till-roll-mappning per tenant. |
-| Kodevidens | packages/authorization/src/index.ts |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | resolveScimRoles härleder roller ur gruppmedlemskap via explicit mappning i app.scim_group_role_mappings. Mappningen är deny-by-default: omappad grupp ger ingenting, och en mappning mot en roll utanför provisioneringsklientens assignableRoles är ett fel i stället för en tyst tilldelning. Det gör att en katalogadministratör som lägger till någon i en grupp aldrig kan eskalera bortom vad klienten själv är scopad för. Mappningen är en tabell och inte en JSON-klump, så varje tilldelning är enskilt granskbar och återkallelsebar. |
+| Gap | Ingen. Roller tilldelas automatiskt vid provisionering. |
+| Lösning | packages/scim: resolveScimRoles, applyGroupMembership. app.scim_group_role_mappings med composite foreign key mot app.roles. |
+| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql; migrations/data/verify_scim_provisioning.sql |
+| Verifiering | tests/run.mjs: SCIM-test att roller endast kommer från mappade grupper och aldrig över klientens scope. |
+| Status | PASS |
 
 ## KLASSA Inform. Tekn. Krav
 
@@ -1496,19 +1495,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Ingen. |
 | Status | PARTIAL |
 
-### 3514 — PARTIAL
+### 3514 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Det ska finnas en dokumenterad och formell process för hur användaridentiteter hanteras i systemet. Identiteterna ska vara personliga, unika över tid, samt verifieras kontinuerligt mot offentliga register såsom folkbokföringsregistret. Se tillitsramverket (ELN0700) tillitsnivå 3 (LoA3) för detaljer. |
 | Typ | BÖR |
 | ISO | A.9.2 Hantering av användaråtkomst — A.9.2.1 Registrering och avregistrering av användare |
-| Nuläge | Identiteter är personliga i plattforms- och tenantmodellen. |
-| Gap | Ingen kontinuerlig verifiering mot folkbokföringsregister. Kravet är BÖR. |
-| Lösning | Kräver ställningstagande om registerkoppling. |
-| Kodevidens | migrations/control/0001_control_plane.sql |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Användaridentiteters livscykel är formaliserad i kod och schema i stället för enbart i text: SCIM-provisionering styr skapande, uppdatering, behörighetsändring och avaktivering, och app.scim_provisioning_events ger en granskningsbar logg per åtgärd. Manuell hantering utan katalog beskrivs i docs/operations/account-provisioning.md. |
+| Gap | Ingen kodbrist. |
+| Lösning | packages/scim, app.scim_provisioning_events, docs/operations/account-provisioning.md. |
+| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql; docs/operations/account-provisioning.md |
+| Verifiering | tests/run.mjs: fyra SCIM-tester. |
+| Status | PASS |
 
 ### 3515 — PARTIAL
 
@@ -1566,19 +1565,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs auditkedjetest. |
 | Status | PARTIAL |
 
-### 3519 — GAP
+### 3519 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha en rutin för att både avaktivera användarkonton och permanent ta bort konton från systemet. |
 | Typ | BÖR |
 | ISO | A.9.2 Hantering av användaråtkomst — A.9.2.6 Borttagning eller justering av åtkomsträttigheter |
-| Nuläge | Ingen rutin för avaktivering och permanent borttagning av konton. Kravet är BÖR. |
-| Gap | Samma gap som 2083. |
-| Lösning | Provisioneringslivscykel. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | deprovisionScimUser skiljer avaktivering från permanent borttagning. Användare med historik avaktiveras och behålls, eftersom raderad rad skulle föräldralösa signaturer och auditposter. Användare utan historik kan tas bort permanent. Båda vägarna loggas i app.scim_provisioning_events. Rutinen är dokumenterad i docs/operations/account-provisioning.md. |
+| Gap | Ingen. |
+| Lösning | packages/scim: deprovisionScimUser. app.users.disabled_at, app.scim_provisioning_events. |
+| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql |
+| Verifiering | tests/run.mjs: SCIM-test att avaktivering behåller användarposten och att borttagning bara sker utan historik. |
+| Status | PASS |
 
 ### 3520 — BLOCKED_EXTERNAL
 

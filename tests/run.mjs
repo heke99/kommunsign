@@ -51,6 +51,11 @@ import {
 import {
   InMemoryAssertionLedger, mapWorkforceIdentity, resolveLogoutTargets, verifyWorkforceAssertion,
 } from '../dist/packages/federation/src/index.js';
+import {
+  applyGroupMembership, applyScimPatch, assertScimTenant, createScimUser, deprovisionScimUser,
+  matchesScimFilter, paginateScim, parseScimFilter, resolveScimRoles, SCIM_MAXIMUM_PAGE_SIZE,
+  ScimError, toScimUserResource,
+} from '../dist/packages/scim/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1542,6 +1547,142 @@ test('single logout terminates only the sessions the IdP actually named', () => 
   };
   assert.equal(logoutCode({ signatureVerified: false }), 'FEDERATION_SIGNATURE_NOT_VERIFIED');
   assert.equal(logoutCode({ issuer: 'https://evil.example' }), 'FEDERATION_ISSUER_MISMATCH');
+});
+
+const SCIM_TENANT = '00000000-0000-4000-8000-0000000000c1';
+const OTHER_TENANT = '00000000-0000-4000-8000-0000000000c2';
+const scimContext = (overrides = {}) => ({
+  tenantId: SCIM_TENANT, clientId: '00000000-0000-4000-8000-0000000000c3', requestId: 'req-1',
+  assignableRoles: ['tenant_admin', 'case_manager'],
+  groupToRole: { 'Kommunsign-Admin': 'tenant_admin', 'Kommunsign-Handlaggare': 'case_manager' }, ...overrides,
+});
+const scimUser = (overrides = {}) => ({
+  id: '00000000-0000-4000-8000-0000000000c4', tenantId: SCIM_TENANT, externalId: 'ext-1',
+  userName: 'anna.andersson', displayName: 'Anna Andersson', email: 'anna@kungalv.se', active: true,
+  roles: [], groups: [], createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z', ...overrides,
+});
+const scimCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+const SCIM_NOW = '2026-08-07T12:00:00.000Z';
+
+test('SCIM provisioning is idempotent and never crosses a tenant boundary', () => {
+  const context = scimContext();
+  const existing = [scimUser()];
+
+  // IdPs retry provisioning freely. Without idempotency on externalId each
+  // retry either duplicates the account or 409s and stalls the sync.
+  const retry = createScimUser(context, { userName: 'anna.andersson', externalId: 'ext-1' }, existing, 'new-id', SCIM_NOW);
+  assert.equal(retry.idempotentMatch, true);
+  assert.equal(retry.user.id, scimUser().id);
+
+  // Two different directory entries claiming one login is a real conflict.
+  assert.equal(scimCode(() => createScimUser(context, { userName: 'ANNA.ANDERSSON', externalId: 'ext-2' }, existing, 'n', SCIM_NOW)), 'SCIM_UNIQUENESS');
+  assert.equal(scimCode(() => createScimUser(context, { externalId: 'ext-3' }, existing, 'n', SCIM_NOW)), 'SCIM_INVALID_VALUE');
+
+  const created = createScimUser(context, { userName: 'bo.bosson', externalId: 'ext-9', emails: [{ value: 'B@Kungalv.se', primary: true }] }, existing, 'new-id', SCIM_NOW);
+  assert.equal(created.idempotentMatch, false);
+  assert.equal(created.user.tenantId, SCIM_TENANT); // never from the payload
+  assert.equal(created.user.email, 'b@kungalv.se');
+  assert.equal(created.user.active, true); // SCIM default
+
+  // A user in another tenant must be invisible, not merely forbidden: a 403
+  // confirms the resource is real and turns ID enumeration into a directory
+  // listing. So this is 404.
+  const foreign = scimUser({ tenantId: OTHER_TENANT });
+  assert.equal(scimCode(() => assertScimTenant(context, foreign)), 'SCIM_TENANT_MISMATCH');
+  assert.equal(new ScimError('SCIM_TENANT_MISMATCH', 'x').status, 404);
+  assert.equal(scimCode(() => applyScimPatch(context, foreign, [{ op: 'replace', path: 'active', value: false }], SCIM_NOW)), 'SCIM_TENANT_MISMATCH');
+  assert.equal(scimCode(() => deprovisionScimUser(context, foreign, true, SCIM_NOW)), 'SCIM_TENANT_MISMATCH');
+  // Idempotent lookup must not reach across tenants either.
+  assert.equal(createScimUser(context, { userName: 'x.y', externalId: 'ext-1' }, [foreign], 'n', SCIM_NOW).idempotentMatch, false);
+});
+
+test('SCIM deactivation keeps the user record instead of deleting the audit trail', () => {
+  const context = scimContext();
+  // This is how Entra and most directories deprovision.
+  const disabled = applyScimPatch(context, scimUser(), [{ op: 'replace', path: 'active', value: false }], SCIM_NOW);
+  assert.equal(disabled.active, false);
+  assert.equal(disabled.id, scimUser().id);
+  assert.equal(disabled.updatedAt, SCIM_NOW);
+
+  // Some directories send the strings rather than booleans.
+  assert.equal(applyScimPatch(context, scimUser(), [{ op: 'replace', path: 'active', value: 'False' }], SCIM_NOW).active, false);
+  assert.equal(scimCode(() => applyScimPatch(context, scimUser(), [{ op: 'replace', path: 'active', value: 'maybe' }], SCIM_NOW)), 'SCIM_INVALID_VALUE');
+
+  // Entra also sends pathless replace with an attribute object.
+  const renamed = applyScimPatch(context, scimUser(), [{ op: 'replace', value: { displayName: 'Anna Ny', active: false } }], SCIM_NOW);
+  assert.equal(renamed.displayName, 'Anna Ny');
+  assert.equal(renamed.active, false);
+
+  // Refused rather than ignored: silently dropping an attribute the directory
+  // believes it set leaves the two sides disagreeing forever.
+  assert.equal(scimCode(() => applyScimPatch(context, scimUser(), [{ op: 'replace', path: 'roles', value: ['tenant_admin'] }], SCIM_NOW)), 'SCIM_INVALID_PATH');
+  assert.equal(scimCode(() => applyScimPatch(context, scimUser(), [{ op: 'replace', path: 'id', value: 'x' }], SCIM_NOW)), 'SCIM_INVALID_PATH');
+  assert.equal(scimCode(() => applyScimPatch(context, scimUser(), [{ op: 'merge', path: 'active', value: false }], SCIM_NOW)), 'SCIM_INVALID_VALUE');
+
+  // A DELETE for a user with history degrades to deactivation: removing the row
+  // would orphan the signatures and audit events that name them.
+  assert.equal(deprovisionScimUser(context, scimUser(), true, SCIM_NOW).action, 'DEACTIVATED');
+  assert.equal(deprovisionScimUser(context, scimUser(), false, SCIM_NOW).action, 'DELETED');
+});
+
+test('SCIM roles come from mapped groups only, and never above the client scope', () => {
+  const context = scimContext();
+  const withGroups = applyGroupMembership(context, scimUser(), ['Kommunsign-Handlaggare', 'Ovrig-Grupp'], SCIM_NOW);
+  // An unmapped group grants nothing.
+  assert.deepEqual(withGroups.roles, ['case_manager']);
+  assert.deepEqual(withGroups.groups, ['Kommunsign-Handlaggare', 'Ovrig-Grupp']);
+  assert.deepEqual(resolveScimRoles(context, []), []);
+  assert.deepEqual(resolveScimRoles(context, ['Kommunsign-Admin', 'Kommunsign-Handlaggare']), ['case_manager', 'tenant_admin']);
+
+  // A directory admin adding someone to a group must not escalate beyond what
+  // the provisioning client itself was scoped for.
+  const escalating = scimContext({ groupToRole: { 'Kommunsign-Admin': 'platform_superadmin' } });
+  assert.equal(scimCode(() => resolveScimRoles(escalating, ['Kommunsign-Admin'])), 'SCIM_ROLE_NOT_ASSIGNABLE');
+});
+
+test('SCIM pagination is 1-based and filters are a strict subset', () => {
+  const resources = Array.from({ length: 250 }, (_, index) => ({ index }));
+
+  // RFC 7644 §3.4.2.4. Treating this as 0-based skips or duplicates a user on
+  // every page boundary, which surfaces months later as missing staff.
+  const first = paginateScim(resources, 1, 100);
+  assert.equal(first.startIndex, 1);
+  assert.deepEqual(first.Resources[0], { index: 0 });
+  assert.equal(first.totalResults, 250);
+  assert.equal(first.itemsPerPage, 100);
+
+  const second = paginateScim(resources, 101, 100);
+  assert.deepEqual(second.Resources[0], { index: 100 });
+  // No overlap and no gap between consecutive pages.
+  assert.deepEqual(first.Resources.at(-1), { index: 99 });
+
+  assert.equal(scimCode(() => paginateScim(resources, 0, 10)), 'SCIM_INVALID_PAGINATION');
+  assert.equal(scimCode(() => paginateScim(resources, -1, 10)), 'SCIM_INVALID_PAGINATION');
+  assert.equal(scimCode(() => paginateScim(resources, 1, -1)), 'SCIM_INVALID_PAGINATION');
+  // An oversized count is a resource limit, so it is capped rather than refused.
+  assert.equal(paginateScim(resources, 1, 10_000).itemsPerPage, SCIM_MAXIMUM_PAGE_SIZE);
+  assert.equal(paginateScim(resources, 251, 10).Resources.length, 0);
+
+  // The filter grammar is a strict subset: every attribute is a column, and an
+  // over-general parser is how a filter string becomes a query-shaping input.
+  assert.deepEqual(parseScimFilter('userName eq "anna.andersson"'), { attribute: 'userName', operator: 'eq', value: 'anna.andersson' });
+  assert.deepEqual(parseScimFilter('externalId Eq "ext-1"'), { attribute: 'externalId', operator: 'eq', value: 'ext-1' });
+  assert.deepEqual(parseScimFilter('active eq true'), { attribute: 'active', operator: 'eq', value: 'true' });
+  assert.equal(parseScimFilter(undefined), null);
+  for (const bad of ['userName co "a"', 'userName eq "a" or userName eq "b"', 'password eq "x"', 'userName eq ""', 'userName eq "a\\"']) {
+    assert.equal(scimCode(() => parseScimFilter(bad)), 'SCIM_INVALID_FILTER', bad);
+  }
+
+  assert.equal(matchesScimFilter(scimUser(), parseScimFilter('userName eq "ANNA.ANDERSSON"')), true);
+  assert.equal(matchesScimFilter(scimUser({ externalId: null }), parseScimFilter('externalId eq "ext-1"')), false);
+  assert.equal(matchesScimFilter(scimUser({ active: false }), parseScimFilter('active eq true')), false);
+
+  // The wire shape keeps the schema URN and a relative location, so one tenant
+  // hostname is never baked into a record served from several.
+  const resource = toScimUserResource(scimUser({ roles: ['case_manager'] }));
+  assert.deepEqual(resource.schemas, ['urn:ietf:params:scim:schemas:core:2.0:User']);
+  assert.equal(resource.meta.location, `/scim/v2/Users/${scimUser().id}`);
+  assert.deepEqual(resource.roles, [{ value: 'case_manager' }]);
 });
 
 let failed = 0;
