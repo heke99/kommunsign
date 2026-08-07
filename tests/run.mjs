@@ -29,6 +29,9 @@ import { hasPlatformPermission, hasPermission } from '../dist/packages/authoriza
 import {
   ACCESS_LOG_MINIMUM_RETENTION_DAYS, assertPolicyIsLawful, buildGallringReport, decideRetention,
 } from '../dist/packages/retention/src/index.js';
+import {
+  assuranceAtLeast, availableMethods, capabilitiesFor, resolveIdentityMethod,
+} from '../dist/packages/identity-registry/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -960,6 +963,81 @@ test('gallring is permission controlled and reserved for the customer', () => {
     assert.equal(hasPermission([role], 'retention:execute'), false, `${role} must not gallra`);
     assert.equal(hasPermission([role], 'retention:manage'), false, `${role} must not configure retention`);
   }
+});
+
+const ALL_FEATURES = ['BANKID', 'FREJA_PLUS', 'FREJA_ORGID', 'SWEDEN_CONNECT', 'SVERIGE_ID', 'EIDAS', 'QES'];
+const identityRequest = (overrides = {}) => ({
+  environment: 'production', enabledFeatures: ALL_FEATURES,
+  policyAllowedMethods: ['BANKID', 'FREJA_PLUS', 'FREJA_ORGID', 'SVERIGE_ID', 'EIDAS', 'TEST_ONLY'],
+  requiredAssurance: 'HIGH', requiredSignatureLevel: 'ADVANCED_ELECTRONIC_SIGNATURE', ...overrides,
+});
+const identityCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('identity registry resolves methods by capability without naming a provider', () => {
+  const bankId = resolveIdentityMethod(identityRequest({ method: 'BANKID' }));
+  assert.equal(bankId.provider, 'TIC_BANKID');
+  assert.equal(bankId.capabilities.supportsQr, true);
+
+  // Freja OrgID is the staff method: it is the one carrying an organisational
+  // identity, and BankID must not be substituted for it.
+  assert.equal(capabilitiesFor('FREJA_ORGID').carriesOrganisationIdentity, true);
+  assert.equal(capabilitiesFor('FREJA_PLUS').carriesOrganisationIdentity, false);
+  assert.equal(
+    identityCode(() => resolveIdentityMethod(identityRequest({ method: 'BANKID', requiresOrganisationIdentity: true }))),
+    'IDENTITY_ORGANISATION_REQUIRED',
+  );
+  // Both Freja methods route to the same provider, so adding Freja+ costs no
+  // new provider integration.
+  assert.equal(capabilitiesFor('FREJA_ORGID').provider, capabilitiesFor('FREJA_PLUS').provider);
+  assert.equal(capabilitiesFor('SVERIGE_ID').provider, capabilitiesFor('EIDAS').provider);
+});
+
+test('identity registry fails closed in production for every gate', () => {
+  // Unfinished integrations must not be reachable in production...
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'FREJA_ORGID' }))), 'IDENTITY_METHOD_NOT_PRODUCTION_READY');
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'SVERIGE_ID' }))), 'IDENTITY_METHOD_NOT_PRODUCTION_READY');
+  // ...but the adapter is reachable in development so it can be built and tested.
+  assert.equal(resolveIdentityMethod(identityRequest({ method: 'FREJA_ORGID', environment: 'development' })).provider, 'FREJA');
+
+  // The test provider is never reachable from a production-like runtime, and
+  // staging counts as production-like.
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'TEST_ONLY' }))), 'IDENTITY_TEST_PROVIDER_FORBIDDEN');
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'TEST_ONLY', environment: 'staging' }))), 'IDENTITY_TEST_PROVIDER_FORBIDDEN');
+
+  // Policy outranks the feature flag: a flag alone never grants a method.
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'BANKID', policyAllowedMethods: [] }))), 'IDENTITY_METHOD_NOT_ALLOWED_BY_POLICY');
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'BANKID', enabledFeatures: [] }))), 'IDENTITY_METHOD_NOT_ENABLED');
+
+  // Qualified signatures are not approximated while no QTSP is integrated.
+  assert.equal(
+    identityCode(() => resolveIdentityMethod(identityRequest({ method: 'BANKID', requiredSignatureLevel: 'QUALIFIED_ELECTRONIC_SIGNATURE_FUTURE' }))),
+    'SIGNATURE_LEVEL_QUALIFIED_UNAVAILABLE',
+  );
+  // eIDAS reaches substantial, not high, so a high-assurance policy rejects it.
+  assert.equal(
+    identityCode(() => resolveIdentityMethod(identityRequest({ method: 'EIDAS', environment: 'development' }))),
+    'IDENTITY_ASSURANCE_INSUFFICIENT',
+  );
+  assert.equal(resolveIdentityMethod(identityRequest({ method: 'EIDAS', environment: 'development', requiredAssurance: 'SUBSTANTIAL' })).provider, 'SWEDEN_CONNECT');
+});
+
+test('provider outage narrows the offered methods but never lowers assurance', () => {
+  const inProduction = availableMethods(identityRequest());
+  assert.deepEqual(inProduction.map((entry) => entry.method), ['BANKID']);
+
+  // With the other adapters live, a BankID outage still leaves the staff
+  // method usable. eIDAS stays out because it cannot reach HIGH assurance.
+  const development = { ...identityRequest(), environment: 'development' };
+  assert.deepEqual(
+    availableMethods(development, ['TIC_BANKID']).map((entry) => entry.method),
+    ['FREJA_PLUS', 'FREJA_ORGID', 'SVERIGE_ID'],
+  );
+  // A total outage offers nothing rather than falling back to a weaker method.
+  assert.deepEqual(availableMethods(development, ['TIC_BANKID', 'FREJA', 'SWEDEN_CONNECT', 'TEST_ONLY']), []);
+
+  // Assurance ordering is what makes "never downgrade" checkable.
+  assert.ok(assuranceAtLeast('HIGH', 'SUBSTANTIAL'));
+  assert.equal(assuranceAtLeast('SUBSTANTIAL', 'HIGH'), false);
 });
 
 let failed = 0;

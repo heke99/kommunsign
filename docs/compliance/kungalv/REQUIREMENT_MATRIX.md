@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 9 | 62 | 24 | 35 | 130 |
+| SKA | 9 | 63 | 23 | 35 | 130 |
 | BÖR | 0 | 4 | 3 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -48,19 +48,20 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: TIC-adaptertest och evidensmanifesttest. Ingen end-to-end PAdES-validering finns ännu. |
 | Status | PARTIAL |
 
-### F002 — GAP
+### F002 — PARTIAL
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Signering med Freja OrgID för personal |
 | Typ | SKA |
 | Kategori | Signering |
-| Nuläge | app.freja_transactions finns i datamodellen och control.tenant_signature_providers kan konfigurera provider per tenant. packages/provider-adapters/src/freja.ts innehåller endast ett interface och en subject-type-guard. |
-| Gap | Ingen Freja OrgID-implementation: ingen initiering, polling, avbrott eller JWS-verifiering av Frejas svar. |
-| Lösning | Implementera Freja-adapter bakom ElectronicIdentityProvider med JWS-verifiering av signeringssvar och normalisering till VerifiedIdentityEvidence. Live-verifiering kräver Freja-credentials. |
-| Kodevidens | packages/provider-adapters/src/freja.ts; migrations/data/0003_identity_signature_validation.sql |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Freja OrgID är modellerad som identitetsmetod i identity-registry med egen feature flag, HIGH assurance och carriesOrganisationIdentity=true, vilket gör den till den enda metod som uppfyller krav på verifierad organisationsidentitet. Metoden är markerad productionReady=false och avvisas därför i produktion. |
+| Gap | Freja-adaptern saknar fortfarande initiering, polling, avbrott och JWS-verifiering av signeringssvar. Registret hindrar att den används skarpt innan dess. |
+| Lösning | Implementera Freja-adaptern bakom ElectronicIdentityProvider med JWS-verifiering och normalisering till VerifiedIdentityEvidence. Sätt productionReady=true först när verifieringen finns och credentials är på plats. |
+| Kodevidens | packages/identity-registry/src/index.ts; packages/provider-adapters/src/freja.ts |
+| Verifiering | tests/run.mjs: tre registertester (kapacitetsupplösning, fail-closed i produktion, providerbortfall). |
+| Status | PARTIAL |
+| Blockerare | Freja produktionscredentials och verifierad signeringsdokumentation. |
 
 ### F003 — PARTIAL
 
@@ -69,12 +70,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Signering med BankID och Freja+ för medborgare och personer utanför organisationen |
 | Typ | SKA |
 | Kategori | Signering |
-| Nuläge | BankID via TIC är implementerat med start, status, collect, cancel, extend, QR-generering, webhook-verifiering och bindning mot session och state. Freja+ saknas på samma sätt som Freja OrgID. |
-| Gap | Freja+ saknar implementation. BankID-delen saknar produktionsverifiering mot TIC. |
-| Lösning | Samma Freja-adapter som F002 täcker Freja+ via subject type. BankID-delen kräver TIC-produktionscredentials för live-verifiering. |
-| Kodevidens | packages/provider-adapters/src/tic-bankid.ts; apps/api/src/router.ts publika signeringsvägar |
-| Verifiering | tests/run.mjs: TIC-adapter avvisar felmatchade collect-sessioner och osäkra bas-URL:er; HMAC-, tidsfönster- och webhookbindningstest. |
+| Nuläge | BankID via TIC är implementerat och productionReady. Freja+ är modellerad som egen metod mot samma Freja-provider, vilket gör att den kan aktiveras utan ny providerintegration. |
+| Gap | Freja+ delar Freja-adapterns gap. BankID saknar produktionsverifiering mot TIC. |
+| Lösning | Samma Freja-adapter som F002. |
+| Kodevidens | packages/identity-registry/src/index.ts; packages/provider-adapters/src/tic-bankid.ts |
+| Verifiering | tests/run.mjs: tre registertester (kapacitetsupplösning, fail-closed i produktion, providerbortfall). Samt TIC-adaptertester. |
 | Status | PARTIAL |
+| Blockerare | Freja- och TIC-produktionscredentials. |
 
 ### F004 — PARTIAL
 
