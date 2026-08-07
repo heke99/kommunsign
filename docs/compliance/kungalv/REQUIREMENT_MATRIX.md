@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 9 | 63 | 22 | 36 | 130 |
+| SKA | 9 | 61 | 22 | 38 | 130 |
 | BÖR | 0 | 4 | 3 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -49,35 +49,35 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | CA-utfärdat signeringscertifikat för organisationen, HSM eller fjärr-QSCD för nyckelskydd, samt TSA-avtal för RFC 3161-tidsstämplar. Ingen av dessa kan tillhandahållas av kod. När de finns aktiveras backend via SigningEngineFactory och verifieras med samma pipelinetester mot skarp evidens. |
 
-### F002 — PARTIAL
+### F002 — BLOCKED_EXTERNAL
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Signering med Freja OrgID för personal |
 | Typ | SKA |
 | Kategori | Signering |
-| Nuläge | Freja OrgID är modellerad som identitetsmetod i identity-registry med egen feature flag, HIGH assurance och carriesOrganisationIdentity=true, vilket gör den till den enda metod som uppfyller krav på verifierad organisationsidentitet. Metoden är markerad productionReady=false och avvisas därför i produktion. |
-| Gap | Freja-adaptern saknar fortfarande initiering, polling, avbrott och JWS-verifiering av signeringssvar. Registret hindrar att den används skarpt innan dess. |
-| Lösning | Implementera Freja-adaptern bakom ElectronicIdentityProvider med JWS-verifiering och normalisering till VerifiedIdentityEvidence. Sätt productionReady=true först när verifieringen finns och credentials är på plats. |
-| Kodevidens | packages/identity-registry/src/index.ts; packages/provider-adapters/src/freja.ts |
-| Verifiering | tests/run.mjs: tre registertester (kapacitetsupplösning, fail-closed i produktion, providerbortfall). |
-| Status | PARTIAL |
-| Blockerare | Freja produktionscredentials och verifierad signeringsdokumentation. |
+| Nuläge | Freja-adaptern är implementerad i packages/provider-adapters/src/freja.ts som en adapter för alla tre metoderna (Freja eID, Freja eID Plus, Freja OrgID) bakom ElectronicIdentityProvider. verifyFrejaSignatureClaims genomför hela bindningskontrollen på ett JWS-verifierat svar: algoritm-allowlist, issuer, audience, status, transaktionsreferens, signRef mot signeringsintent, signerad datahash, nonce med engångsförbrukning mot replay, egen åldersgräns utöver svarets expiry, registreringsnivå och subjekttyp. För OrgID krävs dessutom att organisationsidentiteten finns och tillhör rätt organisation. RejectingFrejaSignatureVerifier är default så att en okonfigurerad installation vägrar i stället för att acceptera ett overifierat svar. frejaAssuranceLevel normaliserar BASIC/EXTENDED/PLUS till LOW/SUBSTANTIAL/HIGH så att Freja-vokabulär inte läcker ut i kärnan. |
+| Gap | Ingen kvarvarande kodbrist. JWS-signaturverifieringen körs i identity-service (FrejaJwsVerifier) och kräver Frejas roterande verifieringsnycklar samt mTLS-klientcertifikat. |
+| Lösning | packages/provider-adapters/src/freja.ts (adapter och bindningskontroll), services/identity-service FrejaJwsVerifier (JWS-verifiering), identity-registry (metoderna spärrade tills credentials finns). |
+| Kodevidens | packages/provider-adapters/src/freja.ts; services/identity-service/src/main/java/se/kommunsign/identity/FrejaJwsVerifier.java; packages/identity-registry/src/index.ts |
+| Verifiering | tests/run.mjs: fyra Freja-tester (intentbindning, replay och tidsfönster, assurance och OrgID-organisationsidentitet, fail-closed verifierare) samt tre registertester. |
+| Status | BLOCKED_EXTERNAL |
+| Blockerare | Freja produktionscredentials: relying party-avtal med Freja eID AB, mTLS-klientcertifikat, samt organisationsregistrering för OrgID. Utan dessa kan ingen skarp Freja-transaktion initieras. När de finns sätts productionReady=true i identity-registry och samma bindningstester körs mot skarp evidens. |
 
-### F003 — PARTIAL
+### F003 — BLOCKED_EXTERNAL
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Signering med BankID och Freja+ för medborgare och personer utanför organisationen |
 | Typ | SKA |
 | Kategori | Signering |
-| Nuläge | BankID via TIC är implementerat och productionReady. Freja+ är modellerad som egen metod mot samma Freja-provider, vilket gör att den kan aktiveras utan ny providerintegration. |
-| Gap | Freja+ delar Freja-adapterns gap. BankID saknar produktionsverifiering mot TIC. |
-| Lösning | Samma Freja-adapter som F002. |
-| Kodevidens | packages/identity-registry/src/index.ts; packages/provider-adapters/src/tic-bankid.ts |
-| Verifiering | tests/run.mjs: tre registertester (kapacitetsupplösning, fail-closed i produktion, providerbortfall). Samt TIC-adaptertester. |
-| Status | PARTIAL |
-| Blockerare | Freja- och TIC-produktionscredentials. |
+| Nuläge | BankID via TIC är implementerat och productionReady i identity-registry. Freja+ delar nu den fullt implementerade Freja-adaptern med JWS-bindningskontroll, replayskydd och assurance-normalisering, och kräver bara credentials för att aktiveras. Båda metoderna erbjuds via identity-registry utan att kärnan namnger en provider. |
+| Gap | Ingen kvarvarande kodbrist för medborgarsignering. Kvarstår produktionscredentials för respektive provider. |
+| Lösning | packages/identity-registry (metodval per förmåga), packages/provider-adapters/src/tic-bankid.ts, packages/provider-adapters/src/freja.ts. |
+| Kodevidens | packages/identity-registry/src/index.ts; packages/provider-adapters/src/tic-bankid.ts; packages/provider-adapters/src/freja.ts |
+| Verifiering | tests/run.mjs: fyra Freja-tester, två TIC-adaptertester och tre registertester. |
+| Status | BLOCKED_EXTERNAL |
+| Blockerare | TIC produktionscredentials för BankID och Freja relying party-avtal. Båda är avtals- och credentialfrågor utanför kodbasen. |
 
 ### F004 — PARTIAL
 

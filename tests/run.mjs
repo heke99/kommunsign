@@ -44,6 +44,10 @@ import {
   pipelineIsComplete, recordAdmitted, recordIdentityVerified, recordPolicyResolved,
   recordSignatureCreated, recordTimestamped, recordValidated,
 } from '../dist/packages/signing-engine/src/index.js';
+import {
+  frejaAssuranceLevel, FrejaProvider, InMemoryFrejaNonceLedger, RejectingFrejaSignatureVerifier,
+  toVerifiedIdentityEvidence, verifyFrejaSignatureClaims,
+} from '../dist/packages/provider-adapters/src/freja.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1317,6 +1321,110 @@ test('an unconfigured signing runtime refuses to sign instead of pretending to',
 
   // Outside production a non-ready backend is allowed, so developers can work.
   assert.equal(signingCode(() => assertSigningRuntimeUsable(capable({ runtime: { environment: 'development' }, capabilities: { productionReady: false } }), 'LT')), 'NO_ERROR');
+});
+
+const NOW = new Date('2026-08-07T12:00:00.000Z');
+const frejaClaims = (overrides = {}) => ({
+  signatureVerified: true, algorithm: 'ES256', issuer: 'https://services.prod.frejaeid.com',
+  audience: 'kommunsign-rp', transactionReference: 'tx-1', signRef: 'intent-1', nonce: 'nonce-1',
+  issuedAt: '2026-08-07T11:59:30.000Z', expiresAt: '2026-08-07T12:05:00.000Z', status: 'APPROVED',
+  subjectType: 'SSN', subject: '198001019876', personalNumber: '198001019876', displayName: 'Test Testsson',
+  registrationLevel: 'PLUS', signedDataSha256: 'c'.repeat(64), ...overrides,
+});
+const frejaExpect = (overrides = {}) => ({
+  method: 'FREJA_PLUS', issuer: 'https://services.prod.frejaeid.com', audience: 'kommunsign-rp',
+  transactionReference: 'tx-1', signRef: 'intent-1', nonce: 'nonce-1', signedDataSha256: 'c'.repeat(64),
+  minimumRegistrationLevel: 'PLUS', allowedAlgorithms: ['ES256', 'RS256'],
+  documentClassification: 'CONFIDENTIAL', maximumResponseAgeSeconds: 300, ...overrides,
+});
+const frejaCode = (claims, expectation = {}, ledger = new InMemoryFrejaNonceLedger(), now = NOW) => {
+  try { verifyFrejaSignatureClaims(frejaClaims(claims), frejaExpect(expectation), ledger, now); return 'NO_ERROR'; }
+  catch (error) { return error.code; }
+};
+
+test('a Freja response is accepted only when it binds to this signing intent', () => {
+  assert.equal(frejaCode({}), 'NO_ERROR');
+
+  // Signature validity proves the message came from Freja. It proves nothing
+  // about which intent it answers, which is what these three bindings cover.
+  assert.equal(frejaCode({ transactionReference: 'tx-2' }), 'FREJA_TRANSACTION_MISMATCH');
+  assert.equal(frejaCode({ signRef: 'intent-2' }), 'FREJA_INTENT_MISMATCH');
+  assert.equal(frejaCode({ signedDataSha256: 'd'.repeat(64) }), 'FREJA_DOCUMENT_MISMATCH');
+
+  // Nothing below the signature check means anything on an unverified message.
+  assert.equal(frejaCode({ signatureVerified: false }), 'FREJA_SIGNATURE_NOT_VERIFIED');
+  // Allow-list, not deny-list.
+  assert.equal(frejaCode({ algorithm: 'none' }), 'FREJA_ALGORITHM_NOT_ALLOWED');
+  assert.equal(frejaCode({ algorithm: 'HS256' }), 'FREJA_ALGORITHM_NOT_ALLOWED');
+  assert.equal(frejaCode({ issuer: 'https://evil.example' }), 'FREJA_ISSUER_MISMATCH');
+  // Without this, a response minted for another relying party is accepted.
+  assert.equal(frejaCode({ audience: 'other-rp' }), 'FREJA_AUDIENCE_MISMATCH');
+  assert.equal(frejaCode({ status: 'REJECTED' }), 'FREJA_STATUS_NOT_APPROVED');
+  assert.equal(frejaCode({ status: 'CANCELED' }), 'FREJA_STATUS_NOT_APPROVED');
+});
+
+test('a Freja response cannot be replayed and cannot outlive its window', () => {
+  const ledger = new InMemoryFrejaNonceLedger();
+  assert.equal(frejaCode({}, {}, ledger), 'NO_ERROR');
+  // The same genuine response replayed matches the nonce both times, so
+  // matching alone is not enough — it must be consumable only once.
+  assert.equal(frejaCode({}, {}, ledger), 'FREJA_NONCE_REPLAYED');
+  assert.equal(frejaCode({ nonce: 'other' }), 'FREJA_NONCE_MISMATCH');
+
+  assert.equal(frejaCode({ expiresAt: '2026-08-07T11:00:00.000Z' }), 'FREJA_RESPONSE_EXPIRED');
+  assert.equal(frejaCode({ issuedAt: '2026-08-07T12:30:00.000Z' }), 'FREJA_ISSUED_IN_FUTURE');
+  // A response whose own expiry is far in the future must not stay usable that
+  // long: we bound the age ourselves.
+  assert.equal(
+    frejaCode({ issuedAt: '2026-08-07T10:00:00.000Z', expiresAt: '2027-01-01T00:00:00.000Z' }),
+    'FREJA_RESPONSE_EXPIRED',
+  );
+});
+
+test('Freja assurance and OrgID organisation identity are enforced, not assumed', () => {
+  // BASIC is self-registered and must never pass as a formal Swedish identity.
+  assert.equal(frejaAssuranceLevel('BASIC'), 'LOW');
+  assert.equal(frejaAssuranceLevel('EXTENDED'), 'SUBSTANTIAL');
+  assert.equal(frejaAssuranceLevel('PLUS'), 'HIGH');
+  assert.equal(frejaCode({ registrationLevel: 'BASIC' }), 'FREJA_REGISTRATION_LEVEL_TOO_LOW');
+  assert.equal(frejaCode({ registrationLevel: 'EXTENDED' }), 'FREJA_REGISTRATION_LEVEL_TOO_LOW');
+  assert.equal(frejaCode({ registrationLevel: 'EXTENDED' }, { minimumRegistrationLevel: 'EXTENDED' }), 'NO_ERROR');
+
+  // INFERRED lets Freja pick the subject; never acceptable when the point is
+  // knowing exactly who signed.
+  assert.equal(frejaCode({ subjectType: 'INFERRED' }), 'FREJA_SUBJECT_TYPE_NOT_ALLOWED');
+  assert.equal(frejaCode({ subjectType: 'INFERRED' }, { documentClassification: 'INTERNAL' }), 'NO_ERROR');
+
+  // OrgID is the only method carrying a verified organisation identity, and it
+  // must be our organisation rather than any organisation.
+  const orgExpect = { method: 'FREJA_ORGID', expectedOrganisationId: 'org-kungalv' };
+  assert.equal(frejaCode({}, orgExpect), 'FREJA_ORGANISATION_IDENTITY_MISSING');
+  assert.equal(frejaCode({ organisationId: 'org-other' }, orgExpect), 'FREJA_ORGANISATION_MISMATCH');
+  assert.equal(frejaCode({ organisationId: 'org-kungalv' }, orgExpect), 'NO_ERROR');
+
+  // Normalisation keeps Freja vocabulary out of the rest of the system.
+  const evidence = { provider: 'FREJA_DIRECT', providerReference: 'tx-1', rawPayload: {}, collectedAt: NOW.toISOString() };
+  const verified = toVerifiedIdentityEvidence(frejaClaims({ organisationId: 'org-kungalv' }), evidence, NOW.toISOString());
+  assert.equal(verified.assuranceLevel, 'HIGH');
+  assert.equal(verified.provider, 'FREJA_DIRECT');
+  assert.equal(verified.signedPayloadSha256, 'c'.repeat(64));
+});
+
+test('an unconfigured Freja verifier refuses instead of accepting an unverified response', async () => {
+  await assert.rejects(() => new RejectingFrejaSignatureVerifier().verifyJws('a.b.c'), /not configured/);
+  const provider = new FrejaProvider(
+    { method: 'FREJA_PLUS', issuer: 'i', audience: 'a', minimumRegistrationLevel: 'PLUS', allowedAlgorithms: ['ES256'], maximumResponseAgeSeconds: 300 },
+    { transport: 'MTLS_JAVA_GATEWAY', startSignature: async () => ({}), getStatus: async () => 'PENDING', collectEvidence: async () => ({}), cancel: async () => {}, verifyEvidence: async () => ({}) },
+  );
+  // Wrong provider and a missing JWS are both refusals, not warnings.
+  await assert.rejects(
+    () => provider.verifyEvidence({ provider: 'TIC_BANKID', providerReference: 'x', rawPayload: {}, collectedAt: NOW.toISOString() }),
+    (error) => error.code === 'FREJA_WRONG_PROVIDER',
+  );
+  await assert.rejects(
+    () => provider.verifyEvidence({ provider: 'FREJA_DIRECT', providerReference: 'x', rawPayload: {}, collectedAt: NOW.toISOString() }),
+    (error) => error.code === 'FREJA_SIGNATURE_NOT_VERIFIED',
+  );
 });
 
 let failed = 0;

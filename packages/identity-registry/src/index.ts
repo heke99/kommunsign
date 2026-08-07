@@ -88,13 +88,13 @@ export const IDENTITY_CAPABILITIES: readonly IdentityCapabilities[] = [
     provider: 'FREJA', method: 'FREJA_PLUS', featureFlag: 'FREJA_PLUS',
     maximumAssurance: 'HIGH', carriesOrganisationIdentity: false, supportsQr: true,
     maximumSignatureLevel: 'ADVANCED_ELECTRONIC_SIGNATURE', productionReady: false,
-    blocker: 'Freja adapter has no signature-response verification and no production credentials',
+    blocker: 'Freja production credentials, mTLS client certificate and relying-party agreement are missing. The adapter and its JWS binding checks are implemented (packages/provider-adapters/src/freja.ts).',
   },
   {
     provider: 'FREJA', method: 'FREJA_ORGID', featureFlag: 'FREJA_ORGID',
     maximumAssurance: 'HIGH', carriesOrganisationIdentity: true, supportsQr: true,
     maximumSignatureLevel: 'ADVANCED_ELECTRONIC_SIGNATURE', productionReady: false,
-    blocker: 'Freja adapter has no signature-response verification and no production credentials',
+    blocker: 'Freja production credentials, mTLS client certificate and relying-party agreement are missing. The adapter and its JWS binding checks are implemented (packages/provider-adapters/src/freja.ts).',
   },
   {
     provider: 'SWEDEN_CONNECT', method: 'SVERIGE_ID', featureFlag: 'SVERIGE_ID',
