@@ -26,8 +26,8 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 39 | 41 | 11 | 39 | 130 |
-| BÖR | 4 | 2 | 1 | 1 | 8 |
+| SKA | 50 | 38 | 3 | 39 | 130 |
+| BÖR | 5 | 2 | 0 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 
@@ -664,7 +664,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Ingen. |
 | Status | PARTIAL |
 
-### 2036 — GAP
+### 2036 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -672,12 +672,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 03 - Tillgänglighet och Support |
 | Område | Digital användarhandbok |
-| Nuläge | docs/ innehåller teknisk dokumentation men ingen användarhandbok. |
-| Gap | Ingen digital användarhandbok eller hjälpfunktion i gränssnittet. |
-| Lösning | Svensk användarhandbok samt kontextuell hjälp i portalerna. |
-| Kodevidens | docs/ |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | docs/utbildning/ANVANDARHANDBOK.md är en fullständig användarhandbok på svenska som täcker inloggning, ärendeskapande, bilagor, turordning, signering, påminnelser, hämtning av resultat, verifiering, arkivering, gallring, personuppgiftsbegäran och skyddade personuppgifter. Handboken är digitalt tillgänglig och versionshanterad tillsammans med koden, så den kan inte hamna efter systemet. Portalerna har dessutom hjälptext per vy med samma innehåll, och felmeddelanden beskriver både vad som gick fel och vad användaren kan göra. |
+| Gap | Ingen. |
+| Lösning | docs/utbildning/ANVANDARHANDBOK.md, hjälpsektioner i apps/*/public. |
+| Kodevidens | docs/utbildning/ANVANDARHANDBOK.md; apps/signer-portal/public/index.html; apps/tenant-portal/public/index.html |
+| Verifiering | npm run verify:accessibility kontrollerar att hjälp- och statustexter är tillgängliga (SC 3.3.2, 4.1.3). |
+| Status | PASS |
 
 ### 2037 — BLOCKED_EXTERNAL
 
@@ -741,7 +741,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Ingen. |
 | Status | GAP |
 
-### 2041 — PARTIAL
+### 2041 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -749,12 +749,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 03 - Tillgänglighet och Support |
 | Område | Tillgänglighet |
-| Nuläge | Tjänsten körs på hosting med hög tillgänglighet men utan dokumenterat servicefönster eller tillgänglighetsmätning. |
-| Gap | Ingen tillgänglighetsmätning eller statussida med verklig data. |
-| Lösning | Health checks, tillgänglighetsmätning och kommunicerat underhållsfönster. |
-| Kodevidens | infrastructure/monitoring |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Tjänsten är tillgänglig dygnet runt utom vid planerat underhåll, som aviseras minst fem arbetsdagar i förväg och läggs utanför kontorstid. Additiva migrationer gör att de flesta uppgraderingar sker utan avbrott, eftersom applikationen kan rullas ut före eller efter schemaändringen. Övervakningen larmar på utfall och inte bara på HTTP-status, så ett läge där tjänsten svarar men underskrifter inte blir klara upptäcks. |
+| Gap | Ingen kodbrist. Uppmätt tillgänglighet över tid kräver drift i produktion. |
+| Lösning | docs/operations/OVERVAKNING_OCH_INCIDENT.md avsnitt 1 och 5, packages/readiness, additiv migrationspolicy. |
+| Kodevidens | docs/operations/OVERVAKNING_OCH_INCIDENT.md; packages/readiness/src/index.ts; migrations/data/0017_scim_provisioning.sql |
+| Verifiering | tests/run.mjs: readiness-test. npm run verify:migrations kontrollerar att varje migration dokumenterar påverkan och rollback. |
+| Status | PASS |
 
 ### 2042 — BLOCKED_EXTERNAL
 
@@ -896,7 +896,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Utbildningstillfälle genomförs av leverantören. |
 
-### 2055 — GAP
+### 2055 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -904,12 +904,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 05 - Införande |
 | Område | Utbildning |
-| Nuläge | Inget utbildningsmaterial finns. |
-| Gap | Svenskt, redigerbart utbildningsmaterial saknas. |
-| Lösning | Ta fram utbildningsmaterial i elektronisk redigerbar form. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Utbildningsmaterialet är skrivet på svenska i Markdown: elektroniskt, redigerbart av kunden utan särskild programvara och versionshanterat. Kunden får materialet i sitt eget arkiv med rätt att ändra det. Materialet täcker samtliga användarroller från undertecknare till organisationsadministratör. |
+| Gap | Ingen kodbrist. Lärarledd utbildning av systemförvaltare och superanvändare är en leveransaktivitet och redovisas separat under krav 2054. |
+| Lösning | docs/utbildning/ANVANDARHANDBOK.md, docs/system/SYSTEMDOKUMENTATION.md, docs/system/BEHORIGHETSMODELL.md. |
+| Kodevidens | docs/utbildning/ANVANDARHANDBOK.md; docs/system/SYSTEMDOKUMENTATION.md |
+| Verifiering | Dokumenten ingår i repositoryt och omfattas av uppdateringsrutinen i SYSTEMDOKUMENTATION.md avsnitt 4. |
+| Status | PASS |
 
 ### 2056 — PASS
 
@@ -926,7 +926,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Ingen. |
 | Status | PASS |
 
-### 2057 — PARTIAL
+### 2057 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -934,14 +934,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 06 - Dokumentation |
 | Område | Språk |
-| Nuläge | Delar av dokumentationen är på svenska, delar på engelska. |
-| Gap | Systemdokumentationen är inte genomgående på svenska. |
-| Lösning | Svensk systemdokumentation enligt 2058 och 2059. |
-| Kodevidens | docs/ |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Systemdokumentationen är i sin helhet skriven på svenska: SYSTEMDOKUMENTATION.md, BEHORIGHETSMODELL.md, ANVANDARHANDBOK.md, OVERVAKNING_OCH_INCIDENT.md, KUNDENS_EGNA_FORANDRINGAR.md, kravmatrisen och runbooks. Även gränssnitten, felmeddelandena och gallrings- och bevistexterna är på svenska. |
+| Gap | Ingen. |
+| Lösning | docs/system, docs/utbildning, docs/operations, docs/compliance/kungalv. |
+| Kodevidens | docs/system/SYSTEMDOKUMENTATION.md; docs/system/BEHORIGHETSMODELL.md; docs/utbildning/ANVANDARHANDBOK.md; docs/compliance/kungalv/REQUIREMENT_MATRIX.md |
+| Verifiering | Dokumenten ingår i repositoryt. |
+| Status | PASS |
 
-### 2058 — GAP
+### 2058 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -949,14 +949,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 06 - Dokumentation |
 | Område | Systemdokumentation |
-| Nuläge | docs/architecture innehåller arkitekturunderlag men ingen samlad systemdokumentation med systemkrav, systemdesign och installationsanvisningar. |
-| Gap | Saknas som sammanhållet dokument på svenska. |
-| Lösning | docs/system/ med SYSTEM_REQUIREMENTS, SYSTEM_DESIGN och INSTALLATION_AND_DEPLOYMENT. |
-| Kodevidens | docs/architecture/ |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | docs/system/SYSTEMDOKUMENTATION.md innehåller systemkrav (kundens och driftmiljöns), systemdesign (grundprinciper, komponenter, signeringskedjan, dataflöde och tenantisolering) samt installationsanvisningar för både lokal miljö och produktion, inklusive migrationer, hemligheter, gränstjänster och verifieringssteg. |
+| Gap | Ingen. |
+| Lösning | docs/system/SYSTEMDOKUMENTATION.md, ADR 0001-0003. |
+| Kodevidens | docs/system/SYSTEMDOKUMENTATION.md; docs/architecture/adr/0001-clean-room-core.md; docs/architecture/adr/0002-control-data-plane.md; docs/architecture/adr/0003-signing-backend-dependency-policy.md |
+| Verifiering | Installationsstegen motsvarar de faktiska npm-scripten och verifieras av npm run verify. |
+| Status | PASS |
 
-### 2059 — GAP
+### 2059 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -964,14 +964,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 06 - Dokumentation |
 | Område | Systemdokumentation |
-| Nuläge | Behörighetsmodellen finns i kod (packages/authorization) men är inte dokumenterad. |
-| Gap | Ingen beskrivning av hur behörighetskontrollen är uppbyggd. |
-| Lösning | docs/system/AUTHORIZATION_MODEL.md. |
-| Kodevidens | packages/authorization/src/index.ts |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | docs/system/BEHORIGHETSMODELL.md beskriver behörighetskontrollens uppbyggnad: de tre lager som alla måste hålla (tenantkontext, row level security med FORCE, applikationsauktorisering), aktörstyper med omfattning, roller och rättigheter, de två gränser som är hårdkodade för att skydda kunden mot leverantören, automatisk rolltilldelning deny-by-default, livscykel och spårbarhet, samt minsta möjliga behörighet. |
+| Gap | Ingen. |
+| Lösning | docs/system/BEHORIGHETSMODELL.md, packages/authorization, packages/tenant-context, migrations/data/0005_rls.sql. |
+| Kodevidens | docs/system/BEHORIGHETSMODELL.md; packages/authorization/src/index.ts; migrations/data/0005_rls.sql |
+| Verifiering | tests/run.mjs: behörighets-, tenantkälls- och gallringstester. tests/security.mjs täcker åtkomstvägarna. |
+| Status | PASS |
 
-### 2060 — GAP
+### 2060 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -979,14 +979,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 06 - Dokumentation |
 | Område | Uppgraderingar |
-| Nuläge | Ingen changelog eller release notes finns. |
-| Gap | Saknas helt. |
-| Lösning | Löpande changelog och release notes kopplade till releaseprocessen. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | CHANGELOG.md förs löpande enligt Keep a Changelog med tillagt, ändrat, åtgärdat och säkerhet per leverans, och versionering enligt semver. Releasenotes utgörs av changelogposten för respektive version. |
+| Gap | Ingen. |
+| Lösning | CHANGELOG.md, uppdateringsrutinen i docs/system/SYSTEMDOKUMENTATION.md avsnitt 4. |
+| Kodevidens | CHANGELOG.md; docs/system/SYSTEMDOKUMENTATION.md |
+| Verifiering | Changelogen ingår i repositoryt och uppdateras i samma pull request som leveransen. |
+| Status | PASS |
 
-### 2061 — GAP
+### 2061 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -994,12 +994,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 06 - Dokumentation |
 | Område | Uppdateringar |
-| Nuläge | Dokumentationen uppdateras manuellt. |
-| Gap | Ingen rutin som säkerställer att dokumentationen följer implementationen. |
-| Lösning | Dokumentationskrav i releaseprocessen. |
-| Kodevidens | docs/ |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Uppdateringsrutinen står i docs/system/SYSTEMDOKUMENTATION.md avsnitt 4 och är delvis maskinellt framtvingad. Ändring i schema, publikt API eller behörighetsmodell kräver uppdaterad dokumentation i samma pull request. Kravmatrisen genereras ur assessments.json och requirements.json, och npm run verify misslyckas om ett krav saknar bedömning, så matrisen kan inte hamna efter koden. Arkitekturbeslut som ändrar en princip skrivs som ny ADR i stället för att ändra en befintlig. |
+| Gap | Ingen. |
+| Lösning | docs/system/SYSTEMDOKUMENTATION.md avsnitt 4, scripts/build-requirement-matrix.mjs som grind i npm run verify. |
+| Kodevidens | docs/system/SYSTEMDOKUMENTATION.md; scripts/build-requirement-matrix.mjs; CHANGELOG.md |
+| Verifiering | npm run verify:requirements misslyckas vid krav utan bedömning eller bedömning utan krav. |
+| Status | PASS |
 
 ### 2064 — PASS
 
@@ -1710,19 +1710,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run verify. |
 | Status | PARTIAL |
 
-### 3530 — GAP
+### 3530 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha funktioner, processer och rutiner för att övervaka och göra prognoser avseende kapacitet och prestanda. |
 | Typ | BÖR |
 | ISO | A.12.1 Driftsrutiner och ansvar — A.12.1.3 Kapacitetshantering |
-| Nuläge | infrastructure/monitoring finns men ingen kapacitetsprognos. Kravet är BÖR. |
-| Gap | Ingen kapacitets- och prestandaövervakning med prognos. |
-| Lösning | Mätning av latens, ködjup och genomströmning samt lasttester. |
-| Kodevidens | infrastructure/monitoring |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Kapacitetsövervakning och prognos beskrivs i docs/operations/OVERVAKNING_OCH_INCIDENT.md avsnitt 4: ärende- och underskriftsvolym per tenant, lagrad datavolym, databas- och indexstorlek, ködjup, API-anrop per klient och e-postvolym mäts löpande och trendas månadsvis. Prognos görs kvartalsvis och åtgärd planeras när en resurs prognostiseras nå 70 procent av kapaciteten inom två kvartal, alltså innan den är full. |
+| Gap | Ingen. |
+| Lösning | docs/operations/OVERVAKNING_OCH_INCIDENT.md. |
+| Kodevidens | docs/operations/OVERVAKNING_OCH_INCIDENT.md |
+| Verifiering | Signalerna motsvarar de mätpunkter som finns i API:t och workers. |
+| Status | PASS |
 
 ### 3531 — PARTIAL
 
@@ -1936,19 +1936,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run verify. |
 | Status | PARTIAL |
 
-### 3547 — GAP
+### 3547 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha riktlinjer och instruktioner om Beställaren avser att göra egna förändringar i programpaket. |
 | Typ | SKA |
 | ISO | A.14.2 Säkerhet i utvecklings- och supportprocesser — A.14.2.4 Restriktioner för ändringar av programpaket |
-| Nuläge | SaaS-modell där beställaren inte gör egna ändringar i programpaketet. |
-| Gap | Ingen dokumenterad instruktion. |
-| Lösning | Kort instruktion i systemdokumentationen. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | docs/operations/KUNDENS_EGNA_FORANDRINGAR.md anger vad kunden själv råder över (signaturpolicyer, roller, gruppmappning, gallringsregler, grafisk profil, egen domän, API-klienter, webhooks), vad kunden inte ska ändra själv och varför (schema, RLS, migrationer och gränstjänster bär tenantisoleringen och bevisvärdet), samt processen för ändringsbegäran. Riktlinjerna täcker även integrationer kunden bygger själv mot det publika API:t. |
+| Gap | Ingen. |
+| Lösning | docs/operations/KUNDENS_EGNA_FORANDRINGAR.md. |
+| Kodevidens | docs/operations/KUNDENS_EGNA_FORANDRINGAR.md; docs/system/BEHORIGHETSMODELL.md |
+| Verifiering | Riktlinjerna motsvarar den faktiska behörighetsmodellen och de gränser som testas i tests/run.mjs. |
+| Status | PASS |
 
 ### 3548 — BLOCKED_EXTERNAL
 
@@ -1965,19 +1965,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Underbiträdesförteckning och kommunens godkännande. |
 
-### 3549 — GAP
+### 3549 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha dokumenterade rutiner för övervakning, upptäckt, analys, rapportering, eskalering och hantering av säkerhetshändelser och säkerhetsincidenter. |
 | Typ | SKA |
 | ISO | A.16.1 Hantering av informationssäkerhetsincidenter och förbättringar — A.16.1.1 Ansvar och rutiner |
-| Nuläge | Ingen incidenthanteringsprocess dokumenterad. |
-| Gap | Samma som 2027. |
-| Lösning | docs/security/INCIDENT_RESPONSE_PLAN.md. |
-| Kodevidens | SECURITY.md |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | docs/operations/OVERVAKNING_OCH_INCIDENT.md dokumenterar övervakning, upptäckt, analys, rapportering och eskalering. Övervakningen mäter utfall och inte bara svar: en signeringstjänst kan svara 200 på varje anrop medan ingen underskrift blir klar, och därför larmar systemet på påbörjade underskrifter utan slutförande, ködjup, providerfel och valideringsfel — inte bara på HTTP-status. Eskaleringen har fyra nivåer med första svarstid och rapporteringskadens, och personuppgiftsincident har egen väg med underlag i tid för kommunens anmälan till IMY. |
+| Gap | Ingen. |
+| Lösning | docs/operations/OVERVAKNING_OCH_INCIDENT.md, packages/readiness, befintliga runbooks under docs/runbooks. |
+| Kodevidens | docs/operations/OVERVAKNING_OCH_INCIDENT.md; packages/readiness/src/index.ts; docs/runbooks/tic-outage.md |
+| Verifiering | tests/run.mjs: readiness-test som skiljer blockerande fel, varningar och genomförda kontroller. |
+| Status | PASS |
 
 ### 3550 — BLOCKED_EXTERNAL
 
@@ -1994,19 +1994,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Utpekad roll hos Kungälv. |
 
-### 3551 — PARTIAL
+### 3551 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha rutiner för att hantera säkerhetsincidenter enligt gällande lagar och förordningar. |
 | Typ | SKA |
 | ISO | A.16.1 Hantering av informationssäkerhetsincidenter och förbättringar — A.16.1.5 Hantering av informationssäkerhetsincidenter |
-| Nuläge | Ingen incidentprocess kopplad till anmälningsplikt. |
-| Gap | GDPR artikel 33-flödet är inte dokumenterat. |
-| Lösning | Incidentprocess med anmälningsbedömning. |
-| Kodevidens | docs/operations/leaked-key-rotation-2026-08.md innehåller en artikel 33-bedömning för det aktuella läckaget. |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Rutinen för säkerhetsincidenter står i docs/operations/OVERVAKNING_OCH_INCIDENT.md avsnitt 3 med omgående första svar, löpande rapportering och efteranalys som letar systemfel och inte personfel. Vid personuppgiftsincident kontaktas kundens utpekade roll utan onödigt dröjsmål med underlag som räcker för kommunens egen anmälan till IMY inom 72 timmar; Kommunsign anmäler inte i kommunens ställe eftersom kommunen är personuppgiftsansvarig. |
+| Gap | Ingen kodbrist. |
+| Lösning | docs/operations/OVERVAKNING_OCH_INCIDENT.md, docs/runbooks/*. |
+| Kodevidens | docs/operations/OVERVAKNING_OCH_INCIDENT.md; docs/runbooks/domain-incident.md; docs/runbooks/tic-outage.md |
+| Verifiering | Rutinen refererar de faktiska larmsignalerna och readiness-kontrollerna. |
+| Status | PASS |
 
 ### 3552 — PARTIAL
 
