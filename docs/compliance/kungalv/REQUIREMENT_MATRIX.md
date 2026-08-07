@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 28 | 50 | 13 | 39 | 130 |
+| SKA | 29 | 49 | 13 | 39 | 130 |
 | BÖR | 3 | 2 | 2 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -540,7 +540,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Utpekad roll hos Kungälv och avtalad samrådsrutin. |
 
-### 2028 — PARTIAL
+### 2028 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -548,12 +548,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | Skyddade personuppgifter |
-| Nuläge | Personnummer normaliseras och maskeras, och identifierarbindning har undantagskoden PROTECTED_PERSONAL_DATA_WORKFLOW. |
-| Gap | Ingen sammanhållen hantering av skyddade personuppgifter: ingen sensitivitetsklassning, ingen exponeringsbegränsning i listvyer, sök, export eller notifieringar. |
-| Lösning | Sensitivitetspolicy NORMAL/CONFIDENTIAL/PROTECTED_IDENTITY med konsekvenser genom hela kedjan. |
-| Kodevidens | packages/personal-number/src/index.ts |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | packages/protected-identity implementerar Skatteverkets tre skyddsnivåer var för sig: sekretessmarkering, skyddad folkbokföring och fingerade personuppgifter. Att behandla dem som en boolean är just så en skyddad persons adress hamnar i en notifiering. decideDisclosure avgör per utflödeskanal vilka fält som får visas och vilka som måste maskeras. Applikationslogg, analytics och URL bär aldrig identifierande fält för någon, skyddad eller inte, eftersom de kanalerna överlever eller lämnar den åtkomstkontroll som annars skulle skydda dem. En okänd kanal avvisas i stället för att tillåtas, och en okänd skyddsnivå normaliseras till den strängaste, så att ett datafel eller en ny kod hos Skatteverket inte tyst tar bort skyddet. Sekretessmarkering är en flagga och inte en maskering: utlämnande kräver en registrerad menprövning som gäller rätt person, rätt tenant, har angiven grund och inte löpt ut. Vid skyddad folkbokföring lämnas adressen aldrig ut, medan namn kvarstår i evidenspaket och auditlogg så att signaturen förblir bevisbar. Vid fingerade personuppgifter är den gamla identiteten inte upplösbar på någon kanal alls. isSearchable spärrar dessutom förekomst i sökträffar från och med skyddad folkbokföring, eftersom en maskerad träff ändå bekräftar att personen har ett ärende i kommunen. E-postens ämnesrad bär aldrig identifierande värde, eftersom den alltid är läsbar utan inloggning. Supportåtkomst kräver ett tidsbegränsat, motiverat samtycke per person utfärdat av kunden; stående åtkomst finns inte. |
+| Gap | Ingen. |
+| Lösning | packages/protected-identity, packages/personal-number (maskering och bindningsundantaget PROTECTED_PERSONAL_DATA_WORKFLOW), packages/archive (maskerade identifierare i arkivmetadata). |
+| Kodevidens | packages/protected-identity/src/index.ts; packages/personal-number/src/index.ts; packages/archive/src/index.ts |
+| Verifiering | tests/run.mjs: tre tester för skyddade personuppgifter (kanaler som lämnar åtkomstkontrollen, maskering per skyddsnivå inklusive samtliga kanaler för fingerade uppgifter, samt supportåtkomst per person med utgång). |
+| Status | PASS |
 
 ### 2029 — BLOCKED_EXTERNAL
 

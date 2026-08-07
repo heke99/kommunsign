@@ -67,6 +67,10 @@ import {
   beginHandling, deadlineFor, deliverResponse, fulfilRequest, overdueRequests,
   refuseRequest, verifySubjectIdentity,
 } from '../dist/packages/privacy/src/executor.js';
+import {
+  assertSubjectLineIsSafe, assertSupportAccess, decideDisclosure, isSearchable,
+  normaliseProtectionLevel, OUTPUT_CHANNELS, redactedPlaceholder,
+} from '../dist/packages/protected-identity/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -2039,6 +2043,128 @@ test('the thirty-day deadline runs from receipt and overdue requests stay visibl
   assert.equal(overdue[0].state, 'RECEIVED');
   assert.equal(overdue[0].dueAt, '2026-07-01T00:00:00.000Z');
   assert.deepEqual(overdueRequests([recent], new Date('2026-09-30T00:00:00.000Z')).length, 1);
+});
+
+const PROT_TENANT = '00000000-0000-4000-8000-000000000101';
+const PROT_SUBJECT = '00000000-0000-4000-8000-000000000102';
+const PROT_ACTOR = '00000000-0000-4000-8000-000000000103';
+const PROT_NOW = new Date('2026-08-07T12:00:00.000Z');
+const assessment = (overrides = {}) => ({
+  tenantId: PROT_TENANT, subjectId: PROT_SUBJECT, assessedBy: PROT_ACTOR,
+  assessedAt: '2026-08-07T09:00:00.000Z', expiresAt: '2026-08-07T18:00:00.000Z',
+  ground: 'Menprövning enligt OSL 21 kap. 3 §', ...overrides,
+});
+const disclose = (overrides = {}) => decideDisclosure({
+  tenantId: PROT_TENANT, subjectId: PROT_SUBJECT, level: 'SEKRETESSMARKERING',
+  channel: 'SCREEN_AUTHORISED', fields: ['fullName', 'personalNumber', 'address'],
+  assessment: null, now: PROT_NOW, ...overrides,
+});
+const protCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('protected personal data is never disclosed on a channel that escapes access control', () => {
+  // Logs are shipped to operators, analytics to third parties, and a URL ends
+  // up in history, referrer headers and proxy logs. None of them carries an
+  // identifying field for anyone, protected or not.
+  for (const channel of ['APPLICATION_LOG', 'ANALYTICS', 'URL']) {
+    for (const level of ['NONE', 'SEKRETESSMARKERING', 'SKYDDAD_FOLKBOKFORING']) {
+      const decision = disclose({ channel, level, assessment: assessment() });
+      assert.deepEqual(decision.disclosed, [], `${channel}/${level}`);
+      assert.equal(decision.redacted.length, 3);
+    }
+  }
+
+  // An unrecognised value becomes the strictest level, not NONE: a data error
+  // or a new Skatteverket code must not silently remove the protection.
+  assert.equal(normaliseProtectionLevel('NAGOT_NYTT'), 'FINGERADE_PERSONUPPGIFTER');
+  assert.equal(normaliseProtectionLevel(42), 'FINGERADE_PERSONUPPGIFTER');
+  assert.equal(normaliseProtectionLevel(null), 'NONE');
+  assert.equal(normaliseProtectionLevel('SKYDDAD_FOLKBOKFORING'), 'SKYDDAD_FOLKBOKFORING');
+
+  // Adding an output path must force a decision here rather than defaulting
+  // to disclosure.
+  assert.equal(protCode(() => disclose({ channel: 'SOME_NEW_EXPORT' })), 'PROTECTED_CHANNEL_UNKNOWN');
+
+  // The subject line is always readable without authenticating — lock screen
+  // previews, mail server logs, forwarded shared mailboxes.
+  assert.equal(protCode(() => assertSubjectLineIsSafe('Signering klar för Anna Andersson', ['Anna Andersson'])), 'PROTECTED_DISCLOSURE_FORBIDDEN');
+  assert.equal(protCode(() => assertSubjectLineIsSafe('Du har ett dokument att signera', ['Anna Andersson', '198001019876'])), 'NO_ERROR');
+});
+
+test('each protection level redacts what that level is actually protecting', () => {
+  // Unprotected: everything renders.
+  assert.deepEqual(disclose({ level: 'NONE' }).redacted, []);
+
+  // Sekretessmarkering is a flag, not a redaction: disclosure is possible, but
+  // only after a recorded confidentiality assessment.
+  assert.deepEqual(disclose({ level: 'SEKRETESSMARKERING' }).disclosed, []);
+  assert.deepEqual(disclose({ level: 'SEKRETESSMARKERING', assessment: assessment() }).redacted, []);
+
+  // An assessment for another person, another tenant, without a ground, or
+  // expired, is not an assessment for this disclosure.
+  for (const bad of [{ subjectId: PROT_ACTOR }, { tenantId: PROT_ACTOR }, { ground: '  ' }, { expiresAt: '2026-08-07T10:00:00.000Z' }]) {
+    assert.deepEqual(disclose({ level: 'SEKRETESSMARKERING', assessment: assessment(bad) }).disclosed, [], JSON.stringify(bad));
+  }
+
+  // Skyddad folkbokföring: the address is the thing being protected and is
+  // never ours to disclose — Skatteverket holds it. Not even an assessment
+  // unlocks it.
+  const skyddad = disclose({ level: 'SKYDDAD_FOLKBOKFORING', assessment: assessment() });
+  assert.ok(skyddad.redacted.includes('address'));
+  assert.deepEqual(skyddad.disclosed, ['fullName', 'personalNumber']);
+
+  // The signature still has to be provable, so the evidence package retains
+  // the identifying fields even for a protected person...
+  assert.deepEqual(
+    disclose({ level: 'SKYDDAD_FOLKBOKFORING', channel: 'EVIDENCE_PACKAGE', assessment: null }).disclosed,
+    ['fullName', 'personalNumber'],
+  );
+  // ...while a colleague's screen shows nothing.
+  assert.deepEqual(disclose({ level: 'SKYDDAD_FOLKBOKFORING', channel: 'SCREEN_COLLEAGUE', assessment: assessment() }).disclosed, []);
+
+  // Fingerade personuppgifter: the old identity must not be resolvable at all,
+  // on any channel, with or without an assessment.
+  for (const channel of OUTPUT_CHANNELS) {
+    assert.deepEqual(
+      disclose({ level: 'FINGERADE_PERSONUPPGIFTER', channel, assessment: assessment() }).disclosed,
+      [], channel,
+    );
+  }
+
+  // Existence is itself informative: a redacted row still confirms this person
+  // has a case in this municipality, which can be what locates them.
+  assert.equal(isSearchable('NONE'), true);
+  assert.equal(isSearchable('SEKRETESSMARKERING'), true);
+  assert.equal(isSearchable('SKYDDAD_FOLKBOKFORING'), false);
+  assert.equal(isSearchable('FINGERADE_PERSONUPPGIFTER'), false);
+
+  // Placeholders are non-identifying and in Swedish.
+  assert.equal(redactedPlaceholder('address'), 'Skyddad adress');
+  assert.equal(redactedPlaceholder('personalNumber'), 'Skyddad uppgift');
+});
+
+test('support access to protected data is granted per person, by the customer, with an expiry', () => {
+  const grant = (overrides = {}) => ({
+    tenantId: PROT_TENANT, subjectId: PROT_SUBJECT, grantedTo: PROT_ACTOR,
+    grantedBy: '00000000-0000-4000-8000-000000000104', grantedByCustomer: true,
+    expiresAt: '2026-08-07T18:00:00.000Z', reason: 'Felsökning av signeringsärende KS2026-0001', ...overrides,
+  });
+  const request = { tenantId: PROT_TENANT, subjectId: PROT_SUBJECT, actorId: PROT_ACTOR, now: PROT_NOW };
+  const accessCode = (g) => protCode(() => assertSupportAccess(g, request));
+
+  assert.equal(accessCode(grant()), 'NO_ERROR');
+
+  // Standing access is refused. The alternative makes the protection depend on
+  // the supplier's internal discipline rather than a control the customer can
+  // see and revoke.
+  assert.equal(accessCode(null), 'PROTECTED_ACCESS_NOT_GRANTED');
+  assert.equal(accessCode(grant({ grantedByCustomer: false })), 'PROTECTED_ACCESS_NOT_GRANTED');
+  assert.equal(accessCode(grant({ reason: '   ' })), 'PROTECTED_ACCESS_NOT_GRANTED');
+  assert.equal(accessCode(grant({ expiresAt: '2026-08-07T11:00:00.000Z' })), 'PROTECTED_GRANT_EXPIRED');
+  // A grant for one protected person does not open the others, and a grant to
+  // one engineer is not a grant to the team.
+  assert.equal(accessCode(grant({ subjectId: PROT_ACTOR })), 'PROTECTED_ACCESS_NOT_GRANTED');
+  assert.equal(accessCode(grant({ grantedTo: '00000000-0000-4000-8000-000000000105' })), 'PROTECTED_ACCESS_NOT_GRANTED');
+  assert.equal(accessCode(grant({ tenantId: PROT_ACTOR })), 'PROTECTED_TENANT_MISMATCH');
 });
 
 let failed = 0;

@@ -179,12 +179,12 @@
       "blocker": "Utpekad roll hos Kungälv och avtalad samrådsrutin."
     },
     "2028": {
-      "state": "Personnummer normaliseras och maskeras, och identifierarbindning har undantagskoden PROTECTED_PERSONAL_DATA_WORKFLOW.",
-      "gap": "Ingen sammanhållen hantering av skyddade personuppgifter: ingen sensitivitetsklassning, ingen exponeringsbegränsning i listvyer, sök, export eller notifieringar.",
-      "implementation": "Sensitivitetspolicy NORMAL/CONFIDENTIAL/PROTECTED_IDENTITY med konsekvenser genom hela kedjan.",
-      "evidence": "packages/personal-number/src/index.ts",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "packages/protected-identity implementerar Skatteverkets tre skyddsnivåer var för sig: sekretessmarkering, skyddad folkbokföring och fingerade personuppgifter. Att behandla dem som en boolean är just så en skyddad persons adress hamnar i en notifiering. decideDisclosure avgör per utflödeskanal vilka fält som får visas och vilka som måste maskeras. Applikationslogg, analytics och URL bär aldrig identifierande fält för någon, skyddad eller inte, eftersom de kanalerna överlever eller lämnar den åtkomstkontroll som annars skulle skydda dem. En okänd kanal avvisas i stället för att tillåtas, och en okänd skyddsnivå normaliseras till den strängaste, så att ett datafel eller en ny kod hos Skatteverket inte tyst tar bort skyddet. Sekretessmarkering är en flagga och inte en maskering: utlämnande kräver en registrerad menprövning som gäller rätt person, rätt tenant, har angiven grund och inte löpt ut. Vid skyddad folkbokföring lämnas adressen aldrig ut, medan namn kvarstår i evidenspaket och auditlogg så att signaturen förblir bevisbar. Vid fingerade personuppgifter är den gamla identiteten inte upplösbar på någon kanal alls. isSearchable spärrar dessutom förekomst i sökträffar från och med skyddad folkbokföring, eftersom en maskerad träff ändå bekräftar att personen har ett ärende i kommunen. E-postens ämnesrad bär aldrig identifierande värde, eftersom den alltid är läsbar utan inloggning. Supportåtkomst kräver ett tidsbegränsat, motiverat samtycke per person utfärdat av kunden; stående åtkomst finns inte.",
+      "gap": "Ingen.",
+      "implementation": "packages/protected-identity, packages/personal-number (maskering och bindningsundantaget PROTECTED_PERSONAL_DATA_WORKFLOW), packages/archive (maskerade identifierare i arkivmetadata).",
+      "evidence": "packages/protected-identity/src/index.ts; packages/personal-number/src/index.ts; packages/archive/src/index.ts",
+      "verification": "tests/run.mjs: tre tester för skyddade personuppgifter (kanaler som lämnar åtkomstkontrollen, maskering per skyddsnivå inklusive samtliga kanaler för fingerade uppgifter, samt supportåtkomst per person med utgång).",
+      "status": "PASS"
     },
     "2029": {
       "state": "Hosting sker hos Supabase, Railway och Vercel. Ingen verifierad förteckning över regioner finns i repot.",
