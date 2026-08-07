@@ -212,6 +212,102 @@ paths:
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateTemplate'}}}}
       responses: {'201': {description: Immutable template version created, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}, default: {$ref: '#/components/responses/Error'}}
+  # --- Gallring, arkivexport och personuppgiftsbegäran ------------------
+  # Specificerade som contract innan de exponeras i runtime: besluts- och
+  # exekveringslagren finns och är testade (packages/retention,
+  # packages/archive, packages/privacy), men endpointen aktiveras först när
+  # kundens rutin för godkännande är på plats. Att publicera en väg som
+  # verkställer en oåterkallelig radering innan dess vore fel ordning.
+  /retention/policies:
+    get:
+      operationId: listRetentionPolicies
+      summary: Lista gallringsregler för organisationen
+      x-kommunsign-implementation-status: contract
+      security: [{oauth2: [retention:read]}]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses: {'200': {description: Aktiva gallringsregler}, default: {$ref: '#/components/responses/Error'}}
+  /retention/jobs:
+    get:
+      operationId: listGallringJobs
+      summary: Lista gallringsjobb och deras tillstånd
+      x-kommunsign-implementation-status: contract
+      security: [{oauth2: [retention:read]}]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses: {'200': {description: Gallringsjobb}, default: {$ref: '#/components/responses/Error'}}
+    post:
+      operationId: createGallringJob
+      summary: Begär gallring av förfallna ärenden
+      description: >-
+        Skapar ett jobb i tillstånd QUEUED. Gallring verkställs aldrig av denna
+        anrop: jobbet måste planeras och godkännas av någon annan än den som
+        begärde det, och beslutet omprövas mot legal hold omedelbart före
+        radering.
+      x-kommunsign-implementation-status: contract
+      security: [{oauth2: [retention:execute]}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'202': {description: Gallringsjobb köat}, default: {$ref: '#/components/responses/Error'}}
+  /retention/jobs/{jobId}/approve:
+    post:
+      operationId: approveGallringJob
+      summary: Godkänn ett planerat gallringsjobb
+      x-kommunsign-implementation-status: contract
+      security: [{oauth2: [retention:execute]}]
+      parameters: [{$ref: '#/components/parameters/JobId'}, {$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'200': {description: Jobbet godkänt}, '409': {description: Godkännaren är den som begärde, saknar behörighet eller är leverantörspersonal}, default: {$ref: '#/components/responses/Error'}}
+  /retention/jobs/{jobId}/report:
+    get:
+      operationId: getGallringReport
+      summary: Hämta gallringsrapport
+      x-kommunsign-implementation-status: contract
+      security: [{oauth2: [retention:read]}]
+      parameters: [{$ref: '#/components/parameters/JobId'}]
+      responses: {'200': {description: Gallringsrapport med utfall per mål}, default: {$ref: '#/components/responses/Error'}}
+  /archive/exports:
+    post:
+      operationId: createArchiveExport
+      summary: Skapa arkivpaket enligt RA-FS 2009:2 för ett avslutat ärende
+      x-kommunsign-implementation-status: contract
+      security: [{oauth2: [archive:export]}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'202': {description: Export köad}, '409': {description: Ärendet är inte avslutat eller saknar verifierad PDF/A-profil}, default: {$ref: '#/components/responses/Error'}}
+  /archive/exports/{exportId}:
+    get:
+      operationId: getArchiveExport
+      summary: Hämta arkivpaketets status och manifesthash
+      description: >-
+        Manifesthashen levereras här, utanför paketet. En kontrollsumma lagrad
+        inuti manifestet skulle omcertifiera varje ändring av manifestet.
+      x-kommunsign-implementation-status: contract
+      security: [{oauth2: [archive:export]}]
+      parameters: [{$ref: '#/components/parameters/ExportId'}]
+      responses: {'200': {description: Exportens status, manifest och manifesthash}, default: {$ref: '#/components/responses/Error'}}
+  /privacy/requests:
+    get:
+      operationId: listDataSubjectRequests
+      summary: Lista rättighetsbegäranden och deras frister
+      x-kommunsign-implementation-status: contract
+      security: [{oauth2: [privacy:handle]}]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses: {'200': {description: Begäranden med tillstånd och förfallodatum}, default: {$ref: '#/components/responses/Error'}}
+    post:
+      operationId: createDataSubjectRequest
+      summary: Registrera en rättighetsbegäran
+      description: >-
+        Fristen om 30 dagar räknas från mottagandet, inte från när handläggningen
+        påbörjas. Ingen åtgärd utförs innan den registrerades identitet är
+        verifierad.
+      x-kommunsign-implementation-status: contract
+      security: [{oauth2: [privacy:handle]}]
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      responses: {'201': {description: Begäran registrerad i tillstånd RECEIVED}, default: {$ref: '#/components/responses/Error'}}
+  /privacy/requests/{requestId}/response:
+    get:
+      operationId: getDataSubjectResponse
+      summary: Hämta svaret på en rättighetsbegäran
+      x-kommunsign-implementation-status: contract
+      security: [{oauth2: [privacy:handle]}]
+      parameters: [{$ref: '#/components/parameters/RequestIdPath'}]
+      responses: {'200': {description: Svar med registertäckning och undantag med rättslig grund}, '409': {description: Svaret är ofullständigt och får inte lämnas ut}, default: {$ref: '#/components/responses/Error'}}
   /onboarding/applications:
     post:
       operationId: createOnboardingApplication
@@ -504,6 +600,9 @@ components:
             webhooks:manage: Manage webhook endpoints
   parameters:
     CaseId: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
+    JobId: {name: jobId, in: path, required: true, schema: {type: string, format: uuid}}
+    ExportId: {name: exportId, in: path, required: true, schema: {type: string, format: uuid}}
+    RequestIdPath: {name: requestId, in: path, required: true, schema: {type: string, format: uuid}}
     UploadId: {name: uploadId, in: path, required: true, schema: {type: string, format: uuid}}
     SignerId: {name: signerId, in: path, required: true, schema: {type: string, format: uuid}}
     DocumentId: {name: documentId, in: path, required: true, schema: {type: string, format: uuid}}

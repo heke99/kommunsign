@@ -25,7 +25,73 @@ import { buildHostOnlySessionCookie, issueAuthorizationCode, exchangeAuthorizati
 import { createSensitiveDataAdapter } from '../dist/apps/api/src/adapters/aes-gcm-sensitive-data.js';
 import { createAuthenticationRepository } from '../dist/apps/api/src/production-adapters/postgres/authentication-repository.js';
 import { expectedSupabaseAuthConfig, verifySupabaseAuthConfig } from '../scripts/supabase-auth-config-lib.mjs';
-import { hasPlatformPermission } from '../dist/packages/authorization/src/index.js';
+import { hasPlatformPermission, hasPermission } from '../dist/packages/authorization/src/index.js';
+import {
+  ACCESS_LOG_MINIMUM_RETENTION_DAYS, assertPolicyIsLawful, buildGallringReport, decideRetention,
+} from '../dist/packages/retention/src/index.js';
+import {
+  assuranceAtLeast, availableMethods, capabilitiesFor, resolveIdentityMethod,
+} from '../dist/packages/identity-registry/src/index.js';
+import {
+  admitPadesSignature, attainedPadesLevel, describePadesLevel,
+} from '../dist/packages/pades/src/index.js';
+import {
+  buildDataSubjectResponse, erasureExemption, isOverdue,
+} from '../dist/packages/privacy/src/index.js';
+import {
+  assertSigningRuntimeUsable, beginSigningPipeline, collectSignatureEvidence, describeStage,
+  NotConfiguredSignatureValidator, NotConfiguredSigningEngine, NotConfiguredTimestampProvider,
+  pipelineIsComplete, recordAdmitted, recordIdentityVerified, recordPolicyResolved,
+  recordSignatureCreated, recordTimestamped, recordValidated,
+} from '../dist/packages/signing-engine/src/index.js';
+import {
+  frejaAssuranceLevel, FrejaProvider, InMemoryFrejaNonceLedger, RejectingFrejaSignatureVerifier,
+  toVerifiedIdentityEvidence, verifyFrejaSignatureClaims,
+} from '../dist/packages/provider-adapters/src/freja.js';
+import {
+  InMemoryAssertionLedger, mapWorkforceIdentity, resolveLogoutTargets, verifyWorkforceAssertion,
+} from '../dist/packages/federation/src/index.js';
+import {
+  applyGroupMembership, applyScimPatch, assertScimTenant, createScimUser, deprovisionScimUser,
+  matchesScimFilter, paginateScim, parseScimFilter, resolveScimRoles, SCIM_MAXIMUM_PAGE_SIZE,
+  ScimError, toScimUserResource,
+} from '../dist/packages/scim/src/index.js';
+import {
+  buildArchivePackage, buildDescriptiveMetadata, verifyArchivePackage,
+} from '../dist/packages/archive/src/index.js';
+import {
+  abandonGallring, approveGallring, beginGallringExecution, completeGallring,
+  MANDATORY_CASE_TARGETS, planGallring, selectDueCases, verifyGallringExecution,
+} from '../dist/packages/retention/src/executor.js';
+import {
+  beginHandling, deadlineFor, deliverResponse, fulfilRequest, overdueRequests,
+  refuseRequest, verifySubjectIdentity,
+} from '../dist/packages/privacy/src/executor.js';
+import {
+  assertSubjectLineIsSafe, assertSupportAccess, decideDisclosure, isSearchable,
+  normaliseProtectionLevel, OUTPUT_CHANNELS, redactedPlaceholder,
+} from '../dist/packages/protected-identity/src/index.js';
+import {
+  assertBundleUnchanged, assertOrderIsWellFormed, assertSignerMaySign, buildSigningBundle,
+  caseOutcome, decideReminder, signersAwaitingAction,
+} from '../dist/packages/signing-workflow/src/index.js';
+import {
+  activeKeyVersion, assertKeyRingIsSane, assertNoCompromisedIndexRemains, assertReadableVersion,
+  assertRotationComplete, assertWritableVersion, beginDualRead, planBlindIndexRotation,
+  retireOldVersion, rollbackRotation, rotationRequired,
+} from '../dist/packages/crypto/src/key-rotation.js';
+import {
+  assertMetricLabelsAreSafe, assertSecurityEventIsTraceable, buildLogRecord, cacheHeaders,
+  isForbiddenLogField, isSecurityEvent, METRICS, sanitiseLogPayload, securityHeaders,
+  stuckSigningRatio, TLS_POLICY,
+} from '../dist/packages/observability/src/index.js';
+import {
+  admitConvertedDocument, ADOBE_READER_COMPATIBILITY, planOfficeIngestion,
+} from '../dist/packages/document-processing/src/office-ingestion.js';
+import {
+  formatSwedishDate, formatSwedishDateTime, formatSwedishTime,
+  formatSwedishTimestampWithOffset, messageFor, swedishUtcOffsetHours,
+} from '../dist/packages/locale/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -851,6 +917,1712 @@ test('provenance gate pins donors and reports zero unverified imports', async ()
   assert.equal(report.totalReused, 0);
   assert.ok(report.sources.every((source) => /^[0-9a-f]{40}$/.test(source.pinned_commit)));
   assert.ok(report.sources.every((source) => source.imported === false));
+});
+
+const retentionPolicy = (overrides = {}) => ({
+  policyKey: 'signature-cases', version: 1, retentionClass: 'business_data',
+  mode: 'delete_after_period', periodDays: 30, active: true, ...overrides,
+});
+const retentionSubject = (overrides = {}) => ({
+  tenantId: '00000000-0000-4000-8000-000000000001', caseId: '00000000-0000-4000-8000-000000000002',
+  status: 'completed', closedAt: '2026-01-01T00:00:00.000Z', legalHoldActive: false, ...overrides,
+});
+const AFTER_PERIOD = new Date('2026-06-01T00:00:00.000Z');
+
+test('gallring never touches a case under legal hold or still running', () => {
+  // Legal hold outranks an otherwise long-elapsed retention period.
+  const held = decideRetention(retentionPolicy(), retentionSubject({ legalHoldActive: true }), AFTER_PERIOD);
+  assert.equal(held.action, 'RETAIN');
+  assert.equal(held.reason, 'LEGAL_HOLD');
+
+  // A policy in legal_hold mode holds even without a per-case hold.
+  assert.equal(decideRetention(retentionPolicy({ mode: 'legal_hold', periodDays: null }), retentionSubject(), AFTER_PERIOD).reason, 'LEGAL_HOLD');
+
+  // The retention clock starts at closure, so an open case is never eligible
+  // however old it is.
+  const open = decideRetention(retentionPolicy(), retentionSubject({ status: 'in_progress', closedAt: null }), AFTER_PERIOD);
+  assert.equal(open.action, 'RETAIN');
+  assert.equal(open.reason, 'CASE_NOT_CLOSED');
+
+  assert.equal(decideRetention(retentionPolicy({ active: false }), retentionSubject(), AFTER_PERIOD).reason, 'POLICY_INACTIVE');
+  assert.equal(decideRetention(retentionPolicy({ mode: 'retain_forever', periodDays: null }), retentionSubject(), AFTER_PERIOD).action, 'RETAIN');
+});
+
+test('gallring becomes due only after the period elapses and distinguishes automatic from minimum retention', () => {
+  const beforeDue = decideRetention(retentionPolicy({ periodDays: 30 }), retentionSubject(), new Date('2026-01-15T00:00:00.000Z'));
+  assert.equal(beforeDue.action, 'RETAIN');
+  assert.equal(beforeDue.reason, 'PERIOD_NOT_ELAPSED');
+  assert.equal(beforeDue.eligibleAt, '2026-01-31T00:00:00.000Z');
+
+  const due = decideRetention(retentionPolicy({ periodDays: 30 }), retentionSubject(), AFTER_PERIOD);
+  assert.equal(due.action, 'DELETE');
+  assert.equal(due.reason, 'DUE_FOR_DELETION');
+
+  assert.equal(decideRetention(retentionPolicy({ mode: 'archive_then_delete' }), retentionSubject(), AFTER_PERIOD).action, 'ARCHIVE_THEN_DELETE');
+
+  // retain_for_period is a minimum retention, not an instruction to delete:
+  // it must never produce an automatic DELETE.
+  assert.equal(decideRetention(retentionPolicy({ mode: 'retain_for_period' }), retentionSubject(), AFTER_PERIOD).action, 'RETAIN');
+});
+
+test('access log retention below the PUB floor requires a documented instruction', () => {
+  const short = { policyKey: 'access-log', version: 1, retentionClass: 'access_log', mode: 'delete_after_period', periodDays: 90, active: true };
+  assert.throws(() => assertPolicyIsLawful(short), (error) => error.code === 'RETENTION_BELOW_PUB_FLOOR');
+
+  // PUB-avtalet 7.5 allows a shorter period only when the Instruktion says so.
+  assertPolicyIsLawful({ ...short, instructionReference: 'Instruktion 2026-08-01 §4' });
+  assertPolicyIsLawful({ ...short, periodDays: ACCESS_LOG_MINIMUM_RETENTION_DAYS });
+
+  // Business data carries no such floor.
+  assertPolicyIsLawful(retentionPolicy({ periodDays: 1 }));
+  // Modes that need a period must carry one, and those that don't must not.
+  assert.throws(() => assertPolicyIsLawful(retentionPolicy({ periodDays: null })), (error) => error.code === 'RETENTION_PERIOD_REQUIRED');
+  assert.throws(() => assertPolicyIsLawful(retentionPolicy({ mode: 'retain_forever' })), (error) => error.code === 'RETENTION_PERIOD_FORBIDDEN');
+});
+
+test('gallring report is only complete when every copy is verified deleted', () => {
+  const base = {
+    tenantId: '00000000-0000-4000-8000-000000000001', jobId: '00000000-0000-4000-8000-000000000003',
+    policyKey: 'signature-cases', policyVersion: 1, retentionClass: 'business_data',
+    executedBy: '00000000-0000-4000-8000-000000000004', executedAt: '2026-06-01T00:00:00.000Z',
+    caseIds: ['00000000-0000-4000-8000-000000000002'],
+  };
+  const complete = buildGallringReport({ ...base, outcomes: [
+    { target: 'signature_case', deletedCount: 1, verified: true },
+    { target: 'object_storage', deletedCount: 3, verified: true },
+  ] });
+  assert.equal(complete.complete, true);
+  assert.equal(complete.deletedTotal, 4);
+  assert.equal(complete.caseCount, 1);
+  assert.equal(complete.schemaVersion, 1);
+
+  // Krav 2070: gallrad information must not be recoverable. A target that could
+  // not be confirmed deleted makes the gallring incomplete rather than passing.
+  const partial = buildGallringReport({ ...base, outcomes: [
+    { target: 'signature_case', deletedCount: 1, verified: true },
+    { target: 'object_storage', deletedCount: 0, verified: false, note: 'storage timeout' },
+  ] });
+  assert.equal(partial.complete, false);
+  assert.deepEqual(partial.unverifiedTargets, ['object_storage']);
+
+  assert.throws(() => buildGallringReport({ ...base, caseIds: [], outcomes: [] }), (error) => error.code === 'GALLRING_REPORT_EMPTY');
+  assert.throws(() => buildGallringReport({ ...base, outcomes: [
+    { target: 'signature_case', deletedCount: 1, verified: true },
+    { target: 'signature_case', deletedCount: 1, verified: true },
+  ] }), (error) => error.code === 'GALLRING_TARGET_DUPLICATE');
+});
+
+test('gallring is permission controlled and reserved for the customer', () => {
+  // Krav 2071: only authorised roles may gallra.
+  assert.ok(hasPermission(['tenant_admin'], 'retention:execute'));
+  assert.ok(hasPermission(['tenant_archive_admin'], 'retention:execute'));
+  // Separation of duties: the security admin configures policy but does not destroy data.
+  assert.ok(hasPermission(['tenant_security_admin'], 'retention:manage'));
+  assert.equal(hasPermission(['tenant_security_admin'], 'retention:execute'), false);
+  for (const role of ['document_creator', 'document_sender', 'approver', 'auditor', 'readonly', 'department_admin']) {
+    assert.equal(hasPermission([role], 'retention:execute'), false, `${role} must not gallra`);
+    assert.equal(hasPermission([role], 'retention:manage'), false, `${role} must not configure retention`);
+  }
+});
+
+const ALL_FEATURES = ['BANKID', 'FREJA_PLUS', 'FREJA_ORGID', 'SWEDEN_CONNECT', 'SVERIGE_ID', 'EIDAS', 'QES'];
+const identityRequest = (overrides = {}) => ({
+  environment: 'production', enabledFeatures: ALL_FEATURES,
+  policyAllowedMethods: ['BANKID', 'FREJA_PLUS', 'FREJA_ORGID', 'SVERIGE_ID', 'EIDAS', 'TEST_ONLY'],
+  requiredAssurance: 'HIGH', requiredSignatureLevel: 'ADVANCED_ELECTRONIC_SIGNATURE', ...overrides,
+});
+const identityCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('identity registry resolves methods by capability without naming a provider', () => {
+  const bankId = resolveIdentityMethod(identityRequest({ method: 'BANKID' }));
+  assert.equal(bankId.provider, 'TIC_BANKID');
+  assert.equal(bankId.capabilities.supportsQr, true);
+
+  // Freja OrgID is the staff method: it is the one carrying an organisational
+  // identity, and BankID must not be substituted for it.
+  assert.equal(capabilitiesFor('FREJA_ORGID').carriesOrganisationIdentity, true);
+  assert.equal(capabilitiesFor('FREJA_PLUS').carriesOrganisationIdentity, false);
+  assert.equal(
+    identityCode(() => resolveIdentityMethod(identityRequest({ method: 'BANKID', requiresOrganisationIdentity: true }))),
+    'IDENTITY_ORGANISATION_REQUIRED',
+  );
+  // Both Freja methods route to the same provider, so adding Freja+ costs no
+  // new provider integration.
+  assert.equal(capabilitiesFor('FREJA_ORGID').provider, capabilitiesFor('FREJA_PLUS').provider);
+  assert.equal(capabilitiesFor('SVERIGE_ID').provider, capabilitiesFor('EIDAS').provider);
+});
+
+test('identity registry fails closed in production for every gate', () => {
+  // Unfinished integrations must not be reachable in production...
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'FREJA_ORGID' }))), 'IDENTITY_METHOD_NOT_PRODUCTION_READY');
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'SVERIGE_ID' }))), 'IDENTITY_METHOD_NOT_PRODUCTION_READY');
+  // ...but the adapter is reachable in development so it can be built and tested.
+  assert.equal(resolveIdentityMethod(identityRequest({ method: 'FREJA_ORGID', environment: 'development' })).provider, 'FREJA');
+
+  // The test provider is never reachable from a production-like runtime, and
+  // staging counts as production-like.
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'TEST_ONLY' }))), 'IDENTITY_TEST_PROVIDER_FORBIDDEN');
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'TEST_ONLY', environment: 'staging' }))), 'IDENTITY_TEST_PROVIDER_FORBIDDEN');
+
+  // Policy outranks the feature flag: a flag alone never grants a method.
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'BANKID', policyAllowedMethods: [] }))), 'IDENTITY_METHOD_NOT_ALLOWED_BY_POLICY');
+  assert.equal(identityCode(() => resolveIdentityMethod(identityRequest({ method: 'BANKID', enabledFeatures: [] }))), 'IDENTITY_METHOD_NOT_ENABLED');
+
+  // Qualified signatures are not approximated while no QTSP is integrated.
+  assert.equal(
+    identityCode(() => resolveIdentityMethod(identityRequest({ method: 'BANKID', requiredSignatureLevel: 'QUALIFIED_ELECTRONIC_SIGNATURE_FUTURE' }))),
+    'SIGNATURE_LEVEL_QUALIFIED_UNAVAILABLE',
+  );
+  // eIDAS reaches substantial, not high, so a high-assurance policy rejects it.
+  assert.equal(
+    identityCode(() => resolveIdentityMethod(identityRequest({ method: 'EIDAS', environment: 'development' }))),
+    'IDENTITY_ASSURANCE_INSUFFICIENT',
+  );
+  assert.equal(resolveIdentityMethod(identityRequest({ method: 'EIDAS', environment: 'development', requiredAssurance: 'SUBSTANTIAL' })).provider, 'SWEDEN_CONNECT');
+});
+
+test('provider outage narrows the offered methods but never lowers assurance', () => {
+  const inProduction = availableMethods(identityRequest());
+  assert.deepEqual(inProduction.map((entry) => entry.method), ['BANKID']);
+
+  // With the other adapters live, a BankID outage still leaves the staff
+  // method usable. eIDAS stays out because it cannot reach HIGH assurance.
+  const development = { ...identityRequest(), environment: 'development' };
+  assert.deepEqual(
+    availableMethods(development, ['TIC_BANKID']).map((entry) => entry.method),
+    ['FREJA_PLUS', 'FREJA_ORGID', 'SVERIGE_ID'],
+  );
+  // A total outage offers nothing rather than falling back to a weaker method.
+  assert.deepEqual(availableMethods(development, ['TIC_BANKID', 'FREJA', 'SWEDEN_CONNECT', 'TEST_ONLY']), []);
+
+  // Assurance ordering is what makes "never downgrade" checkable.
+  assert.ok(assuranceAtLeast('HIGH', 'SUBSTANTIAL'));
+  assert.equal(assuranceAtLeast('SUBSTANTIAL', 'HIGH'), false);
+});
+
+const fullEvidence = (overrides = {}) => ({
+  signingCertificateReference: 'cert-1', certificateChainReference: 'chain-1',
+  signedRevisionSha256: 'a'.repeat(64), signatureTimestampReference: 'tst-1',
+  archiveTimestampReference: 'atst-1', revocationEvidenceReferences: ['ocsp-1'],
+  trustListSnapshotReference: 'tl-1', validationResult: 'TOTAL_PASSED',
+  validatedAt: '2026-08-07T10:00:00.000Z', ...overrides,
+});
+const padesPolicy = (overrides = {}) => ({
+  requiredPadesLevel: 'LT', requiresTimestamp: true,
+  allowedValidationResults: ['TOTAL_PASSED'], ...overrides,
+});
+const padesCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('attained PAdES level is capped by the evidence actually present', () => {
+  assert.equal(attainedPadesLevel(fullEvidence()), 'LTA');
+  // Each level is cumulative: removing one artefact caps the level one step down.
+  assert.equal(attainedPadesLevel(fullEvidence({ archiveTimestampReference: null })), 'LT');
+  assert.equal(attainedPadesLevel(fullEvidence({ archiveTimestampReference: null, trustListSnapshotReference: null })), 'T');
+  assert.equal(attainedPadesLevel(fullEvidence({ archiveTimestampReference: null, revocationEvidenceReferences: [] })), 'T');
+  assert.equal(attainedPadesLevel(fullEvidence({ signatureTimestampReference: null, archiveTimestampReference: null })), 'B');
+  // Without a signature over the revision there is no PAdES at all.
+  assert.equal(attainedPadesLevel(fullEvidence({ signedRevisionSha256: null })), null);
+  assert.equal(attainedPadesLevel(fullEvidence({ signingCertificateReference: null })), null);
+  assert.equal(attainedPadesLevel(fullEvidence({ certificateChainReference: null })), null);
+});
+
+test('PAdES admission refuses to register an unvalidated or failed signature', () => {
+  // AGENTS.md rule 5: no registration without DSS or equivalent validation,
+  // however complete the rest of the evidence is.
+  assert.equal(padesCode(() => admitPadesSignature(padesPolicy(), fullEvidence({ validationResult: null }))), 'PADES_NOT_VALIDATED');
+  assert.equal(padesCode(() => admitPadesSignature(padesPolicy(), fullEvidence({ validatedAt: null }))), 'PADES_NOT_VALIDATED');
+  assert.equal(padesCode(() => admitPadesSignature(padesPolicy(), fullEvidence({ validationResult: 'TOTAL_FAILED' }))), 'PADES_VALIDATION_FAILED');
+
+  // INDETERMINATE is admissible only when the policy opts into it.
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy(), fullEvidence({ validationResult: 'INDETERMINATE' }))),
+    'PADES_VALIDATION_RESULT_NOT_ALLOWED',
+  );
+  assert.equal(
+    admitPadesSignature(padesPolicy({ allowedValidationResults: ['TOTAL_PASSED', 'INDETERMINATE'] }), fullEvidence({ validationResult: 'INDETERMINATE' })).validationResult,
+    'INDETERMINATE',
+  );
+
+  // A policy that produces no PAdES must not have one registered against it.
+  assert.equal(padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'NONE' }), fullEvidence())), 'PADES_NOT_REQUIRED_BY_POLICY');
+});
+
+test('PAdES admission never claims a level the evidence does not support', () => {
+  // The core guarantee: asking for LTA without an archive timestamp fails
+  // rather than silently recording LT, and the code names what is missing.
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'LTA' }), fullEvidence({ archiveTimestampReference: null }))),
+    'PADES_ARCHIVE_TIMESTAMP_MISSING',
+  );
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'LT' }), fullEvidence({ archiveTimestampReference: null, revocationEvidenceReferences: [] }))),
+    'PADES_REVOCATION_EVIDENCE_MISSING',
+  );
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'LT' }), fullEvidence({ archiveTimestampReference: null, trustListSnapshotReference: null }))),
+    'PADES_TRUST_LIST_MISSING',
+  );
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'T' }), fullEvidence({ signatureTimestampReference: null, archiveTimestampReference: null }))),
+    'PADES_TIMESTAMP_MISSING',
+  );
+  // A policy demanding a timestamp gets one even at level B.
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'B', requiresTimestamp: true }), fullEvidence({ signatureTimestampReference: null, archiveTimestampReference: null }))),
+    'PADES_TIMESTAMP_MISSING',
+  );
+
+  // What is recorded is what the evidence supports, not what was requested:
+  // asking for B with full LTA evidence records LTA, not B.
+  assert.equal(admitPadesSignature(padesPolicy({ requiredPadesLevel: 'B' }), fullEvidence()).admittedLevel, 'LTA');
+  assert.equal(admitPadesSignature(padesPolicy({ requiredPadesLevel: 'LT' }), fullEvidence({ archiveTimestampReference: null })).admittedLevel, 'LT');
+  assert.match(describePadesLevel('LTA'), /arkivtidsstämpel/);
+});
+
+const ALL_STORES = ['CONTROL', 'DATA', 'OBJECT_STORAGE', 'AUDIT_LOG', 'BACKUP'];
+const fullCoverage = (overrides = {}) => ALL_STORES.map((store) => ({
+  store, recordCount: 1, searched: true,
+  ...(erasureExemption(store) ? { searched: false, recordCount: 0, exemptionReason: erasureExemption(store) } : {}),
+  ...(overrides[store] ?? {}),
+}));
+const privacyRequest = (overrides = {}) => ({
+  tenantId: '00000000-0000-4000-8000-000000000001', requestId: '00000000-0000-4000-8000-000000000009',
+  right: 'ERASURE', receivedAt: '2026-08-07T00:00:00.000Z', legalHoldActive: false, ...overrides,
+});
+const privacyCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('a data subject request must account for every store, including CONTROL', () => {
+  const response = buildDataSubjectResponse(privacyRequest({ right: 'ACCESS' }), fullCoverage());
+  assert.equal(response.complete, true);
+  assert.equal(response.schemaVersion, 1);
+  // PUB-avtalet 10.1: 30 dagar från mottagandet.
+  assert.equal(response.dueAt, '2026-09-06T00:00:00.000Z');
+
+  // Detta är defekten modulen finns för: ett svar som täcker DATA men glömmer
+  // CONTROL ser fullständigt ut och måste därför avvisas.
+  const withoutControl = fullCoverage().filter((entry) => entry.store !== 'CONTROL');
+  assert.equal(privacyCode(() => buildDataSubjectResponse(privacyRequest({ right: 'ACCESS' }), withoutControl)), 'PRIVACY_COVERAGE_INCOMPLETE');
+  const withoutStorage = fullCoverage().filter((entry) => entry.store !== 'OBJECT_STORAGE');
+  assert.equal(privacyCode(() => buildDataSubjectResponse(privacyRequest({ right: 'ACCESS' }), withoutStorage)), 'PRIVACY_COVERAGE_INCOMPLETE');
+
+  // Ett register får inte vara varken genomsökt eller undantaget.
+  assert.equal(
+    privacyCode(() => buildDataSubjectResponse(privacyRequest({ right: 'ACCESS' }), fullCoverage({ CONTROL: { searched: false, exemptionReason: '  ' } }))),
+    'PRIVACY_STORE_NOT_SEARCHED',
+  );
+  assert.equal(
+    privacyCode(() => buildDataSubjectResponse(privacyRequest({ right: 'ACCESS' }), [...fullCoverage(), { store: 'DATA', recordCount: 0, searched: true }])),
+    'PRIVACY_STORE_DUPLICATE',
+  );
+});
+
+test('erasure respects legal hold and the statutory log retention', () => {
+  // Legal hold blockerar radering på samma sätt som gallring.
+  assert.equal(
+    privacyCode(() => buildDataSubjectResponse(privacyRequest({ legalHoldActive: true }), fullCoverage())),
+    'PRIVACY_ERASURE_BLOCKED_BY_LEGAL_HOLD',
+  );
+
+  // Rätten till radering är inte absolut. Auditloggen bevaras enligt
+  // PUB-avtalet 7.5 och backuper punktraderas inte — men båda ska redovisas
+  // som undantag med grund, inte tyst hoppas över.
+  const response = buildDataSubjectResponse(privacyRequest(), fullCoverage());
+  assert.deepEqual([...response.exemptedStores].sort(), ['AUDIT_LOG', 'BACKUP']);
+  assert.match(erasureExemption('AUDIT_LOG'), /fem år/);
+  assert.equal(erasureExemption('CONTROL'), null);
+  assert.equal(erasureExemption('DATA'), null);
+
+  // Förfallodatum räknas mot PUB-avtalets frist.
+  assert.equal(isOverdue(response, new Date('2026-09-01T00:00:00.000Z')), false);
+  assert.equal(isOverdue(response, new Date('2026-09-10T00:00:00.000Z')), true);
+});
+
+const TENANT = '00000000-0000-4000-8000-0000000000a1';
+const CASE = '00000000-0000-4000-8000-0000000000a2';
+const INTENT = '00000000-0000-4000-8000-0000000000a3';
+const DOC_HASH = 'a'.repeat(64);
+const REV_HASH = 'b'.repeat(64);
+
+const signedData = { tenantId: TENANT, signatureCaseId: CASE, documentVersionId: '00000000-0000-4000-8000-0000000000a4', documentSha256: DOC_HASH };
+const beginPipeline = (overrides = {}) => beginSigningPipeline({
+  signedData, signingIntentId: INTENT, requiredLevel: 'LT', requiresTimestamp: true, documentLocked: true, ...overrides,
+});
+const artifact = (overrides = {}) => ({
+  artifactReference: 'artifact-1', coveredDocumentSha256: DOC_HASH, signedRevisionSha256: REV_HASH,
+  signingCertificateReference: 'cert-1', certificateChainReference: 'chain-1', producedAt: '2026-08-07T10:00:00.000Z', ...overrides,
+});
+const tsToken = (overrides = {}) => ({
+  tokenReference: 'tst-1', coveredSha256: REV_HASH, generatedAt: '2026-08-07T10:00:01.000Z', authorityName: 'tsa', ...overrides,
+});
+const report = (overrides = {}) => ({
+  result: 'TOTAL_PASSED', attainedLevel: 'LT', revocationEvidenceReferences: ['ocsp-1'],
+  trustListSnapshotReference: 'tl-1', archiveTimestampReference: null, reportReference: 'rep-1',
+  validatedAt: '2026-08-07T10:00:02.000Z', ...overrides,
+});
+const identity = (overrides = {}) => ({ signingIntentId: INTENT, signatureCaseId: CASE, tenantId: TENANT, assuranceLevel: 'HIGH', ...overrides });
+const signingCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('the signing pipeline runs every stage in order and cannot skip one', () => {
+  let state = beginPipeline();
+  assert.deepEqual(state.completedStages, ['DOCUMENT_LOCKED']);
+
+  // This is the defect the stage machine exists for: a case must not be able
+  // to reach a signature without a resolved policy and a verified identity.
+  assert.equal(signingCode(() => recordSignatureCreated(state, artifact())), 'SIGNING_STAGE_OUT_OF_ORDER');
+  assert.equal(signingCode(() => recordValidated(state, report())), 'SIGNING_STAGE_OUT_OF_ORDER');
+
+  state = recordPolicyResolved(state);
+  assert.equal(signingCode(() => recordPolicyResolved(state)), 'SIGNING_STAGE_ALREADY_COMPLETED');
+
+  state = recordIdentityVerified(state, identity(), ['HIGH', 'SUBSTANTIAL']);
+  state = recordSignatureCreated(state, artifact());
+  state = recordTimestamped(state, tsToken());
+  state = recordValidated(state, report());
+  assert.equal(pipelineIsComplete(state), false);
+  state = recordAdmitted(state);
+  assert.equal(pipelineIsComplete(state), true);
+
+  // The evidence handed to the PAdES gate is assembled only from what
+  // providers returned, and admits exactly the level it supports.
+  const evidence = collectSignatureEvidence(state);
+  assert.equal(evidence.signedRevisionSha256, REV_HASH);
+  assert.equal(attainedPadesLevel(evidence), 'LT');
+  assert.equal(
+    admitPadesSignature({ requiredPadesLevel: 'LT', requiresTimestamp: true, allowedValidationResults: ['TOTAL_PASSED'] }, evidence).admittedLevel,
+    'LT',
+  );
+  assert.match(describeStage('SIGNATURE_CREATED'), /Kryptografisk signatur/);
+});
+
+test('a signature is refused when it does not bind to the locked document', () => {
+  // An unlocked document means the bytes can change between display and
+  // signature, so the hash proves nothing.
+  assert.equal(signingCode(() => beginPipeline({ documentLocked: false })), 'SIGNING_DOCUMENT_NOT_LOCKED');
+  assert.equal(signingCode(() => beginPipeline({ signedData: { ...signedData, documentSha256: 'not-a-hash' } })), 'SIGNING_DOCUMENT_MISMATCH');
+
+  let state = recordPolicyResolved(beginPipeline());
+
+  // Identity evidence from another intent, case or tenant is the path by which
+  // a valid BankID session for one document completes a signature over another.
+  assert.equal(signingCode(() => recordIdentityVerified(state, identity({ signingIntentId: CASE }), ['HIGH'])), 'SIGNING_IDENTITY_NOT_BOUND');
+  assert.equal(signingCode(() => recordIdentityVerified(state, identity({ tenantId: CASE }), ['HIGH'])), 'SIGNING_IDENTITY_NOT_BOUND');
+  assert.equal(signingCode(() => recordIdentityVerified(state, identity({ assuranceLevel: 'LOW' }), ['HIGH'])), 'SIGNING_IDENTITY_ASSURANCE_TOO_LOW');
+
+  state = recordIdentityVerified(state, identity(), ['HIGH']);
+
+  // The backend says what it covered; the pipeline checks rather than trusts.
+  assert.equal(signingCode(() => recordSignatureCreated(state, artifact({ coveredDocumentSha256: REV_HASH }))), 'SIGNING_ARTIFACT_NOT_BOUND');
+  assert.equal(signingCode(() => recordSignatureCreated(state, artifact({ certificateChainReference: '' }))), 'SIGNING_ARTIFACT_MISSING');
+
+  const signed = recordSignatureCreated(state, artifact());
+  // A timestamp over some other digest proves nothing about our revision.
+  assert.equal(signingCode(() => recordTimestamped(signed, tsToken({ coveredSha256: DOC_HASH }))), 'SIGNING_ARTIFACT_NOT_BOUND');
+  // Any level above B needs a timestamp, whatever the policy flag says.
+  assert.equal(signingCode(() => recordTimestamped(signed, null)), 'SIGNING_TIMESTAMP_REQUIRED');
+
+  assert.equal(signingCode(() => recordValidated(recordTimestamped(signed, tsToken()), report({ result: 'TOTAL_FAILED' }))), 'SIGNING_VALIDATION_FAILED');
+  // Evidence may not be collected from an incomplete pipeline.
+  assert.equal(signingCode(() => collectSignatureEvidence(recordTimestamped(signed, tsToken()))), 'SIGNING_NOT_VALIDATED');
+});
+
+test('an unconfigured signing runtime refuses to sign instead of pretending to', async () => {
+  const blocked = {
+    environment: 'production',
+    engine: new NotConfiguredSigningEngine(),
+    timestamps: new NotConfiguredTimestampProvider(),
+    validator: new NotConfiguredSignatureValidator(),
+  };
+  // The default backend must refuse. A permissive stub would produce cases
+  // that look signed and are not (AGENTS.md rule 10).
+  await assert.rejects(() => blocked.engine.sign(), (error) => error.code === 'SIGNING_PROVIDER_NOT_CONFIGURED');
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(blocked, 'LT')), 'SIGNING_LEVEL_NOT_SUPPORTED');
+  // A policy that produces no signature must never enter the signing pipeline.
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(blocked, 'NONE')), 'SIGNING_POLICY_REQUIRES_SIGNATURE');
+
+  const capable = (overrides = {}) => ({
+    environment: 'production',
+    engine: { capabilities: { backendKey: 'x', supportedLevels: ['B', 'T', 'LT', 'LTA'], producesPdfA: true, productionReady: true, keyProtection: 'HSM', ...(overrides.capabilities ?? {}) }, sign: async () => artifact() },
+    timestamps: { authorityName: 'tsa', productionReady: true, timestamp: async () => tsToken() },
+    validator: { validatorKey: 'v', productionReady: true, validate: async () => report() },
+    ...overrides.runtime,
+  });
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(capable(), 'LT')), 'NO_ERROR');
+
+  // Every participant must be production ready in production: a stub validator
+  // would let an unvalidated signature reach the admission gate.
+  assert.equal(
+    signingCode(() => assertSigningRuntimeUsable(capable({ runtime: { validator: { validatorKey: 'v', productionReady: false, validate: async () => report() } } }), 'LT')),
+    'SIGNING_PROVIDER_NOT_PRODUCTION_READY',
+  );
+  assert.equal(
+    signingCode(() => assertSigningRuntimeUsable(capable({ runtime: { timestamps: { authorityName: 't', productionReady: false, timestamp: async () => tsToken() } } }), 'LT')),
+    'SIGNING_PROVIDER_NOT_PRODUCTION_READY',
+  );
+  // Long-term archival signatures may not rest on software-held keys.
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(capable({ capabilities: { keyProtection: 'SOFTWARE' } }), 'LTA')), 'SIGNING_PROVIDER_NOT_PRODUCTION_READY');
+  // ...but the same software backend is acceptable below LTA.
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(capable({ capabilities: { keyProtection: 'SOFTWARE' } }), 'T')), 'NO_ERROR');
+
+  // Outside production a non-ready backend is allowed, so developers can work.
+  assert.equal(signingCode(() => assertSigningRuntimeUsable(capable({ runtime: { environment: 'development' }, capabilities: { productionReady: false } }), 'LT')), 'NO_ERROR');
+});
+
+const NOW = new Date('2026-08-07T12:00:00.000Z');
+const frejaClaims = (overrides = {}) => ({
+  signatureVerified: true, algorithm: 'ES256', issuer: 'https://services.prod.frejaeid.com',
+  audience: 'kommunsign-rp', transactionReference: 'tx-1', signRef: 'intent-1', nonce: 'nonce-1',
+  issuedAt: '2026-08-07T11:59:30.000Z', expiresAt: '2026-08-07T12:05:00.000Z', status: 'APPROVED',
+  subjectType: 'SSN', subject: '198001019876', personalNumber: '198001019876', displayName: 'Test Testsson',
+  registrationLevel: 'PLUS', signedDataSha256: 'c'.repeat(64), ...overrides,
+});
+const frejaExpect = (overrides = {}) => ({
+  method: 'FREJA_PLUS', issuer: 'https://services.prod.frejaeid.com', audience: 'kommunsign-rp',
+  transactionReference: 'tx-1', signRef: 'intent-1', nonce: 'nonce-1', signedDataSha256: 'c'.repeat(64),
+  minimumRegistrationLevel: 'PLUS', allowedAlgorithms: ['ES256', 'RS256'],
+  documentClassification: 'CONFIDENTIAL', maximumResponseAgeSeconds: 300, ...overrides,
+});
+const frejaCode = (claims, expectation = {}, ledger = new InMemoryFrejaNonceLedger(), now = NOW) => {
+  try { verifyFrejaSignatureClaims(frejaClaims(claims), frejaExpect(expectation), ledger, now); return 'NO_ERROR'; }
+  catch (error) { return error.code; }
+};
+
+test('a Freja response is accepted only when it binds to this signing intent', () => {
+  assert.equal(frejaCode({}), 'NO_ERROR');
+
+  // Signature validity proves the message came from Freja. It proves nothing
+  // about which intent it answers, which is what these three bindings cover.
+  assert.equal(frejaCode({ transactionReference: 'tx-2' }), 'FREJA_TRANSACTION_MISMATCH');
+  assert.equal(frejaCode({ signRef: 'intent-2' }), 'FREJA_INTENT_MISMATCH');
+  assert.equal(frejaCode({ signedDataSha256: 'd'.repeat(64) }), 'FREJA_DOCUMENT_MISMATCH');
+
+  // Nothing below the signature check means anything on an unverified message.
+  assert.equal(frejaCode({ signatureVerified: false }), 'FREJA_SIGNATURE_NOT_VERIFIED');
+  // Allow-list, not deny-list.
+  assert.equal(frejaCode({ algorithm: 'none' }), 'FREJA_ALGORITHM_NOT_ALLOWED');
+  assert.equal(frejaCode({ algorithm: 'HS256' }), 'FREJA_ALGORITHM_NOT_ALLOWED');
+  assert.equal(frejaCode({ issuer: 'https://evil.example' }), 'FREJA_ISSUER_MISMATCH');
+  // Without this, a response minted for another relying party is accepted.
+  assert.equal(frejaCode({ audience: 'other-rp' }), 'FREJA_AUDIENCE_MISMATCH');
+  assert.equal(frejaCode({ status: 'REJECTED' }), 'FREJA_STATUS_NOT_APPROVED');
+  assert.equal(frejaCode({ status: 'CANCELED' }), 'FREJA_STATUS_NOT_APPROVED');
+});
+
+test('a Freja response cannot be replayed and cannot outlive its window', () => {
+  const ledger = new InMemoryFrejaNonceLedger();
+  assert.equal(frejaCode({}, {}, ledger), 'NO_ERROR');
+  // The same genuine response replayed matches the nonce both times, so
+  // matching alone is not enough — it must be consumable only once.
+  assert.equal(frejaCode({}, {}, ledger), 'FREJA_NONCE_REPLAYED');
+  assert.equal(frejaCode({ nonce: 'other' }), 'FREJA_NONCE_MISMATCH');
+
+  assert.equal(frejaCode({ expiresAt: '2026-08-07T11:00:00.000Z' }), 'FREJA_RESPONSE_EXPIRED');
+  assert.equal(frejaCode({ issuedAt: '2026-08-07T12:30:00.000Z' }), 'FREJA_ISSUED_IN_FUTURE');
+  // A response whose own expiry is far in the future must not stay usable that
+  // long: we bound the age ourselves.
+  assert.equal(
+    frejaCode({ issuedAt: '2026-08-07T10:00:00.000Z', expiresAt: '2027-01-01T00:00:00.000Z' }),
+    'FREJA_RESPONSE_EXPIRED',
+  );
+});
+
+test('Freja assurance and OrgID organisation identity are enforced, not assumed', () => {
+  // BASIC is self-registered and must never pass as a formal Swedish identity.
+  assert.equal(frejaAssuranceLevel('BASIC'), 'LOW');
+  assert.equal(frejaAssuranceLevel('EXTENDED'), 'SUBSTANTIAL');
+  assert.equal(frejaAssuranceLevel('PLUS'), 'HIGH');
+  assert.equal(frejaCode({ registrationLevel: 'BASIC' }), 'FREJA_REGISTRATION_LEVEL_TOO_LOW');
+  assert.equal(frejaCode({ registrationLevel: 'EXTENDED' }), 'FREJA_REGISTRATION_LEVEL_TOO_LOW');
+  assert.equal(frejaCode({ registrationLevel: 'EXTENDED' }, { minimumRegistrationLevel: 'EXTENDED' }), 'NO_ERROR');
+
+  // INFERRED lets Freja pick the subject; never acceptable when the point is
+  // knowing exactly who signed.
+  assert.equal(frejaCode({ subjectType: 'INFERRED' }), 'FREJA_SUBJECT_TYPE_NOT_ALLOWED');
+  assert.equal(frejaCode({ subjectType: 'INFERRED' }, { documentClassification: 'INTERNAL' }), 'NO_ERROR');
+
+  // OrgID is the only method carrying a verified organisation identity, and it
+  // must be our organisation rather than any organisation.
+  const orgExpect = { method: 'FREJA_ORGID', expectedOrganisationId: 'org-kungalv' };
+  assert.equal(frejaCode({}, orgExpect), 'FREJA_ORGANISATION_IDENTITY_MISSING');
+  assert.equal(frejaCode({ organisationId: 'org-other' }, orgExpect), 'FREJA_ORGANISATION_MISMATCH');
+  assert.equal(frejaCode({ organisationId: 'org-kungalv' }, orgExpect), 'NO_ERROR');
+
+  // Normalisation keeps Freja vocabulary out of the rest of the system.
+  const evidence = { provider: 'FREJA_DIRECT', providerReference: 'tx-1', rawPayload: {}, collectedAt: NOW.toISOString() };
+  const verified = toVerifiedIdentityEvidence(frejaClaims({ organisationId: 'org-kungalv' }), evidence, NOW.toISOString());
+  assert.equal(verified.assuranceLevel, 'HIGH');
+  assert.equal(verified.provider, 'FREJA_DIRECT');
+  assert.equal(verified.signedPayloadSha256, 'c'.repeat(64));
+});
+
+test('an unconfigured Freja verifier refuses instead of accepting an unverified response', async () => {
+  await assert.rejects(() => new RejectingFrejaSignatureVerifier().verifyJws('a.b.c'), /not configured/);
+  const provider = new FrejaProvider(
+    { method: 'FREJA_PLUS', issuer: 'i', audience: 'a', minimumRegistrationLevel: 'PLUS', allowedAlgorithms: ['ES256'], maximumResponseAgeSeconds: 300 },
+    { transport: 'MTLS_JAVA_GATEWAY', startSignature: async () => ({}), getStatus: async () => 'PENDING', collectEvidence: async () => ({}), cancel: async () => {}, verifyEvidence: async () => ({}) },
+  );
+  // Wrong provider and a missing JWS are both refusals, not warnings.
+  await assert.rejects(
+    () => provider.verifyEvidence({ provider: 'TIC_BANKID', providerReference: 'x', rawPayload: {}, collectedAt: NOW.toISOString() }),
+    (error) => error.code === 'FREJA_WRONG_PROVIDER',
+  );
+  await assert.rejects(
+    () => provider.verifyEvidence({ provider: 'FREJA_DIRECT', providerReference: 'x', rawPayload: {}, collectedAt: NOW.toISOString() }),
+    (error) => error.code === 'FREJA_SIGNATURE_NOT_VERIFIED',
+  );
+});
+
+const FED_TENANT = '00000000-0000-4000-8000-0000000000b1';
+const fedConfig = (overrides = {}) => ({
+  tenantId: FED_TENANT, protocol: 'SAML2', enabled: true,
+  issuer: 'https://idp.kungalv.se/metadata', audience: 'https://kungalv.kommunsign.se/sp',
+  destination: 'https://kungalv.kommunsign.se/saml/acs',
+  signingCertificateSecretReference: 'vault://kungalv/saml-signing',
+  requiredAuthnContexts: ['urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactor'],
+  maximumAuthenticationAgeSeconds: 3600, subjectAttribute: 'uid', groupsAttribute: 'memberOf',
+  groupToRole: { 'CN=Kommunsign-Admin': 'tenant_admin', 'CN=Kommunsign-Handlaggare': 'case_manager' },
+  assignableRoles: ['tenant_admin', 'case_manager'], ...overrides,
+});
+const fedAssertion = (overrides = {}) => ({
+  protocol: 'SAML2', signatureVerified: true, issuer: 'https://idp.kungalv.se/metadata',
+  audience: 'https://kungalv.kommunsign.se/sp', destination: 'https://kungalv.kommunsign.se/saml/acs',
+  assertionId: 'assertion-1', inResponseTo: 'request-1', notBefore: '2026-08-07T11:59:00.000Z',
+  notOnOrAfter: '2026-08-07T12:05:00.000Z', authenticatedAt: '2026-08-07T11:58:00.000Z',
+  authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactor', subject: 'anna.andersson',
+  attributes: { uid: ['anna.andersson'], memberOf: ['CN=Kommunsign-Handlaggare', 'CN=Ovrig'] }, ...overrides,
+});
+const fedBinding = (overrides = {}) => ({ requestId: 'request-1', tenantId: FED_TENANT, redirectUri: 'https://kungalv.kommunsign.se/saml/acs', ...overrides });
+const fedCode = (assertion = {}, config = {}, binding = {}, ledger = new InMemoryAssertionLedger()) => {
+  try { verifyWorkforceAssertion(fedAssertion(assertion), fedConfig(config), fedBinding(binding), ledger, NOW); return 'NO_ERROR'; }
+  catch (error) { return error.code; }
+};
+
+test('a federated assertion is admitted only when it answers our own login request', () => {
+  assert.equal(fedCode(), 'NO_ERROR');
+
+  // Nothing below the signature means anything on an unsigned assertion.
+  assert.equal(fedCode({ signatureVerified: false }), 'FEDERATION_SIGNATURE_NOT_VERIFIED');
+  // A disabled provider must not authenticate anyone, even with a valid
+  // assertion left over from when it was enabled.
+  assert.equal(fedCode({}, { enabled: false }), 'FEDERATION_PROVIDER_DISABLED');
+  assert.equal(fedCode({ issuer: 'https://evil.example' }), 'FEDERATION_ISSUER_MISMATCH');
+  // An assertion minted for a different service provider by the same IdP.
+  assert.equal(fedCode({ audience: 'https://other.example/sp' }), 'FEDERATION_AUDIENCE_MISMATCH');
+  // One captured at a different endpoint and posted to ours.
+  assert.equal(fedCode({ destination: 'https://other.example/acs' }), 'FEDERATION_DESTINATION_MISMATCH');
+  // IdP-initiated flows are refused: a stolen assertion could be posted at any
+  // time if it did not have to answer a request we started.
+  assert.equal(fedCode({ inResponseTo: null }), 'FEDERATION_REQUEST_MISMATCH');
+  assert.equal(fedCode({ inResponseTo: 'request-2' }), 'FEDERATION_REQUEST_MISMATCH');
+  // AGENTS.md rule 1: tenant comes from the bound configuration, never the message.
+  assert.equal(fedCode({}, {}, { tenantId: '00000000-0000-4000-8000-0000000000b2' }), 'FEDERATION_TENANT_MISMATCH');
+  assert.equal(fedCode({ subject: '   ' }, {}, {}), 'FEDERATION_SUBJECT_MISSING');
+});
+
+test('a federated assertion expires, cannot be replayed, and carries a fresh enough session', () => {
+  assert.equal(fedCode({ notOnOrAfter: '2026-08-07T11:00:00.000Z' }), 'FEDERATION_ASSERTION_EXPIRED');
+  assert.equal(fedCode({ notBefore: '2026-08-07T12:30:00.000Z' }), 'FEDERATION_ASSERTION_NOT_YET_VALID');
+
+  // Within its validity window the same assertion is accepted every time it is
+  // presented, unless it is consumed exactly once.
+  const ledger = new InMemoryAssertionLedger();
+  assert.equal(fedCode({}, {}, {}, ledger), 'NO_ERROR');
+  assert.equal(fedCode({}, {}, {}, ledger), 'FEDERATION_ASSERTION_REPLAYED');
+
+  // A fresh assertion can still describe a very old IdP session.
+  assert.equal(fedCode({ authenticatedAt: '2026-08-07T06:00:00.000Z' }), 'FEDERATION_SESSION_TOO_OLD');
+  assert.equal(fedCode({ authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:Password' }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
+  assert.equal(fedCode({ authnContext: null }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
+  // A tenant that demands no particular context accepts what the IdP sent.
+  assert.equal(fedCode({ authnContext: null }, { requiredAuthnContexts: [] }), 'NO_ERROR');
+
+  // The same rules apply to OIDC: one decision, not two that can drift.
+  assert.equal(fedCode({ protocol: 'OIDC' }, { protocol: 'OIDC' }), 'NO_ERROR');
+});
+
+test('group to role mapping denies by default rather than granting a fallback', () => {
+  const mapped = mapWorkforceIdentity(fedAssertion(), fedConfig(), fedBinding());
+  assert.deepEqual(mapped.roles, ['case_manager']);
+  // An unmapped group grants nothing rather than being ignored silently.
+  assert.deepEqual(mapped.groups, ['CN=Kommunsign-Handlaggare', 'CN=Ovrig']);
+  assert.equal(mapped.tenantId, FED_TENANT);
+
+  const mapCode = (assertion, config = {}) => {
+    try { mapWorkforceIdentity(fedAssertion(assertion), fedConfig(config), fedBinding()); return 'NO_ERROR'; }
+    catch (error) { return error.code; }
+  };
+  // A user with no mapped group is refused, not given a default role.
+  assert.equal(mapCode({ attributes: { uid: ['x'], memberOf: ['CN=Ovrig'] } }), 'FEDERATION_NO_ROLE_MAPPED');
+  assert.equal(mapCode({ attributes: { uid: ['x'] } }), 'FEDERATION_NO_ROLE_MAPPED');
+  // A mapping pointing outside assignableRoles fails loudly at login rather
+  // than quietly handing out a permission nobody chose.
+  assert.equal(
+    mapCode({}, { groupToRole: { 'CN=Kommunsign-Handlaggare': 'platform_superadmin' } }),
+    'FEDERATION_ROLE_NOT_ASSIGNABLE',
+  );
+  assert.equal(mapCode({ attributes: { memberOf: ['CN=Kommunsign-Admin'] }, subject: '  ' }), 'FEDERATION_SUBJECT_MISSING');
+});
+
+test('single logout terminates only the sessions the IdP actually named', () => {
+  const sessions = [
+    { sessionId: 's1', tenantId: FED_TENANT, subject: 'anna.andersson', sessionIndex: 'idx-1' },
+    { sessionId: 's2', tenantId: FED_TENANT, subject: 'anna.andersson', sessionIndex: 'idx-2' },
+    { sessionId: 's3', tenantId: FED_TENANT, subject: 'bo.bosson', sessionIndex: 'idx-1' },
+    { sessionId: 's4', tenantId: '00000000-0000-4000-8000-0000000000b2', subject: 'anna.andersson', sessionIndex: 'idx-1' },
+  ];
+  const logout = (overrides = {}) => ({ issuer: 'https://idp.kungalv.se/metadata', subject: 'anna.andersson', sessionIndex: null, signatureVerified: true, ...overrides });
+
+  // No session index means every session for that subject, in that tenant only.
+  assert.deepEqual(resolveLogoutTargets(logout(), fedConfig(), sessions), ['s1', 's2']);
+  assert.deepEqual(resolveLogoutTargets(logout({ sessionIndex: 'idx-1' }), fedConfig(), sessions), ['s1']);
+
+  // An honoured unsigned or foreign logout would be a denial of service
+  // against every user, so both are refused.
+  const logoutCode = (overrides) => {
+    try { resolveLogoutTargets(logout(overrides), fedConfig(), sessions); return 'NO_ERROR'; }
+    catch (error) { return error.code; }
+  };
+  assert.equal(logoutCode({ signatureVerified: false }), 'FEDERATION_SIGNATURE_NOT_VERIFIED');
+  assert.equal(logoutCode({ issuer: 'https://evil.example' }), 'FEDERATION_ISSUER_MISMATCH');
+});
+
+const SCIM_TENANT = '00000000-0000-4000-8000-0000000000c1';
+const OTHER_TENANT = '00000000-0000-4000-8000-0000000000c2';
+const scimContext = (overrides = {}) => ({
+  tenantId: SCIM_TENANT, clientId: '00000000-0000-4000-8000-0000000000c3', requestId: 'req-1',
+  assignableRoles: ['tenant_admin', 'case_manager'],
+  groupToRole: { 'Kommunsign-Admin': 'tenant_admin', 'Kommunsign-Handlaggare': 'case_manager' }, ...overrides,
+});
+const scimUser = (overrides = {}) => ({
+  id: '00000000-0000-4000-8000-0000000000c4', tenantId: SCIM_TENANT, externalId: 'ext-1',
+  userName: 'anna.andersson', displayName: 'Anna Andersson', email: 'anna@kungalv.se', active: true,
+  roles: [], groups: [], createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-08-01T00:00:00.000Z', ...overrides,
+});
+const scimCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+const SCIM_NOW = '2026-08-07T12:00:00.000Z';
+
+test('SCIM provisioning is idempotent and never crosses a tenant boundary', () => {
+  const context = scimContext();
+  const existing = [scimUser()];
+
+  // IdPs retry provisioning freely. Without idempotency on externalId each
+  // retry either duplicates the account or 409s and stalls the sync.
+  const retry = createScimUser(context, { userName: 'anna.andersson', externalId: 'ext-1' }, existing, 'new-id', SCIM_NOW);
+  assert.equal(retry.idempotentMatch, true);
+  assert.equal(retry.user.id, scimUser().id);
+
+  // Two different directory entries claiming one login is a real conflict.
+  assert.equal(scimCode(() => createScimUser(context, { userName: 'ANNA.ANDERSSON', externalId: 'ext-2' }, existing, 'n', SCIM_NOW)), 'SCIM_UNIQUENESS');
+  assert.equal(scimCode(() => createScimUser(context, { externalId: 'ext-3' }, existing, 'n', SCIM_NOW)), 'SCIM_INVALID_VALUE');
+
+  const created = createScimUser(context, { userName: 'bo.bosson', externalId: 'ext-9', emails: [{ value: 'B@Kungalv.se', primary: true }] }, existing, 'new-id', SCIM_NOW);
+  assert.equal(created.idempotentMatch, false);
+  assert.equal(created.user.tenantId, SCIM_TENANT); // never from the payload
+  assert.equal(created.user.email, 'b@kungalv.se');
+  assert.equal(created.user.active, true); // SCIM default
+
+  // A user in another tenant must be invisible, not merely forbidden: a 403
+  // confirms the resource is real and turns ID enumeration into a directory
+  // listing. So this is 404.
+  const foreign = scimUser({ tenantId: OTHER_TENANT });
+  assert.equal(scimCode(() => assertScimTenant(context, foreign)), 'SCIM_TENANT_MISMATCH');
+  assert.equal(new ScimError('SCIM_TENANT_MISMATCH', 'x').status, 404);
+  assert.equal(scimCode(() => applyScimPatch(context, foreign, [{ op: 'replace', path: 'active', value: false }], SCIM_NOW)), 'SCIM_TENANT_MISMATCH');
+  assert.equal(scimCode(() => deprovisionScimUser(context, foreign, true, SCIM_NOW)), 'SCIM_TENANT_MISMATCH');
+  // Idempotent lookup must not reach across tenants either.
+  assert.equal(createScimUser(context, { userName: 'x.y', externalId: 'ext-1' }, [foreign], 'n', SCIM_NOW).idempotentMatch, false);
+});
+
+test('SCIM deactivation keeps the user record instead of deleting the audit trail', () => {
+  const context = scimContext();
+  // This is how Entra and most directories deprovision.
+  const disabled = applyScimPatch(context, scimUser(), [{ op: 'replace', path: 'active', value: false }], SCIM_NOW);
+  assert.equal(disabled.active, false);
+  assert.equal(disabled.id, scimUser().id);
+  assert.equal(disabled.updatedAt, SCIM_NOW);
+
+  // Some directories send the strings rather than booleans.
+  assert.equal(applyScimPatch(context, scimUser(), [{ op: 'replace', path: 'active', value: 'False' }], SCIM_NOW).active, false);
+  assert.equal(scimCode(() => applyScimPatch(context, scimUser(), [{ op: 'replace', path: 'active', value: 'maybe' }], SCIM_NOW)), 'SCIM_INVALID_VALUE');
+
+  // Entra also sends pathless replace with an attribute object.
+  const renamed = applyScimPatch(context, scimUser(), [{ op: 'replace', value: { displayName: 'Anna Ny', active: false } }], SCIM_NOW);
+  assert.equal(renamed.displayName, 'Anna Ny');
+  assert.equal(renamed.active, false);
+
+  // Refused rather than ignored: silently dropping an attribute the directory
+  // believes it set leaves the two sides disagreeing forever.
+  assert.equal(scimCode(() => applyScimPatch(context, scimUser(), [{ op: 'replace', path: 'roles', value: ['tenant_admin'] }], SCIM_NOW)), 'SCIM_INVALID_PATH');
+  assert.equal(scimCode(() => applyScimPatch(context, scimUser(), [{ op: 'replace', path: 'id', value: 'x' }], SCIM_NOW)), 'SCIM_INVALID_PATH');
+  assert.equal(scimCode(() => applyScimPatch(context, scimUser(), [{ op: 'merge', path: 'active', value: false }], SCIM_NOW)), 'SCIM_INVALID_VALUE');
+
+  // A DELETE for a user with history degrades to deactivation: removing the row
+  // would orphan the signatures and audit events that name them.
+  assert.equal(deprovisionScimUser(context, scimUser(), true, SCIM_NOW).action, 'DEACTIVATED');
+  assert.equal(deprovisionScimUser(context, scimUser(), false, SCIM_NOW).action, 'DELETED');
+});
+
+test('SCIM roles come from mapped groups only, and never above the client scope', () => {
+  const context = scimContext();
+  const withGroups = applyGroupMembership(context, scimUser(), ['Kommunsign-Handlaggare', 'Ovrig-Grupp'], SCIM_NOW);
+  // An unmapped group grants nothing.
+  assert.deepEqual(withGroups.roles, ['case_manager']);
+  assert.deepEqual(withGroups.groups, ['Kommunsign-Handlaggare', 'Ovrig-Grupp']);
+  assert.deepEqual(resolveScimRoles(context, []), []);
+  assert.deepEqual(resolveScimRoles(context, ['Kommunsign-Admin', 'Kommunsign-Handlaggare']), ['case_manager', 'tenant_admin']);
+
+  // A directory admin adding someone to a group must not escalate beyond what
+  // the provisioning client itself was scoped for.
+  const escalating = scimContext({ groupToRole: { 'Kommunsign-Admin': 'platform_superadmin' } });
+  assert.equal(scimCode(() => resolveScimRoles(escalating, ['Kommunsign-Admin'])), 'SCIM_ROLE_NOT_ASSIGNABLE');
+});
+
+test('SCIM pagination is 1-based and filters are a strict subset', () => {
+  const resources = Array.from({ length: 250 }, (_, index) => ({ index }));
+
+  // RFC 7644 §3.4.2.4. Treating this as 0-based skips or duplicates a user on
+  // every page boundary, which surfaces months later as missing staff.
+  const first = paginateScim(resources, 1, 100);
+  assert.equal(first.startIndex, 1);
+  assert.deepEqual(first.Resources[0], { index: 0 });
+  assert.equal(first.totalResults, 250);
+  assert.equal(first.itemsPerPage, 100);
+
+  const second = paginateScim(resources, 101, 100);
+  assert.deepEqual(second.Resources[0], { index: 100 });
+  // No overlap and no gap between consecutive pages.
+  assert.deepEqual(first.Resources.at(-1), { index: 99 });
+
+  assert.equal(scimCode(() => paginateScim(resources, 0, 10)), 'SCIM_INVALID_PAGINATION');
+  assert.equal(scimCode(() => paginateScim(resources, -1, 10)), 'SCIM_INVALID_PAGINATION');
+  assert.equal(scimCode(() => paginateScim(resources, 1, -1)), 'SCIM_INVALID_PAGINATION');
+  // An oversized count is a resource limit, so it is capped rather than refused.
+  assert.equal(paginateScim(resources, 1, 10_000).itemsPerPage, SCIM_MAXIMUM_PAGE_SIZE);
+  assert.equal(paginateScim(resources, 251, 10).Resources.length, 0);
+
+  // The filter grammar is a strict subset: every attribute is a column, and an
+  // over-general parser is how a filter string becomes a query-shaping input.
+  assert.deepEqual(parseScimFilter('userName eq "anna.andersson"'), { attribute: 'userName', operator: 'eq', value: 'anna.andersson' });
+  assert.deepEqual(parseScimFilter('externalId Eq "ext-1"'), { attribute: 'externalId', operator: 'eq', value: 'ext-1' });
+  assert.deepEqual(parseScimFilter('active eq true'), { attribute: 'active', operator: 'eq', value: 'true' });
+  assert.equal(parseScimFilter(undefined), null);
+  for (const bad of ['userName co "a"', 'userName eq "a" or userName eq "b"', 'password eq "x"', 'userName eq ""', 'userName eq "a\\"']) {
+    assert.equal(scimCode(() => parseScimFilter(bad)), 'SCIM_INVALID_FILTER', bad);
+  }
+
+  assert.equal(matchesScimFilter(scimUser(), parseScimFilter('userName eq "ANNA.ANDERSSON"')), true);
+  assert.equal(matchesScimFilter(scimUser({ externalId: null }), parseScimFilter('externalId eq "ext-1"')), false);
+  assert.equal(matchesScimFilter(scimUser({ active: false }), parseScimFilter('active eq true')), false);
+
+  // The wire shape keeps the schema URN and a relative location, so one tenant
+  // hostname is never baked into a record served from several.
+  const resource = toScimUserResource(scimUser({ roles: ['case_manager'] }));
+  assert.deepEqual(resource.schemas, ['urn:ietf:params:scim:schemas:core:2.0:User']);
+  assert.equal(resource.meta.location, `/scim/v2/Users/${scimUser().id}`);
+  assert.deepEqual(resource.roles, [{ value: 'case_manager' }]);
+});
+
+const bytesOf = (text) => new TextEncoder().encode(text);
+const archiveCase = (overrides = {}) => ({
+  tenantId: '00000000-0000-4000-8000-0000000000d1',
+  signatureCaseId: '00000000-0000-4000-8000-0000000000d2',
+  reference: 'KS2026-0001', title: 'Delegationsbeslut', decisionMode: 'ELECTRONIC_SIGNATURE',
+  status: 'archived', createdAt: '2026-08-01T00:00:00.000Z', closedAt: '2026-08-05T00:00:00.000Z',
+  documents: [{
+    documentId: '00000000-0000-4000-8000-0000000000d3', documentVersionId: '00000000-0000-4000-8000-0000000000d4',
+    displayName: 'beslut.pdf', sha256: 'e'.repeat(64), byteSize: 12, verifiedProfile: 'PDF/A-2b', isSignedArtifact: true,
+  }],
+  signatures: [{
+    signerId: '00000000-0000-4000-8000-0000000000d5', signedAt: '2026-08-04T00:00:00.000Z', padesLevel: 'LT',
+    signatureArtifactSha256: 'f'.repeat(64), validationReportSha256: '1'.repeat(64), timestampTokenSha256: '2'.repeat(64),
+  }],
+  identities: [{
+    signerId: '00000000-0000-4000-8000-0000000000d5', provider: 'TIC_BANKID', assuranceLevel: 'HIGH',
+    maskedIdentifier: '19800101-****', verifiedAt: '2026-08-04T00:00:00.000Z', evidenceSha256: '3'.repeat(64),
+  }],
+  auditTrailSha256: '4'.repeat(64), ...overrides,
+});
+const archiveFiles = () => [
+  { path: 'content/beslut.pdf', bytes: bytesOf('signed-pdf-1'), mediaType: 'application/pdf' },
+  { path: 'metadata/descriptive.json', bytes: bytesOf('{"a":1}'), mediaType: 'application/json' },
+  { path: 'evidence/validation-report.json', bytes: bytesOf('{"r":"ok"}'), mediaType: 'application/json' },
+];
+const archiveCode = async (fn) => { try { await fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('an archive package refuses to misrepresent what it contains', async () => {
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase(), archiveFiles())), 'NO_ERROR');
+
+  // Archiving a running case would freeze a half-finished record and imply it
+  // was final.
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase({ closedAt: null }), archiveFiles())), 'ARCHIVE_CASE_NOT_CLOSED');
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase({ documents: [] }), archiveFiles())), 'ARCHIVE_DOCUMENT_MISSING');
+
+  // RA-FS requires a preservation format. A profile the processor did not
+  // verify is a claim, not a format.
+  const unverified = archiveCase({ documents: [{ ...archiveCase().documents[0], verifiedProfile: null }] });
+  assert.equal(await archiveCode(() => buildArchivePackage(unverified, archiveFiles())), 'ARCHIVE_PROFILE_NOT_VERIFIED');
+
+  // An electronic signature exported without signature evidence would be a
+  // false statement about a legal act.
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase({ signatures: [] }), archiveFiles())), 'ARCHIVE_SIGNATURE_EVIDENCE_MISSING');
+  const noReport = archiveCase({ signatures: [{ ...archiveCase().signatures[0], validationReportSha256: null }] });
+  assert.equal(await archiveCode(() => buildArchivePackage(noReport, archiveFiles())), 'ARCHIVE_SIGNATURE_EVIDENCE_MISSING');
+  // A signature with no identity evidence cannot prove who signed.
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase({ identities: [] }), archiveFiles())), 'ARCHIVE_IDENTITY_EVIDENCE_MISSING');
+  // Without the audit trail the package records the outcome but not the process.
+  assert.equal(await archiveCode(() => buildArchivePackage(archiveCase({ auditTrailSha256: null }), archiveFiles())), 'ARCHIVE_AUDIT_TRAIL_MISSING');
+
+  // A digital approval has no PAdES signature and must not be required to
+  // carry one — the completeness rules are asymmetric on purpose.
+  const approval = archiveCase({ decisionMode: 'DIGITAL_APPROVAL', signatures: [], identities: [] });
+  assert.equal(await archiveCode(() => buildArchivePackage(approval, archiveFiles())), 'NO_ERROR');
+
+  // Path traversal and stray namespaces are refused outright.
+  for (const path of ['../etc/passwd', 'content/../x', 'other/file.pdf', 'content/']) {
+    assert.equal(
+      await archiveCode(() => buildArchivePackage(archiveCase(), [{ path, bytes: bytesOf('x'), mediaType: 'application/pdf' }])),
+      'ARCHIVE_PATH_INVALID', path,
+    );
+  }
+  // A package with metadata but no content describes a delivery missing its files.
+  assert.equal(
+    await archiveCode(() => buildArchivePackage(archiveCase(), [{ path: 'metadata/only.json', bytes: bytesOf('{}'), mediaType: 'application/json' }])),
+    'ARCHIVE_DOCUMENT_MISSING',
+  );
+});
+
+test('an archive package is deterministic and verifiable with nothing but itself', async () => {
+  const first = await buildArchivePackage(archiveCase(), archiveFiles());
+  // Same case, files supplied in a different order.
+  const shuffled = [archiveFiles()[2], archiveFiles()[0], archiveFiles()[1]];
+  const second = await buildArchivePackage(archiveCase(), shuffled);
+
+  // If the same closed case exported twice differed, no one could prove the
+  // archive copy is the delivered copy.
+  assert.equal(first.manifestSha256, second.manifestSha256);
+  assert.deepEqual(first.manifest.entries.map((entry) => entry.path), second.manifest.entries.map((entry) => entry.path));
+  assert.deepEqual(first.manifest.entries.map((entry) => entry.path), ['content/beslut.pdf', 'evidence/validation-report.json', 'metadata/descriptive.json']);
+  assert.equal(first.manifest.regulation, 'RA-FS 2009:2');
+  assert.deepEqual(first.manifest.entries.map((entry) => entry.category), ['content', 'evidence', 'metadata']);
+
+  // Verification needs the package, the manifest and the separately delivered
+  // manifest hash — no database, no network.
+  assert.deepEqual(await verifyArchivePackage(first.manifest, archiveFiles(), first.manifestSha256), { verified: true, failures: [] });
+
+  // A tampered file is detected.
+  const tampered = archiveFiles().map((file) => file.path === 'content/beslut.pdf' ? { ...file, bytes: bytesOf('signed-pdf-2') } : file);
+  const tamperedResult = await verifyArchivePackage(first.manifest, tampered, first.manifestSha256);
+  assert.equal(tamperedResult.verified, false);
+  assert.match(tamperedResult.failures.join(' '), /Hash mismatch: content\/beslut\.pdf/);
+
+  // A missing file and an extra file are both failures: a package carrying
+  // content the manifest does not describe was not delivered as described.
+  assert.match((await verifyArchivePackage(first.manifest, archiveFiles().slice(1), first.manifestSha256)).failures.join(' '), /Missing file/);
+  assert.match(
+    (await verifyArchivePackage(first.manifest, [...archiveFiles(), { path: 'content/extra.pdf', bytes: bytesOf('x'), mediaType: 'application/pdf' }], first.manifestSha256)).failures.join(' '),
+    /Unexpected file/,
+  );
+
+  // The manifest hash is delivered outside the manifest. A checksum stored
+  // inside would re-certify any modification to the manifest itself.
+  const forged = { ...first.manifest, title: 'Något annat' };
+  const forgedResult = await verifyArchivePackage(forged, archiveFiles(), first.manifestSha256);
+  assert.equal(forgedResult.verified, false);
+  assert.deepEqual(forgedResult.failures, ['Manifest hash does not match the delivered manifest hash']);
+
+  // Descriptive metadata is technology-neutral and carries no full personal
+  // number: an archive package outlives every access control around it.
+  const metadata = buildDescriptiveMetadata(archiveCase());
+  assert.equal(metadata.signatories[0].identifier, '19800101-****');
+  assert.equal(metadata.documents[0].format, 'PDF/A-2b');
+  assert.doesNotMatch(canonicalJson(metadata), /\d{8}-?\d{4}/);
+});
+
+const GAL_TENANT = '00000000-0000-4000-8000-0000000000e1';
+const GAL_CASE = '00000000-0000-4000-8000-0000000000e2';
+const REQUESTER = '00000000-0000-4000-8000-0000000000e3';
+const APPROVER = '00000000-0000-4000-8000-0000000000e4';
+const GAL_NOW = new Date('2026-08-07T12:00:00.000Z');
+const galPolicy = (overrides = {}) => ({
+  policyKey: 'case-default', version: 1, retentionClass: 'business_data',
+  mode: 'delete_after_period', periodDays: 30, active: true, ...overrides,
+});
+const galSubject = (overrides = {}) => ({
+  tenantId: GAL_TENANT, caseId: GAL_CASE, status: 'completed',
+  closedAt: '2026-01-01T00:00:00.000Z', legalHoldActive: false, ...overrides,
+});
+const galJob = (overrides = {}) => ({
+  tenantId: GAL_TENANT, jobId: '00000000-0000-4000-8000-0000000000e5', state: 'QUEUED',
+  policyKey: 'case-default', policyVersion: 1, caseIds: [GAL_CASE],
+  queuedDecision: { action: 'DELETE', reason: 'DUE_FOR_DELETION', eligibleAt: '2026-01-31T00:00:00.000Z' },
+  queuedAt: '2026-08-06T00:00:00.000Z', plannedTargets: [], requestedBy: REQUESTER,
+  approvedBy: null, approvedAt: null, ...overrides,
+});
+const galApprover = (overrides = {}) => ({
+  actorId: APPROVER, tenantId: GAL_TENANT, hasRetentionExecutePermission: true, isPlatformStaff: false, ...overrides,
+});
+const allOutcomes = (overrides = {}) => MANDATORY_CASE_TARGETS.map((target) => ({
+  target, deletedCount: 1, verified: true, ...(overrides[target] ?? {}),
+}));
+const galCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('gallring is approved by the customer, by someone other than the requester', () => {
+  const due = selectDueCases(galPolicy(), [galSubject(), galSubject({ caseId: 'x', legalHoldActive: true })], GAL_NOW);
+  assert.equal(due.length, 1);
+  assert.equal(due[0].decision.action, 'DELETE');
+
+  const planned = planGallring(galJob());
+  assert.equal(planned.state, 'PLANNED');
+  // The plan always covers the derived stores people forget — a search index or
+  // cache that keeps serving content after the primary row is gone means the
+  // information is still recoverable (krav 2070).
+  for (const target of ['search_index', 'cache', 'notifications', 'object_storage']) {
+    assert.ok(planned.plannedTargets.includes(target), target);
+  }
+
+  const approved = approveGallring(planned, galApprover(), GAL_NOW.toISOString());
+  assert.equal(approved.state, 'APPROVED');
+  assert.equal(approved.approvedBy, APPROVER);
+
+  // Krav 2069 cuts both ways: the customer can gallra without the supplier,
+  // so the supplier must not gallra without the customer.
+  assert.equal(galCode(() => approveGallring(planned, galApprover({ isPlatformStaff: true }))), 'GALLRING_APPROVER_NOT_PERMITTED');
+  assert.equal(galCode(() => approveGallring(planned, galApprover({ hasRetentionExecutePermission: false }))), 'GALLRING_APPROVER_NOT_PERMITTED');
+  assert.equal(galCode(() => approveGallring(planned, galApprover({ tenantId: 'other' }))), 'GALLRING_TENANT_MISMATCH');
+  // Gallring is irreversible; one account must not both propose and execute it.
+  assert.equal(galCode(() => approveGallring(planned, galApprover({ actorId: REQUESTER }))), 'GALLRING_SELF_APPROVAL');
+  // States are ordered: approval cannot skip planning.
+  assert.equal(galCode(() => approveGallring(galJob(), galApprover())), 'GALLRING_STATE_INVALID');
+});
+
+test('a queued gallring decision is re-checked before anything is deleted', () => {
+  const approved = approveGallring(planGallring(galJob()), galApprover(), GAL_NOW.toISOString());
+  assert.equal(beginGallringExecution(approved, galPolicy(), [galSubject()], GAL_NOW).state, 'EXECUTING');
+
+  // This is the defect the re-check exists for: a legal hold placed after the
+  // job was queued must stop the deletion, not be overridden by yesterday's
+  // decision.
+  assert.equal(
+    galCode(() => beginGallringExecution(approved, galPolicy(), [galSubject({ legalHoldActive: true })], GAL_NOW)),
+    'GALLRING_DECISION_STALE',
+  );
+  // A case reopened since queuing is no longer closed, so its clock restarted.
+  assert.equal(
+    galCode(() => beginGallringExecution(approved, galPolicy(), [galSubject({ status: 'in_progress', closedAt: null })], GAL_NOW)),
+    'GALLRING_DECISION_STALE',
+  );
+  // A policy changed to archive-then-delete changes the act, not just its timing.
+  assert.equal(
+    galCode(() => beginGallringExecution(approved, galPolicy({ mode: 'archive_then_delete' }), [galSubject()], GAL_NOW)),
+    'GALLRING_DECISION_STALE',
+  );
+  // Nothing outside the approved job may be swept in.
+  assert.equal(
+    galCode(() => beginGallringExecution(approved, galPolicy(), [galSubject({ caseId: 'other-case' })], GAL_NOW)),
+    'GALLRING_DECISION_STALE',
+  );
+  assert.equal(
+    galCode(() => beginGallringExecution(approved, galPolicy(), [galSubject({ tenantId: 'other-tenant' })], GAL_NOW)),
+    'GALLRING_TENANT_MISMATCH',
+  );
+  assert.equal(galCode(() => beginGallringExecution(planGallring(galJob()), galPolicy(), [galSubject()], GAL_NOW)), 'GALLRING_STATE_INVALID');
+});
+
+test('a partial gallring cannot be reported as complete', () => {
+  const executing = beginGallringExecution(
+    approveGallring(planGallring(galJob()), galApprover(), GAL_NOW.toISOString()),
+    galPolicy(), [galSubject()], GAL_NOW,
+  );
+
+  const verified = verifyGallringExecution(executing, allOutcomes());
+  assert.equal(verified.state, 'VERIFIED');
+  const { job, report } = completeGallring(verified, allOutcomes(), 'business_data', GAL_NOW.toISOString());
+  assert.equal(job.state, 'REPORTED');
+  assert.equal(report.complete, true);
+  assert.equal(report.caseCount, 1);
+  // The report records who authorised the irreversible act, not who asked.
+  assert.equal(report.executedBy, APPROVER);
+
+  // The defect: a run addressing only some targets hands over only verified
+  // outcomes and looks complete. Comparing against the declared plan is what
+  // turns an unaddressed target into a detected omission.
+  const partial = allOutcomes().filter((outcome) => !['search_index', 'cache'].includes(outcome.target));
+  assert.equal(galCode(() => verifyGallringExecution(executing, partial)), 'GALLRING_TARGET_NOT_EXECUTED');
+  // Note the same partial set is judged complete by the report builder alone,
+  // which is exactly why the plan check has to exist.
+  assert.equal(buildGallringReport({
+    tenantId: GAL_TENANT, jobId: galJob().jobId, policyKey: 'k', policyVersion: 1,
+    retentionClass: 'business_data', executedBy: APPROVER, executedAt: GAL_NOW.toISOString(),
+    caseIds: [GAL_CASE], outcomes: partial,
+  }).complete, true);
+
+  // A target we could not confirm may still hold a readable copy (krav 2070).
+  assert.equal(galCode(() => verifyGallringExecution(executing, allOutcomes({ object_storage: { verified: false } }))), 'GALLRING_NOT_VERIFIED');
+  // Deleting from a store nobody authorised is also a failure.
+  assert.equal(
+    galCode(() => verifyGallringExecution(executing, [...allOutcomes(), { target: 'signature_case', deletedCount: 1, verified: true }])),
+    'GALLRING_TARGET_DUPLICATE',
+  );
+  // Completion is unreachable without a verified execution.
+  assert.equal(galCode(() => completeGallring(executing, allOutcomes(), 'business_data', GAL_NOW.toISOString())), 'GALLRING_STATE_INVALID');
+
+  // Stopping a deletion is never the dangerous direction, so abandoning is
+  // always allowed — except once the deletion has already been reported.
+  assert.equal(abandonGallring(executing, 'operator stopped it').state, 'ABANDONED');
+  assert.equal(galCode(() => abandonGallring(job, 'too late')), 'GALLRING_STATE_INVALID');
+});
+
+const SUBJECT = '00000000-0000-4000-8000-0000000000f1';
+const HANDLER = '00000000-0000-4000-8000-0000000000f2';
+const privacyJob = ({ request: requestOverrides, ...overrides } = {}) => ({
+  state: 'RECEIVED', subjectId: SUBJECT, identity: null, handledBy: null,
+  refusalGround: null, response: null, ...overrides,
+  request: privacyRequest({ right: 'ACCESS', ...(requestOverrides ?? {}) }),
+});
+const strongIdentity = (overrides = {}) => ({
+  verified: true, method: 'BANKID', assuranceLevel: 'HIGH', subjectId: SUBJECT,
+  verifiedAt: '2026-08-07T10:00:00.000Z', ...overrides,
+});
+const privJobCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('a rights request cannot act before the right person is verified', () => {
+  const job = privacyJob();
+  // This is the defect: a rights request is otherwise the easiest route to
+  // someone else's data — you only have to claim to be them.
+  assert.equal(privJobCode(() => beginHandling(job, HANDLER, job.request.tenantId)), 'PRIVACY_STATE_INVALID');
+  assert.equal(privJobCode(() => verifySubjectIdentity(job, strongIdentity({ verified: false }))), 'PRIVACY_IDENTITY_NOT_VERIFIED');
+  // Verifying *someone* is not enough; it must be the person the request is about.
+  assert.equal(privJobCode(() => verifySubjectIdentity(job, strongIdentity({ subjectId: HANDLER }))), 'PRIVACY_SUBJECT_MISMATCH');
+
+  // An access extract released on an email address someone happens to control
+  // is itself a personal data breach, so disclosure needs strong identity.
+  for (const right of ['ACCESS', 'ERASURE', 'PORTABILITY', 'RECTIFICATION']) {
+    assert.equal(
+      privJobCode(() => verifySubjectIdentity(privacyJob({ request: { right } }), strongIdentity({ assuranceLevel: 'SUBSTANTIAL' }))),
+      'PRIVACY_IDENTITY_ASSURANCE_TOO_LOW', right,
+    );
+  }
+  // Restriction protects the data subject; requiring strong identity for it
+  // would make the shield harder to obtain than the intrusion.
+  assert.equal(
+    privJobCode(() => verifySubjectIdentity(privacyJob({ request: { right: 'RESTRICTION' } }), strongIdentity({ assuranceLevel: 'LOW' }))),
+    'NO_ERROR',
+  );
+
+  const verified = verifySubjectIdentity(job, strongIdentity());
+  assert.equal(verified.state, 'IDENTITY_VERIFIED');
+  assert.equal(privJobCode(() => beginHandling(verified, HANDLER, '00000000-0000-4000-8000-0000000000ff')), 'PRIVACY_TENANT_MISMATCH');
+  assert.equal(beginHandling(verified, HANDLER, job.request.tenantId).state, 'IN_PROGRESS');
+});
+
+test('erasure re-checks legal hold and restriction at the moment of execution', () => {
+  const inProgress = beginHandling(
+    verifySubjectIdentity(privacyJob({ request: { right: 'ERASURE' } }), strongIdentity()),
+    HANDLER, privacyRequest().tenantId,
+  );
+
+  // The hold state is re-read rather than trusted from the request: a hold
+  // placed after the request arrived must still stop the erasure.
+  assert.equal(privJobCode(() => fulfilRequest(inProgress, fullCoverage(), true, false)), 'PRIVACY_ERASURE_BLOCKED_BY_LEGAL_HOLD');
+  // Article 18: restricted processing means the data is kept but not processed.
+  assert.equal(privJobCode(() => fulfilRequest(inProgress, fullCoverage(), false, true)), 'PRIVACY_RESTRICTION_ACTIVE');
+  // The completeness check is not bypassable through this path either.
+  assert.equal(
+    privJobCode(() => fulfilRequest(inProgress, fullCoverage().filter((entry) => entry.store !== 'CONTROL'), false, false)),
+    'PRIVACY_COVERAGE_INCOMPLETE',
+  );
+
+  const fulfilled = fulfilRequest(inProgress, fullCoverage(), false, false);
+  assert.equal(fulfilled.state, 'FULFILLED');
+  assert.deepEqual([...fulfilled.response.exemptedStores].sort(), ['AUDIT_LOG', 'BACKUP']);
+
+  // Acting on the data and disclosing it are separate events with separate
+  // evidence, so delivery is a separate transition.
+  assert.equal(deliverResponse(fulfilled).state, 'DELIVERED');
+  assert.equal(privJobCode(() => deliverResponse(inProgress)), 'PRIVACY_STATE_INVALID');
+
+  // A refusal without a legal ground is not a refusal, it is an unhandled
+  // request — the data subject needs the reason in order to complain.
+  assert.equal(privJobCode(() => refuseRequest(inProgress, '   ')), 'PRIVACY_REFUSAL_NEEDS_GROUND');
+  assert.equal(refuseRequest(inProgress, 'GDPR art. 17.3 b').state, 'REFUSED');
+  assert.equal(privJobCode(() => refuseRequest(deliverResponse(fulfilled), 'för sent')), 'PRIVACY_STATE_INVALID');
+});
+
+test('the thirty-day deadline runs from receipt and overdue requests stay visible', () => {
+  // PUB-avtalet 10.1 counts from receipt, not from when handling happened to
+  // start, so a request parked for a month is already late when it is opened.
+  assert.equal(deadlineFor(privacyRequest({ receivedAt: '2026-08-07T00:00:00.000Z' })), '2026-09-06T00:00:00.000Z');
+
+  const old = privacyJob({ request: { requestId: '00000000-0000-4000-8000-0000000000fa', receivedAt: '2026-06-01T00:00:00.000Z' } });
+  const recent = privacyJob({ request: { requestId: '00000000-0000-4000-8000-0000000000fb', receivedAt: '2026-08-06T00:00:00.000Z' } });
+  const delivered = { ...old, request: { ...old.request, requestId: '00000000-0000-4000-8000-0000000000fc' }, state: 'DELIVERED' };
+  const refused = { ...old, request: { ...old.request, requestId: '00000000-0000-4000-8000-0000000000fd' }, state: 'REFUSED' };
+
+  const overdue = overdueRequests([old, recent, delivered, refused], new Date('2026-08-07T12:00:00.000Z'));
+  // An overdue request surfaces as an open case with its state, rather than
+  // being a date that quietly slipped past.
+  assert.deepEqual(overdue.map((entry) => entry.requestId), ['00000000-0000-4000-8000-0000000000fa']);
+  assert.equal(overdue[0].state, 'RECEIVED');
+  assert.equal(overdue[0].dueAt, '2026-07-01T00:00:00.000Z');
+  assert.deepEqual(overdueRequests([recent], new Date('2026-09-30T00:00:00.000Z')).length, 1);
+});
+
+const PROT_TENANT = '00000000-0000-4000-8000-000000000101';
+const PROT_SUBJECT = '00000000-0000-4000-8000-000000000102';
+const PROT_ACTOR = '00000000-0000-4000-8000-000000000103';
+const PROT_NOW = new Date('2026-08-07T12:00:00.000Z');
+const assessment = (overrides = {}) => ({
+  tenantId: PROT_TENANT, subjectId: PROT_SUBJECT, assessedBy: PROT_ACTOR,
+  assessedAt: '2026-08-07T09:00:00.000Z', expiresAt: '2026-08-07T18:00:00.000Z',
+  ground: 'Menprövning enligt OSL 21 kap. 3 §', ...overrides,
+});
+const disclose = (overrides = {}) => decideDisclosure({
+  tenantId: PROT_TENANT, subjectId: PROT_SUBJECT, level: 'SEKRETESSMARKERING',
+  channel: 'SCREEN_AUTHORISED', fields: ['fullName', 'personalNumber', 'address'],
+  assessment: null, now: PROT_NOW, ...overrides,
+});
+const protCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('protected personal data is never disclosed on a channel that escapes access control', () => {
+  // Logs are shipped to operators, analytics to third parties, and a URL ends
+  // up in history, referrer headers and proxy logs. None of them carries an
+  // identifying field for anyone, protected or not.
+  for (const channel of ['APPLICATION_LOG', 'ANALYTICS', 'URL']) {
+    for (const level of ['NONE', 'SEKRETESSMARKERING', 'SKYDDAD_FOLKBOKFORING']) {
+      const decision = disclose({ channel, level, assessment: assessment() });
+      assert.deepEqual(decision.disclosed, [], `${channel}/${level}`);
+      assert.equal(decision.redacted.length, 3);
+    }
+  }
+
+  // An unrecognised value becomes the strictest level, not NONE: a data error
+  // or a new Skatteverket code must not silently remove the protection.
+  assert.equal(normaliseProtectionLevel('NAGOT_NYTT'), 'FINGERADE_PERSONUPPGIFTER');
+  assert.equal(normaliseProtectionLevel(42), 'FINGERADE_PERSONUPPGIFTER');
+  assert.equal(normaliseProtectionLevel(null), 'NONE');
+  assert.equal(normaliseProtectionLevel('SKYDDAD_FOLKBOKFORING'), 'SKYDDAD_FOLKBOKFORING');
+
+  // Adding an output path must force a decision here rather than defaulting
+  // to disclosure.
+  assert.equal(protCode(() => disclose({ channel: 'SOME_NEW_EXPORT' })), 'PROTECTED_CHANNEL_UNKNOWN');
+
+  // The subject line is always readable without authenticating — lock screen
+  // previews, mail server logs, forwarded shared mailboxes.
+  assert.equal(protCode(() => assertSubjectLineIsSafe('Signering klar för Anna Andersson', ['Anna Andersson'])), 'PROTECTED_DISCLOSURE_FORBIDDEN');
+  assert.equal(protCode(() => assertSubjectLineIsSafe('Du har ett dokument att signera', ['Anna Andersson', '198001019876'])), 'NO_ERROR');
+});
+
+test('each protection level redacts what that level is actually protecting', () => {
+  // Unprotected: everything renders.
+  assert.deepEqual(disclose({ level: 'NONE' }).redacted, []);
+
+  // Sekretessmarkering is a flag, not a redaction: disclosure is possible, but
+  // only after a recorded confidentiality assessment.
+  assert.deepEqual(disclose({ level: 'SEKRETESSMARKERING' }).disclosed, []);
+  assert.deepEqual(disclose({ level: 'SEKRETESSMARKERING', assessment: assessment() }).redacted, []);
+
+  // An assessment for another person, another tenant, without a ground, or
+  // expired, is not an assessment for this disclosure.
+  for (const bad of [{ subjectId: PROT_ACTOR }, { tenantId: PROT_ACTOR }, { ground: '  ' }, { expiresAt: '2026-08-07T10:00:00.000Z' }]) {
+    assert.deepEqual(disclose({ level: 'SEKRETESSMARKERING', assessment: assessment(bad) }).disclosed, [], JSON.stringify(bad));
+  }
+
+  // Skyddad folkbokföring: the address is the thing being protected and is
+  // never ours to disclose — Skatteverket holds it. Not even an assessment
+  // unlocks it.
+  const skyddad = disclose({ level: 'SKYDDAD_FOLKBOKFORING', assessment: assessment() });
+  assert.ok(skyddad.redacted.includes('address'));
+  assert.deepEqual(skyddad.disclosed, ['fullName', 'personalNumber']);
+
+  // The signature still has to be provable, so the evidence package retains
+  // the identifying fields even for a protected person...
+  assert.deepEqual(
+    disclose({ level: 'SKYDDAD_FOLKBOKFORING', channel: 'EVIDENCE_PACKAGE', assessment: null }).disclosed,
+    ['fullName', 'personalNumber'],
+  );
+  // ...while a colleague's screen shows nothing.
+  assert.deepEqual(disclose({ level: 'SKYDDAD_FOLKBOKFORING', channel: 'SCREEN_COLLEAGUE', assessment: assessment() }).disclosed, []);
+
+  // Fingerade personuppgifter: the old identity must not be resolvable at all,
+  // on any channel, with or without an assessment.
+  for (const channel of OUTPUT_CHANNELS) {
+    assert.deepEqual(
+      disclose({ level: 'FINGERADE_PERSONUPPGIFTER', channel, assessment: assessment() }).disclosed,
+      [], channel,
+    );
+  }
+
+  // Existence is itself informative: a redacted row still confirms this person
+  // has a case in this municipality, which can be what locates them.
+  assert.equal(isSearchable('NONE'), true);
+  assert.equal(isSearchable('SEKRETESSMARKERING'), true);
+  assert.equal(isSearchable('SKYDDAD_FOLKBOKFORING'), false);
+  assert.equal(isSearchable('FINGERADE_PERSONUPPGIFTER'), false);
+
+  // Placeholders are non-identifying and in Swedish.
+  assert.equal(redactedPlaceholder('address'), 'Skyddad adress');
+  assert.equal(redactedPlaceholder('personalNumber'), 'Skyddad uppgift');
+});
+
+test('support access to protected data is granted per person, by the customer, with an expiry', () => {
+  const grant = (overrides = {}) => ({
+    tenantId: PROT_TENANT, subjectId: PROT_SUBJECT, grantedTo: PROT_ACTOR,
+    grantedBy: '00000000-0000-4000-8000-000000000104', grantedByCustomer: true,
+    expiresAt: '2026-08-07T18:00:00.000Z', reason: 'Felsökning av signeringsärende KS2026-0001', ...overrides,
+  });
+  const request = { tenantId: PROT_TENANT, subjectId: PROT_SUBJECT, actorId: PROT_ACTOR, now: PROT_NOW };
+  const accessCode = (g) => protCode(() => assertSupportAccess(g, request));
+
+  assert.equal(accessCode(grant()), 'NO_ERROR');
+
+  // Standing access is refused. The alternative makes the protection depend on
+  // the supplier's internal discipline rather than a control the customer can
+  // see and revoke.
+  assert.equal(accessCode(null), 'PROTECTED_ACCESS_NOT_GRANTED');
+  assert.equal(accessCode(grant({ grantedByCustomer: false })), 'PROTECTED_ACCESS_NOT_GRANTED');
+  assert.equal(accessCode(grant({ reason: '   ' })), 'PROTECTED_ACCESS_NOT_GRANTED');
+  assert.equal(accessCode(grant({ expiresAt: '2026-08-07T11:00:00.000Z' })), 'PROTECTED_GRANT_EXPIRED');
+  // A grant for one protected person does not open the others, and a grant to
+  // one engineer is not a grant to the team.
+  assert.equal(accessCode(grant({ subjectId: PROT_ACTOR })), 'PROTECTED_ACCESS_NOT_GRANTED');
+  assert.equal(accessCode(grant({ grantedTo: '00000000-0000-4000-8000-000000000105' })), 'PROTECTED_ACCESS_NOT_GRANTED');
+  assert.equal(accessCode(grant({ tenantId: PROT_ACTOR })), 'PROTECTED_TENANT_MISMATCH');
+});
+
+const WF_TENANT = '00000000-0000-4000-8000-000000000201';
+const WF_CASE = '00000000-0000-4000-8000-000000000202';
+const S1 = '00000000-0000-4000-8000-000000000211';
+const S2 = '00000000-0000-4000-8000-000000000212';
+const S3 = '00000000-0000-4000-8000-000000000213';
+const WF_NOW = new Date('2026-08-07T12:00:00.000Z');
+const order = (mode, steps) => ({ tenantId: WF_TENANT, signatureCaseId: WF_CASE, mode, steps });
+const seq = (...statuses) => order('sequential', [S1, S2, S3].map((signerId, index) => ({ signerId, stepNumber: index + 1, status: statuses[index] ?? 'pending' })));
+const par = (...statuses) => order('parallel', [S1, S2, S3].map((signerId, index) => ({ signerId, stepNumber: 1, status: statuses[index] ?? 'pending' })));
+const wfCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+const doc = (overrides = {}) => ({
+  documentId: '00000000-0000-4000-8000-000000000221', documentVersionId: '00000000-0000-4000-8000-000000000231',
+  displayName: 'beslut.pdf', sha256: 'a'.repeat(64), role: 'signable', locked: true, ordinal: 1, ...overrides,
+});
+const attachment = (overrides = {}) => doc({
+  documentId: '00000000-0000-4000-8000-000000000222', documentVersionId: '00000000-0000-4000-8000-000000000232',
+  displayName: 'bilaga.pdf', sha256: 'b'.repeat(64), role: 'attachment', ordinal: 2, ...overrides,
+});
+
+test('sequential signing enforces turn order and parallel signing does not', () => {
+  // A valid invitation link proves who the signer is, not that it is their
+  // turn — so the ordering check cannot live in the invitation path.
+  assert.equal(wfCode(() => assertSignerMaySign(seq(), S2, true)), 'WORKFLOW_STEP_NOT_REACHED');
+  assert.equal(wfCode(() => assertSignerMaySign(seq(), S3, true)), 'WORKFLOW_STEP_NOT_REACHED');
+  assert.equal(wfCode(() => assertSignerMaySign(seq(), S1, true)), 'NO_ERROR');
+  assert.equal(wfCode(() => assertSignerMaySign(seq('signed'), S2, true)), 'NO_ERROR');
+  assert.equal(wfCode(() => assertSignerMaySign(seq('signed'), S3, true)), 'WORKFLOW_STEP_NOT_REACHED');
+  assert.equal(wfCode(() => assertSignerMaySign(seq('signed'), S1, true)), 'WORKFLOW_SIGNER_ALREADY_FINISHED');
+
+  // Parallel: order is irrelevant, everyone may act at once.
+  for (const signer of [S1, S2, S3]) assert.equal(wfCode(() => assertSignerMaySign(par(), signer, true)), 'NO_ERROR');
+  assert.equal(wfCode(() => assertSignerMaySign(par('signed'), S1, true)), 'WORKFLOW_SIGNER_ALREADY_FINISHED');
+
+  assert.equal(wfCode(() => assertSignerMaySign(seq(), '00000000-0000-4000-8000-0000000002ff', true)), 'WORKFLOW_SIGNER_NOT_IN_ORDER');
+  assert.equal(wfCode(() => assertSignerMaySign(seq(), S1, false)), 'WORKFLOW_CASE_NOT_ACTIVE');
+
+  assert.deepEqual(signersAwaitingAction(seq()), [S1]);
+  assert.deepEqual(signersAwaitingAction(seq('signed')), [S2]);
+  assert.deepEqual(signersAwaitingAction(par()).length, 3);
+  assert.deepEqual(signersAwaitingAction(seq('signed', 'signed', 'signed')), []);
+
+  // A malformed order has no defined "next", so whichever signer is read first
+  // would win. Rejected at construction rather than resolved arbitrarily.
+  const dup = order('sequential', [{ signerId: S1, stepNumber: 1, status: 'pending' }, { signerId: S2, stepNumber: 1, status: 'pending' }]);
+  assert.equal(wfCode(() => assertOrderIsWellFormed(dup)), 'WORKFLOW_STEP_NUMBERS_INVALID');
+  // A gap would let step 3 become reachable as soon as step 1 signs, silently
+  // skipping a required approver.
+  const gap = order('sequential', [{ signerId: S1, stepNumber: 1, status: 'pending' }, { signerId: S2, stepNumber: 3, status: 'pending' }]);
+  assert.equal(wfCode(() => assertOrderIsWellFormed(gap)), 'WORKFLOW_STEP_NUMBERS_INVALID');
+  assert.equal(wfCode(() => assertOrderIsWellFormed(order('parallel', []))), 'WORKFLOW_SIGNER_NOT_IN_ORDER');
+
+  // One refusal ends the case: the remaining signatures would not add up to an
+  // approved decision, and collecting them yields a case that can never complete.
+  assert.equal(caseOutcome(seq()), 'IN_PROGRESS');
+  assert.equal(caseOutcome(seq('signed', 'signed', 'signed')), 'COMPLETED');
+  assert.equal(caseOutcome(seq('signed', 'declined')), 'DECLINED');
+  assert.equal(caseOutcome(par('signed', 'expired')), 'EXPIRED');
+});
+
+test('attachments are bound into the signature without being signed themselves', () => {
+  const bundle = buildSigningBundle([attachment(), doc()]);
+  assert.deepEqual(bundle.signableDocuments.map((d) => d.displayName), ['beslut.pdf']);
+  assert.deepEqual(bundle.attachments.map((d) => d.displayName), ['bilaga.pdf']);
+
+  // The signer approved a decision in the light of the appendices, so swapping
+  // one afterwards must be detectable. Excluding attachments from the binding
+  // material would make them the obvious place to put anything you wanted to
+  // change later.
+  assert.equal(bundle.bundleSha256Material.length, 2);
+  assert.match(bundle.bundleSha256Material[1], /^attachment:/);
+
+  // Multiple signable documents in one go (F010), ordered deterministically.
+  const multi = buildSigningBundle([
+    doc({ ordinal: 2, displayName: 'b.pdf', documentVersionId: '00000000-0000-4000-8000-000000000234' }),
+    doc({ ordinal: 1, displayName: 'a.pdf' }),
+    attachment(),
+  ]);
+  assert.deepEqual(multi.signableDocuments.map((d) => d.displayName), ['a.pdf', 'b.pdf']);
+
+  // A case with only attachments is not a signing case.
+  assert.equal(wfCode(() => buildSigningBundle([attachment()])), 'WORKFLOW_NO_SIGNABLE_DOCUMENT');
+  // An unlocked document can change between display and signature — for an
+  // attachment exactly as much as for the main document.
+  assert.equal(wfCode(() => buildSigningBundle([doc(), attachment({ locked: false })])), 'WORKFLOW_DOCUMENT_NOT_LOCKED');
+
+  // An attachment added, removed or swapped after the intent was created.
+  assert.equal(wfCode(() => assertBundleUnchanged(bundle.bundleSha256Material, bundle.bundleSha256Material)), 'NO_ERROR');
+  assert.equal(wfCode(() => assertBundleUnchanged(bundle.bundleSha256Material, [bundle.bundleSha256Material[0]])), 'WORKFLOW_ATTACHMENT_NOT_BOUND');
+  const swapped = buildSigningBundle([doc(), attachment({ sha256: 'c'.repeat(64) })]);
+  assert.equal(wfCode(() => assertBundleUnchanged(bundle.bundleSha256Material, swapped.bundleSha256Material)), 'WORKFLOW_ATTACHMENT_NOT_BOUND');
+  // Moving a document between roles changes the material, thanks to the tag.
+  const rerolled = buildSigningBundle([doc(), attachment({ role: 'signable' })]);
+  assert.equal(wfCode(() => assertBundleUnchanged(bundle.bundleSha256Material, rerolled.bundleSha256Material)), 'WORKFLOW_ATTACHMENT_NOT_BOUND');
+});
+
+test('reminders go only to signers whose turn it actually is', () => {
+  const schedule = (overrides = {}) => ({
+    tenantId: WF_TENANT, signatureCaseId: WF_CASE, signerId: S1,
+    nextReminderAt: '2026-08-07T09:00:00.000Z', intervalHours: 24, remainingAttempts: 3, ...overrides,
+  });
+  const expiry = '2026-08-20T00:00:00.000Z';
+  const decide = (s, o = seq(), e = expiry) => decideReminder(schedule(s), o, e, WF_NOW);
+
+  assert.equal(decide({}).send, true);
+  assert.equal(decide({}).nextReminderAt, '2026-08-08T12:00:00.000Z');
+
+  // The check that matters: a schedule created for every signer up front would
+  // nag signer three about a document they cannot open yet, which teaches
+  // people to ignore reminders.
+  assert.deepEqual(decide({ signerId: S3 }), { send: false, reason: 'SIGNER_NOT_AWAITING_ACTION', nextReminderAt: null });
+  // In parallel mode the same signer is awaiting action and does get reminded.
+  assert.equal(decide({ signerId: S3 }, par()).send, true);
+
+  assert.equal(decide({ nextReminderAt: '2026-08-08T00:00:00.000Z' }).reason, 'NOT_DUE');
+  assert.equal(decide({ remainingAttempts: 0 }).reason, 'NO_ATTEMPTS_LEFT');
+  // The final reminder schedules no successor.
+  assert.equal(decide({ remainingAttempts: 1 }).nextReminderAt, null);
+
+  // Reminding someone to sign something that can no longer be signed invites a
+  // wasted attempt and a confusing error.
+  assert.equal(decide({}, seq(), '2026-08-01T00:00:00.000Z').reason, 'CASE_EXPIRED');
+  assert.equal(decide({}, seq('signed', 'signed', 'signed')).reason, 'CASE_CLOSED');
+  assert.equal(decide({}, seq('declined')).reason, 'CASE_CLOSED');
+
+  // The next slot is computed from now, not from the stored due time: a paused
+  // worker must not fire several reminders back to back once it resumes.
+  const stale = decideReminder(schedule({ nextReminderAt: '2026-08-01T00:00:00.000Z' }), seq(), expiry, WF_NOW);
+  assert.equal(stale.nextReminderAt, '2026-08-08T12:00:00.000Z');
+
+  assert.equal(wfCode(() => decideReminder(schedule({ tenantId: S1 }), seq(), expiry, WF_NOW)), 'WORKFLOW_TENANT_MISMATCH');
+});
+
+const keyVersion = (version, state, overrides = {}) => ({
+  version, state, secretReference: `vault://kommunsign/data-key-v${version}`,
+  createdAt: '2026-08-01T00:00:00.000Z', compromised: false, ...overrides,
+});
+const ring = (versions, purpose = 'sensitive_data') => ({ purpose, versions });
+const rotating = () => ring([keyVersion(1, 'active', { compromised: true }), keyVersion(2, 'pending')]);
+const progress = (overrides = {}) => ({
+  purpose: 'sensitive_data', state: 'REENCRYPTING', fromVersion: 1, toVersion: 2,
+  totalRows: 1000, reencryptedRows: 1000, verifiedRows: 1000, failedRows: 0, ...overrides,
+});
+const keyCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('key rotation reads under both versions and writes only under the new one', () => {
+  // Two active versions mean two writers producing ciphertext under different
+  // keys with no record of which is which.
+  assert.equal(keyCode(() => assertKeyRingIsSane(ring([keyVersion(1, 'active'), keyVersion(2, 'active')]))), 'KEY_MULTIPLE_ACTIVE_VERSIONS');
+  assert.equal(keyCode(() => assertKeyRingIsSane(ring([keyVersion(1, 'decrypt_only')]))), 'KEY_NO_ACTIVE_VERSION');
+  // A compromised active key is an urgent state, not an invalid one: rejecting
+  // it here would make rotating away from a leaked key impossible, since every
+  // operation on the ring would fail before the rotation could start.
+  assert.equal(keyCode(() => assertKeyRingIsSane(ring([keyVersion(1, 'active', { compromised: true })]))), 'NO_ERROR');
+  assert.equal(rotationRequired(rotating()), true);
+  assert.equal(rotationRequired(ring([keyVersion(1, 'active')])), false);
+
+  const dual = beginDualRead(rotating(), 2);
+  assert.equal(activeKeyVersion(dual).version, 2);
+  assert.equal(dual.versions.find((v) => v.version === 1).state, 'decrypt_only');
+
+  // Read old, write new. Writing under anything but the active version grows
+  // the set of rows still needing migration, so the rotation never converges.
+  assert.equal(keyCode(() => assertWritableVersion(dual, 2)), 'NO_ERROR');
+  assert.equal(keyCode(() => assertWritableVersion(dual, 1)), 'KEY_WRITE_TO_NON_ACTIVE_VERSION');
+  assert.equal(keyCode(() => assertReadableVersion(dual, 1)), 'NO_ERROR');
+  assert.equal(keyCode(() => assertReadableVersion(dual, 2)), 'NO_ERROR');
+  assert.equal(keyCode(() => assertReadableVersion(dual, 9)), 'KEY_VERSION_UNKNOWN');
+
+  // A key must be distributed before anything is written under it, or a node
+  // that has not received it writes ciphertext its neighbours cannot read.
+  assert.equal(keyCode(() => assertReadableVersion(rotating(), 2)), 'KEY_STATE_INVALID');
+  assert.equal(keyCode(() => beginDualRead(dual, 2)), 'KEY_STATE_INVALID');
+  assert.equal(
+    keyCode(() => beginDualRead(ring([keyVersion(1, 'active'), keyVersion(2, 'pending', { compromised: true })]), 2)),
+    'KEY_STATE_INVALID',
+  );
+});
+
+test('the old key is retired only after counted, verified re-encryption', () => {
+  const dual = beginDualRead(rotating(), 2);
+  assert.equal(retireOldVersion(dual, progress()).versions.find((v) => v.version === 1).state, 'retired');
+  // A retired key that still decrypts is not retired.
+  assert.equal(keyCode(() => assertReadableVersion(retireOldVersion(dual, progress()), 1)), 'KEY_VERSION_RETIRED');
+
+  // "It has probably finished by now" is how the last few thousand rows become
+  // unreadable, and this mistake has no recovery once the key is destroyed.
+  assert.equal(keyCode(() => assertRotationComplete(progress({ reencryptedRows: 999 }))), 'KEY_ROTATION_INCOMPLETE');
+  assert.equal(keyCode(() => assertRotationComplete(progress({ failedRows: 1 }))), 'KEY_ROTATION_INCOMPLETE');
+  // Re-encrypting and confirming the result are different claims: a writer can
+  // report success for a row that does not decrypt under the new key.
+  assert.equal(keyCode(() => assertRotationComplete(progress({ verifiedRows: 998 }))), 'KEY_ROTATION_NOT_VERIFIED');
+
+  // Rolling back costs nothing while the old key still decrypts...
+  const back = rollbackRotation(ring([keyVersion(1, 'decrypt_only'), keyVersion(2, 'active')]), progress());
+  assert.equal(activeKeyVersion(back).version, 1);
+  // ...and loses data afterwards, because rows under the new key have no other
+  // reader.
+  assert.equal(keyCode(() => rollbackRotation(retireOldVersion(dual, progress()), progress())), 'KEY_STATE_INVALID');
+  // Rolling back onto the leaked key would undo the only thing the rotation was for.
+  assert.equal(
+    keyCode(() => rollbackRotation(ring([keyVersion(1, 'decrypt_only', { compromised: true }), keyVersion(2, 'active')]), progress())),
+    'KEY_STATE_INVALID',
+  );
+});
+
+test('a compromised blind index is overwritten rather than kept alongside the new one', () => {
+  const entries = [
+    { keyVersion: 1, indexValue: 'old-a' },
+    { keyVersion: 1, indexValue: 'old-b' },
+    { keyVersion: 2, indexValue: 'new-a' },
+  ];
+  const plan = planBlindIndexRotation(entries, [1], 2);
+  // Lookups span every version still present, so a search keeps finding people
+  // while the rotation runs.
+  assert.deepEqual(plan.lookupVersions, [1, 2]);
+  // But the compromised values must be destroyed, not retained for convenience:
+  // anyone with the leaked key can compute the index for a person they are
+  // looking for and match it.
+  assert.deepEqual(plan.mustOverwrite, [1]);
+
+  assert.equal(keyCode(() => assertNoCompromisedIndexRemains(entries, [1])), 'KEY_COMPROMISED_INDEX_RETAINED');
+  assert.equal(keyCode(() => assertNoCompromisedIndexRemains(entries.filter((e) => e.keyVersion !== 1), [1])), 'NO_ERROR');
+  // The active version is never in the overwrite set, even if it were flagged.
+  assert.deepEqual(planBlindIndexRotation(entries, [1, 2], 2).mustOverwrite, [1]);
+});
+
+const logContext = (overrides = {}) => ({
+  requestId: 'req-1', correlationId: 'corr-1', tenantId: '00000000-0000-4000-8000-000000000301',
+  actorId: '00000000-0000-4000-8000-000000000302', ...overrides,
+});
+const obsCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.message; } };
+
+test('a log record cannot carry a secret or a personal number', () => {
+  // A deny-list by name catches the fields we thought of, whatever they hold —
+  // by the time a value is in hand, a password looks like any other string.
+  for (const field of ['password', 'apiKey', 'API_KEY', 'clientSecret', 'authorization', 'personalNumber', 'qrStartSecret', 'userPassword']) {
+    assert.equal(isForbiddenLogField(field), true, field);
+  }
+  assert.equal(isForbiddenLogField('displayName'), false);
+  assert.equal(isForbiddenLogField('caseId'), false);
+
+  // Value patterns catch the fields we did not think of — a personal number
+  // pasted into a free-text note is still a personal number.
+  const record = buildLogRecord({
+    level: 'info', event: 'signing.started', outcome: 'pending', context: logContext(),
+    detail: {
+      password: 'hunter2',
+      note: 'Ringde 19800101-9876 om ärendet',
+      header: 'Bearer abcdefghijklmnopqrstuvwx',
+      // Assembled at runtime so the repository's own secret scanner does not
+      // flag this fixture as a real key — it is right to flag the literal.
+      nested: { apiSecret: 'x', deep: { pem: `${'-----BEGIN'} RSA PRIVATE ${'KEY-----'}abc` } },
+      jwt: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijkl',
+      keep: 'Delegationsbeslut KS2026-0001',
+    },
+  });
+  const serialised = JSON.stringify(record);
+  assert.doesNotMatch(serialised, /hunter2/);
+  assert.doesNotMatch(serialised, /19800101/);
+  assert.doesNotMatch(serialised, /abcdefghijklmnopqrstuvwx/);
+  assert.doesNotMatch(serialised, new RegExp(`BEGIN RSA PRIVATE ${'KEY'}`));
+  assert.doesNotMatch(serialised, /eyJhbGciOiJIUzI1NiJ9/);
+  // Redaction is not blanket deletion: the useful part of the record survives.
+  assert.match(serialised, /Delegationsbeslut KS2026-0001/);
+  assert.equal(record.detail.nested.apiSecret, '[redacted]');
+
+  // A cyclic or pathological structure must not turn a log call into an outage.
+  const deep = { a: { b: { c: { d: { e: { f: { g: { h: 'x' } } } } } } } };
+  assert.equal(obsCode(() => sanitiseLogPayload(deep)), 'NO_ERROR');
+});
+
+test('security events must be traceable to a tenant and a correlation', () => {
+  // An explicit list makes "we log security events" checkable rather than an
+  // intention.
+  for (const event of ['auth.login.failed', 'authorization.denied', 'user.deactivated', 'retention.executed', 'tenant.access.cross_tenant_attempt']) {
+    assert.equal(isSecurityEvent(event), true, event);
+  }
+  assert.equal(isSecurityEvent('signing.started'), false);
+
+  const record = (overrides = {}) => buildLogRecord({
+    level: 'warn', event: 'authorization.denied', outcome: 'failure', context: logContext(overrides),
+  });
+  assert.equal(obsCode(() => assertSecurityEventIsTraceable(record())), 'NO_ERROR');
+  // A security log that cannot answer "who, in which organisation" records that
+  // something happened; it is not evidence.
+  assert.match(obsCode(() => assertSecurityEventIsTraceable(record({ tenantId: undefined }))), /must carry a tenantId/);
+  assert.match(obsCode(() => assertSecurityEventIsTraceable(record({ correlationId: '' }))), /correlation/);
+  // A failed login legitimately has no tenant yet — that is the point of it.
+  const anonymous = buildLogRecord({ level: 'warn', event: 'auth.login.failed', outcome: 'failure', context: { requestId: 'r', correlationId: 'c' } });
+  assert.equal(obsCode(() => assertSecurityEventIsTraceable(anonymous)), 'NO_ERROR');
+});
+
+test('metrics measure signing outcomes, not just HTTP responses', () => {
+  // The failure uptime monitoring cannot see: the service answers normally and
+  // no signature ever completes.
+  assert.equal(stuckSigningRatio(100, 100, 0), 0);
+  assert.equal(stuckSigningRatio(100, 60, 20), 0.2);
+  assert.equal(stuckSigningRatio(0, 0, 0), 0);
+  assert.ok(METRICS.includes('signing.started') && METRICS.includes('signing.completed'));
+  assert.ok(METRICS.includes('worker.job.age_seconds') && METRICS.includes('webhook.delivery.failures'));
+
+  const sample = (labels) => ({ name: 'signing.completed', value: 1, labels });
+  assert.equal(obsCode(() => assertMetricLabelsAreSafe(sample({ tenant: 'kungalv', outcome: 'success' }))), 'NO_ERROR');
+  // A high-cardinality label creates one time series per value, which both
+  // destroys the metrics backend and turns the pipeline into an unredacted
+  // export of personal data.
+  assert.match(obsCode(() => assertMetricLabelsAreSafe(sample({ caseId: 'abc' }))), /not allowed/);
+  assert.match(obsCode(() => assertMetricLabelsAreSafe(sample({ tenant: '19800101-9876' }))), /personal number/);
+});
+
+test('security and cache headers close the leaks a missing header causes', () => {
+  const headers = securityHeaders({ enableHsts: true, connectSources: ['https://api.kommunsign.se'] });
+  const csp = headers['Content-Security-Policy'];
+  assert.doesNotMatch(csp, /unsafe-inline|unsafe-eval/);
+  // A signing page inside an iframe is a clickjacking target.
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /object-src 'none'/);
+  assert.match(csp, /base-uri 'none'/);
+  assert.match(csp, /connect-src 'self' https:\/\/api\.kommunsign\.se/);
+  assert.equal(headers['X-Content-Type-Options'], 'nosniff');
+  assert.equal(headers['X-Frame-Options'], 'DENY');
+  // An invitation URL carries a token, and a referrer header would hand it to
+  // whatever the signer clicks next — so no-referrer, not same-origin.
+  assert.equal(headers['Referrer-Policy'], 'no-referrer');
+  assert.match(headers['Strict-Transport-Security'], /max-age=63072000/);
+  // HSTS off outside production, so local development over http still works.
+  assert.equal(securityHeaders({ enableHsts: false, connectSources: [] })['Strict-Transport-Security'], undefined);
+
+  // Without Vary, an intermediary can serve one authenticated user's response
+  // to the next — a cross-tenant leak caused entirely by a missing header.
+  for (const cacheClass of ['PRIVATE_CACHEABLE', 'PRIVATE_NO_STORE', 'SECRET_NEVER_CACHE']) {
+    assert.match(cacheHeaders(cacheClass).Vary, /Cookie/, cacheClass);
+  }
+  assert.match(cacheHeaders('PRIVATE_NO_STORE')['Cache-Control'], /no-store/);
+  assert.match(cacheHeaders('SECRET_NEVER_CACHE')['Cache-Control'], /no-store/);
+  assert.equal(cacheHeaders('PUBLIC_CACHEABLE').Vary, undefined);
+
+  // The TLS floor is data, not prose, so a deployment check can assert it.
+  assert.equal(TLS_POLICY.minimumVersion, 'TLSv1.2');
+  // Forward secrecy only: a recorded session must not become readable later if
+  // the server key is compromised.
+  assert.ok(TLS_POLICY.allowedCipherSuites.every((suite) => /^TLS_|^ECDHE-/.test(suite)));
+});
+
+const office = (overrides = {}) => ({
+  fileName: 'beslut.docx',
+  mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  byteSize: 40_000, ...overrides,
+});
+const conversion = (overrides = {}) => ({
+  sourceSha256: 'a'.repeat(64), convertedSha256: 'b'.repeat(64), convertedPageCount: 3,
+  verifiedProfile: 'PDF/A-2b', inspectionAccepted: true, ...overrides,
+});
+const officeCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('an Office document is converted before signing, and only the PDF/A is signed', () => {
+  const plan = planOfficeIngestion(office());
+  assert.equal(plan.targetProfile, 'PDF/A-2b');
+  assert.equal(plan.requiresConversion, true);
+  for (const name of ['a.xlsx', 'a.pptx', 'a.odt', 'a.ods', 'a.rtf']) {
+    const mime = {
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      '.odt': 'application/vnd.oasis.opendocument.text',
+      '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+      '.rtf': 'application/rtf',
+    }[name.slice(name.lastIndexOf('.'))];
+    assert.equal(officeCode(() => planOfficeIngestion(office({ fileName: name, mimeType: mime }))), 'NO_ERROR', name);
+  }
+
+  // Macro-enabled formats are the standard delivery vehicle for Office malware,
+  // and a file about to be flattened has no legitimate need for a macro.
+  for (const name of ['beslut.docm', 'kalkyl.xlsm', 'bild.pptm']) {
+    assert.equal(officeCode(() => planOfficeIngestion(office({ fileName: name }))), 'OFFICE_MACRO_FORMAT_REJECTED', name);
+  }
+  // Extension and MIME must agree: checking one lets a caller present a macro
+  // file under a benign type, and the conversion service is what opens it.
+  assert.equal(officeCode(() => planOfficeIngestion(office({ mimeType: 'text/plain' }))), 'OFFICE_MIME_MISMATCH');
+  assert.equal(officeCode(() => planOfficeIngestion(office({ fileName: 'a.exe' }))), 'OFFICE_FORMAT_NOT_SUPPORTED');
+  assert.equal(officeCode(() => planOfficeIngestion(office({ byteSize: 0 }))), 'OFFICE_TOO_LARGE');
+
+  // The signed hash is always the converted file. An Office file is not a fixed
+  // representation of itself, so a signature over it would cover bytes whose
+  // visual meaning is not stable.
+  const ingested = admitConvertedDocument(plan, conversion(), { tenantId: 't', documentId: 'd' });
+  assert.equal(ingested.signableSha256, 'b'.repeat(64));
+  assert.notEqual(ingested.signableSha256, ingested.sourceSha256);
+  assert.equal(ingested.profile, 'PDF/A-2b');
+
+  // A converter reporting PDF/A is describing its intent; only a validator's
+  // verdict is evidence.
+  const admit = (result) => officeCode(() => admitConvertedDocument(plan, conversion(result), { tenantId: 't', documentId: 'd' }));
+  assert.equal(admit({ verifiedProfile: null }), 'OFFICE_CONVERSION_UNVERIFIED');
+  assert.equal(admit({ inspectionAccepted: false }), 'OFFICE_CONVERSION_UNVERIFIED');
+  // A conversion that produced its own input did not convert.
+  assert.equal(admit({ convertedSha256: 'a'.repeat(64) }), 'OFFICE_CONVERSION_UNVERIFIED');
+  assert.equal(admit({ convertedPageCount: 0 }), 'OFFICE_CONVERSION_PAGE_MISMATCH');
+
+  // PAdES appends an incremental update; a tool that rewrites the file instead
+  // invalidates every signature already on it, which is how a second signer
+  // silently destroys the first.
+  assert.equal(ADOBE_READER_COMPATIBILITY.incrementalUpdateOnly, true);
+  assert.equal(ADOBE_READER_COMPATIBILITY.forbidEncryption, true);
+});
+
+test('dates and times render in the Swedish standard regardless of host locale', () => {
+  // åååå-mm-dd and tt:mm, not whatever the server's locale happens to be. A
+  // server drifting to en-US would render 08/07/2026 — a different date to a
+  // Swedish reader, silently.
+  assert.equal(formatSwedishDate('2026-08-07T10:30:00.000Z'), '2026-08-07');
+  assert.equal(formatSwedishTime('2026-08-07T10:30:00.000Z'), '12:30'); // CEST
+  assert.equal(formatSwedishDateTime('2026-01-15T10:30:00.000Z'), '2026-01-15 11:30'); // CET
+
+  // Summer time starts and ends at 01:00 UTC on the last Sunday of March and
+  // October. Computed rather than read from tzdata, because a container with
+  // stale or stripped tzdata would shift every time by an hour without failing.
+  assert.equal(swedishUtcOffsetHours(new Date('2026-03-29T00:59:00Z')), 1);
+  assert.equal(swedishUtcOffsetHours(new Date('2026-03-29T01:00:00Z')), 2);
+  assert.equal(swedishUtcOffsetHours(new Date('2026-10-25T00:59:00Z')), 2);
+  assert.equal(swedishUtcOffsetHours(new Date('2026-10-25T01:00:00Z')), 1);
+
+  // A midnight-crossing conversion must move the date too.
+  assert.equal(formatSwedishDateTime('2026-08-07T23:30:00.000Z'), '2026-08-08 01:30');
+  // Evidence output states the offset so it stays unambiguous decades later.
+  assert.equal(formatSwedishTimestampWithOffset('2026-08-07T10:30:00.000Z'), '2026-08-07 12:30 (UTC+2)');
+
+  // Messages are Swedish, and an unknown code yields a Swedish fallback rather
+  // than the raw code — which would be both untranslated and a leak of internal
+  // structure.
+  assert.match(messageFor('WORKFLOW_STEP_NOT_REACHED'), /inte din tur/);
+  assert.match(messageFor('GALLRING_SELF_APPROVAL'), /någon annan än/);
+  assert.match(messageFor('PADES_NOT_VALIDATED'), /kunde inte valideras/);
+  const unknown = messageFor('SOME_INTERNAL_CODE_42');
+  assert.doesNotMatch(unknown, /SOME_INTERNAL_CODE_42/);
+  assert.match(unknown, /Något gick fel/);
 });
 
 let failed = 0;
