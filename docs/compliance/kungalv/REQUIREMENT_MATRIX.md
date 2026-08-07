@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 9 | 63 | 23 | 35 | 130 |
+| SKA | 9 | 64 | 22 | 35 | 130 |
 | BÖR | 0 | 4 | 3 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -41,12 +41,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | Signering |
 | Referens | E-underskrift \| Digg |
-| Nuläge | Signeringskedjan finns: signature_policies med signatureLevel ADVANCED_ELECTRONIC_SIGNATURE, signing_intents med dokumentsnapshot och hash, identity_transactions, validation_runs samt evidenspaket. TIC/BankID-bevis verifieras via ValidationServiceTicEvidenceVerifier mot XML-DSig och OCSP; RejectingTicEvidenceVerifier är default så att overifierade bevis aldrig accepteras. |
-| Gap | PAdES-produktion och DSS-validering är inte slutförda i signservice (BlockedSigningEngine blockerar). Utan producerad och validerad PAdES-signatur kan AEU enligt DIGG inte bevisas. |
-| Lösning | Slutför PAdES-pipeline i services/signservice och koppla validation-service till DSS. Kravet får inte markeras uppfyllt förrän en producerad signatur validerats. |
-| Kodevidens | packages/signature-policy/src/index.ts; packages/provider-adapters/src/tic-bankid.ts; migrations/data/0010_immutability_and_evidence_states.sql; services/signservice/src/main/java/se/kommunsign/signservice/BlockedSigningEngine.java |
-| Verifiering | tests/run.mjs: TIC-adaptertest och evidensmanifesttest. Ingen end-to-end PAdES-validering finns ännu. |
+| Nuläge | Signeringskedjan finns: signature_policies med signatureLevel ADVANCED_ELECTRONIC_SIGNATURE, signing_intents med dokumentsnapshot och hash, identity_transactions, validation_runs samt evidenspaket. TIC/BankID-bevis verifieras via ValidationServiceTicEvidenceVerifier mot XML-DSig och OCSP; RejectingTicEvidenceVerifier är default så att overifierade bevis aldrig accepteras. PAdES-antagningsgrinden i packages/pades härleder uppnådd nivå ur faktisk evidens och registrerar aldrig en högre nivå än evidensen bär; osignerad eller ovaliderad signatur avvisas. |
+| Gap | PAdES-produktion och DSS-validering saknas fortfarande. Grinden hindrar felaktiga påståenden men skapar ingen signatur. |
+| Lösning | Anslut signeringsmotor med riktigt nyckelmaterial och DSS-validering. Grinden är förberedd för det. |
+| Kodevidens | packages/signature-policy/src/index.ts; packages/provider-adapters/src/tic-bankid.ts; migrations/data/0010_immutability_and_evidence_states.sql; services/signservice/src/main/java/se/kommunsign/signservice/BlockedSigningEngine.java; packages/pades/src/index.ts |
+| Verifiering | tests/run.mjs: tre PAdES-tester (nivåhärledning, valideringsvägran, samtliga överdrivandevägar). |
 | Status | PARTIAL |
+| Blockerare | CA/HSM-nyckelmaterial, TSA och DSS-bibliotek. |
 
 ### F002 — PARTIAL
 
@@ -215,7 +216,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Nuläge | SigningIntentDocumentSnapshot kräver profile 'PDF/A-2b' och document-processing innehåller normaliseringssteg. |
 | Gap | Ingen PDF/A-validering med etablerad validator och ingen verifiering av att slutdokumentet efter signering fortfarande är PDF/A. |
 | Lösning | veraPDF-validering före signering och på slutdokumentet. |
-| Kodevidens | packages/contracts/src/index.ts; packages/document-processing/src/production.ts |
+| Kodevidens | packages/contracts/src/index.ts; packages/document-processing/src/production.ts; packages/pades/src/index.ts |
 | Verifiering | Ingen. |
 | Status | PARTIAL |
 
@@ -461,7 +462,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: audit chain covers actor, resource and payload fields. |
 | Status | PARTIAL |
 
-### 2023 — GAP
+### 2023 — PARTIAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -469,12 +470,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | GDPR |
-| Nuläge | Ingen GDPR-funktionalitet för registerutdrag, rättelse, begränsning, radering eller dataportabilitet finns i applikationen. |
-| Gap | Hela kravet saknar implementation. Funktionen måste dessutom täcka både CONTROL och DATA samt storage. |
-| Lösning | Gemensamt privacy-workflow över båda databaserna och storage. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Beslutslagret för registrerades rättigheter är implementerat i packages/privacy: alla fem rättigheter modellerade, svar kan inte byggas utan att varje register (CONTROL, DATA, objektlagring, auditlogg, backup) uttryckligen redovisats, legal hold blockerar radering, och PUB-avtalets 30-dagarsfrist beräknas per begäran. |
+| Gap | Exekveringslagret saknas: ingen faktisk sökning eller radering per register, och inga API-endpoints eller gränssnitt för att ta emot en begäran. |
+| Lösning | Sök- och raderingsadaptrar per register som fyller coverage, plus endpoints och vy i tenant-portalen. |
+| Kodevidens | packages/privacy/src/index.ts |
+| Verifiering | tests/run.mjs: två tester som verifierar att ofullständig registertäckning avvisas (särskilt utelämnad CONTROL) samt legal hold och lagstadgade undantag. |
+| Status | PARTIAL |
 
 ### 2024 — PARTIAL
 

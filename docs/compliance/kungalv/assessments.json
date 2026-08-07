@@ -9,12 +9,13 @@
   },
   "assessments": {
     "F001": {
-      "state": "Signeringskedjan finns: signature_policies med signatureLevel ADVANCED_ELECTRONIC_SIGNATURE, signing_intents med dokumentsnapshot och hash, identity_transactions, validation_runs samt evidenspaket. TIC/BankID-bevis verifieras via ValidationServiceTicEvidenceVerifier mot XML-DSig och OCSP; RejectingTicEvidenceVerifier är default så att overifierade bevis aldrig accepteras.",
-      "gap": "PAdES-produktion och DSS-validering är inte slutförda i signservice (BlockedSigningEngine blockerar). Utan producerad och validerad PAdES-signatur kan AEU enligt DIGG inte bevisas.",
-      "implementation": "Slutför PAdES-pipeline i services/signservice och koppla validation-service till DSS. Kravet får inte markeras uppfyllt förrän en producerad signatur validerats.",
-      "evidence": "packages/signature-policy/src/index.ts; packages/provider-adapters/src/tic-bankid.ts; migrations/data/0010_immutability_and_evidence_states.sql; services/signservice/src/main/java/se/kommunsign/signservice/BlockedSigningEngine.java",
-      "verification": "tests/run.mjs: TIC-adaptertest och evidensmanifesttest. Ingen end-to-end PAdES-validering finns ännu.",
-      "status": "PARTIAL"
+      "state": "Signeringskedjan finns: signature_policies med signatureLevel ADVANCED_ELECTRONIC_SIGNATURE, signing_intents med dokumentsnapshot och hash, identity_transactions, validation_runs samt evidenspaket. TIC/BankID-bevis verifieras via ValidationServiceTicEvidenceVerifier mot XML-DSig och OCSP; RejectingTicEvidenceVerifier är default så att overifierade bevis aldrig accepteras. PAdES-antagningsgrinden i packages/pades härleder uppnådd nivå ur faktisk evidens och registrerar aldrig en högre nivå än evidensen bär; osignerad eller ovaliderad signatur avvisas.",
+      "gap": "PAdES-produktion och DSS-validering saknas fortfarande. Grinden hindrar felaktiga påståenden men skapar ingen signatur.",
+      "implementation": "Anslut signeringsmotor med riktigt nyckelmaterial och DSS-validering. Grinden är förberedd för det.",
+      "evidence": "packages/signature-policy/src/index.ts; packages/provider-adapters/src/tic-bankid.ts; migrations/data/0010_immutability_and_evidence_states.sql; services/signservice/src/main/java/se/kommunsign/signservice/BlockedSigningEngine.java; packages/pades/src/index.ts",
+      "verification": "tests/run.mjs: tre PAdES-tester (nivåhärledning, valideringsvägran, samtliga överdrivandevägar).",
+      "status": "PARTIAL",
+      "blocker": "CA/HSM-nyckelmaterial, TSA och DSS-bibliotek."
     },
     "F002": {
       "state": "Freja OrgID är modellerad som identitetsmetod i identity-registry med egen feature flag, HIGH assurance och carriesOrganisationIdentity=true, vilket gör den till den enda metod som uppfyller krav på verifierad organisationsidentitet. Metoden är markerad productionReady=false och avvisas därför i produktion.",
@@ -110,7 +111,7 @@
       "state": "SigningIntentDocumentSnapshot kräver profile 'PDF/A-2b' och document-processing innehåller normaliseringssteg.",
       "gap": "Ingen PDF/A-validering med etablerad validator och ingen verifiering av att slutdokumentet efter signering fortfarande är PDF/A.",
       "implementation": "veraPDF-validering före signering och på slutdokumentet.",
-      "evidence": "packages/contracts/src/index.ts; packages/document-processing/src/production.ts",
+      "evidence": "packages/contracts/src/index.ts; packages/document-processing/src/production.ts; packages/pades/src/index.ts",
       "verification": "Ingen.",
       "status": "PARTIAL"
     },
@@ -243,12 +244,12 @@
       "status": "PARTIAL"
     },
     "2023": {
-      "state": "Ingen GDPR-funktionalitet för registerutdrag, rättelse, begränsning, radering eller dataportabilitet finns i applikationen.",
-      "gap": "Hela kravet saknar implementation. Funktionen måste dessutom täcka både CONTROL och DATA samt storage.",
-      "implementation": "Gemensamt privacy-workflow över båda databaserna och storage.",
-      "evidence": "Ingen.",
-      "verification": "Ingen.",
-      "status": "GAP"
+      "state": "Beslutslagret för registrerades rättigheter är implementerat i packages/privacy: alla fem rättigheter modellerade, svar kan inte byggas utan att varje register (CONTROL, DATA, objektlagring, auditlogg, backup) uttryckligen redovisats, legal hold blockerar radering, och PUB-avtalets 30-dagarsfrist beräknas per begäran.",
+      "gap": "Exekveringslagret saknas: ingen faktisk sökning eller radering per register, och inga API-endpoints eller gränssnitt för att ta emot en begäran.",
+      "implementation": "Sök- och raderingsadaptrar per register som fyller coverage, plus endpoints och vy i tenant-portalen.",
+      "evidence": "packages/privacy/src/index.ts",
+      "verification": "tests/run.mjs: två tester som verifierar att ofullständig registertäckning avvisas (särskilt utelämnad CONTROL) samt legal hold och lagstadgade undantag.",
+      "status": "PARTIAL"
     },
     "2024": {
       "state": "RLS är påtvingad (FORCE ROW LEVEL SECURITY) i datamodellen, composite tenant foreign keys används och tenantkontext sätts per transaktion via app.tenant_id.",

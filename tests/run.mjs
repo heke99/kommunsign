@@ -35,6 +35,9 @@ import {
 import {
   admitPadesSignature, attainedPadesLevel, describePadesLevel,
 } from '../dist/packages/pades/src/index.js';
+import {
+  buildDataSubjectResponse, erasureExemption, isOverdue,
+} from '../dist/packages/privacy/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1120,6 +1123,64 @@ test('PAdES admission never claims a level the evidence does not support', () =>
   assert.equal(admitPadesSignature(padesPolicy({ requiredPadesLevel: 'B' }), fullEvidence()).admittedLevel, 'LTA');
   assert.equal(admitPadesSignature(padesPolicy({ requiredPadesLevel: 'LT' }), fullEvidence({ archiveTimestampReference: null })).admittedLevel, 'LT');
   assert.match(describePadesLevel('LTA'), /arkivtidsstämpel/);
+});
+
+const ALL_STORES = ['CONTROL', 'DATA', 'OBJECT_STORAGE', 'AUDIT_LOG', 'BACKUP'];
+const fullCoverage = (overrides = {}) => ALL_STORES.map((store) => ({
+  store, recordCount: 1, searched: true,
+  ...(erasureExemption(store) ? { searched: false, recordCount: 0, exemptionReason: erasureExemption(store) } : {}),
+  ...(overrides[store] ?? {}),
+}));
+const privacyRequest = (overrides = {}) => ({
+  tenantId: '00000000-0000-4000-8000-000000000001', requestId: '00000000-0000-4000-8000-000000000009',
+  right: 'ERASURE', receivedAt: '2026-08-07T00:00:00.000Z', legalHoldActive: false, ...overrides,
+});
+const privacyCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('a data subject request must account for every store, including CONTROL', () => {
+  const response = buildDataSubjectResponse(privacyRequest({ right: 'ACCESS' }), fullCoverage());
+  assert.equal(response.complete, true);
+  assert.equal(response.schemaVersion, 1);
+  // PUB-avtalet 10.1: 30 dagar från mottagandet.
+  assert.equal(response.dueAt, '2026-09-06T00:00:00.000Z');
+
+  // Detta är defekten modulen finns för: ett svar som täcker DATA men glömmer
+  // CONTROL ser fullständigt ut och måste därför avvisas.
+  const withoutControl = fullCoverage().filter((entry) => entry.store !== 'CONTROL');
+  assert.equal(privacyCode(() => buildDataSubjectResponse(privacyRequest({ right: 'ACCESS' }), withoutControl)), 'PRIVACY_COVERAGE_INCOMPLETE');
+  const withoutStorage = fullCoverage().filter((entry) => entry.store !== 'OBJECT_STORAGE');
+  assert.equal(privacyCode(() => buildDataSubjectResponse(privacyRequest({ right: 'ACCESS' }), withoutStorage)), 'PRIVACY_COVERAGE_INCOMPLETE');
+
+  // Ett register får inte vara varken genomsökt eller undantaget.
+  assert.equal(
+    privacyCode(() => buildDataSubjectResponse(privacyRequest({ right: 'ACCESS' }), fullCoverage({ CONTROL: { searched: false, exemptionReason: '  ' } }))),
+    'PRIVACY_STORE_NOT_SEARCHED',
+  );
+  assert.equal(
+    privacyCode(() => buildDataSubjectResponse(privacyRequest({ right: 'ACCESS' }), [...fullCoverage(), { store: 'DATA', recordCount: 0, searched: true }])),
+    'PRIVACY_STORE_DUPLICATE',
+  );
+});
+
+test('erasure respects legal hold and the statutory log retention', () => {
+  // Legal hold blockerar radering på samma sätt som gallring.
+  assert.equal(
+    privacyCode(() => buildDataSubjectResponse(privacyRequest({ legalHoldActive: true }), fullCoverage())),
+    'PRIVACY_ERASURE_BLOCKED_BY_LEGAL_HOLD',
+  );
+
+  // Rätten till radering är inte absolut. Auditloggen bevaras enligt
+  // PUB-avtalet 7.5 och backuper punktraderas inte — men båda ska redovisas
+  // som undantag med grund, inte tyst hoppas över.
+  const response = buildDataSubjectResponse(privacyRequest(), fullCoverage());
+  assert.deepEqual([...response.exemptedStores].sort(), ['AUDIT_LOG', 'BACKUP']);
+  assert.match(erasureExemption('AUDIT_LOG'), /fem år/);
+  assert.equal(erasureExemption('CONTROL'), null);
+  assert.equal(erasureExemption('DATA'), null);
+
+  // Förfallodatum räknas mot PUB-avtalets frist.
+  assert.equal(isOverdue(response, new Date('2026-09-01T00:00:00.000Z')), false);
+  assert.equal(isOverdue(response, new Date('2026-09-10T00:00:00.000Z')), true);
 });
 
 let failed = 0;
