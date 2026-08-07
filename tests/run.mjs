@@ -32,6 +32,9 @@ import {
 import {
   assuranceAtLeast, availableMethods, capabilitiesFor, resolveIdentityMethod,
 } from '../dist/packages/identity-registry/src/index.js';
+import {
+  admitPadesSignature, attainedPadesLevel, describePadesLevel,
+} from '../dist/packages/pades/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1038,6 +1041,85 @@ test('provider outage narrows the offered methods but never lowers assurance', (
   // Assurance ordering is what makes "never downgrade" checkable.
   assert.ok(assuranceAtLeast('HIGH', 'SUBSTANTIAL'));
   assert.equal(assuranceAtLeast('SUBSTANTIAL', 'HIGH'), false);
+});
+
+const fullEvidence = (overrides = {}) => ({
+  signingCertificateReference: 'cert-1', certificateChainReference: 'chain-1',
+  signedRevisionSha256: 'a'.repeat(64), signatureTimestampReference: 'tst-1',
+  archiveTimestampReference: 'atst-1', revocationEvidenceReferences: ['ocsp-1'],
+  trustListSnapshotReference: 'tl-1', validationResult: 'TOTAL_PASSED',
+  validatedAt: '2026-08-07T10:00:00.000Z', ...overrides,
+});
+const padesPolicy = (overrides = {}) => ({
+  requiredPadesLevel: 'LT', requiresTimestamp: true,
+  allowedValidationResults: ['TOTAL_PASSED'], ...overrides,
+});
+const padesCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('attained PAdES level is capped by the evidence actually present', () => {
+  assert.equal(attainedPadesLevel(fullEvidence()), 'LTA');
+  // Each level is cumulative: removing one artefact caps the level one step down.
+  assert.equal(attainedPadesLevel(fullEvidence({ archiveTimestampReference: null })), 'LT');
+  assert.equal(attainedPadesLevel(fullEvidence({ archiveTimestampReference: null, trustListSnapshotReference: null })), 'T');
+  assert.equal(attainedPadesLevel(fullEvidence({ archiveTimestampReference: null, revocationEvidenceReferences: [] })), 'T');
+  assert.equal(attainedPadesLevel(fullEvidence({ signatureTimestampReference: null, archiveTimestampReference: null })), 'B');
+  // Without a signature over the revision there is no PAdES at all.
+  assert.equal(attainedPadesLevel(fullEvidence({ signedRevisionSha256: null })), null);
+  assert.equal(attainedPadesLevel(fullEvidence({ signingCertificateReference: null })), null);
+  assert.equal(attainedPadesLevel(fullEvidence({ certificateChainReference: null })), null);
+});
+
+test('PAdES admission refuses to register an unvalidated or failed signature', () => {
+  // AGENTS.md rule 5: no registration without DSS or equivalent validation,
+  // however complete the rest of the evidence is.
+  assert.equal(padesCode(() => admitPadesSignature(padesPolicy(), fullEvidence({ validationResult: null }))), 'PADES_NOT_VALIDATED');
+  assert.equal(padesCode(() => admitPadesSignature(padesPolicy(), fullEvidence({ validatedAt: null }))), 'PADES_NOT_VALIDATED');
+  assert.equal(padesCode(() => admitPadesSignature(padesPolicy(), fullEvidence({ validationResult: 'TOTAL_FAILED' }))), 'PADES_VALIDATION_FAILED');
+
+  // INDETERMINATE is admissible only when the policy opts into it.
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy(), fullEvidence({ validationResult: 'INDETERMINATE' }))),
+    'PADES_VALIDATION_RESULT_NOT_ALLOWED',
+  );
+  assert.equal(
+    admitPadesSignature(padesPolicy({ allowedValidationResults: ['TOTAL_PASSED', 'INDETERMINATE'] }), fullEvidence({ validationResult: 'INDETERMINATE' })).validationResult,
+    'INDETERMINATE',
+  );
+
+  // A policy that produces no PAdES must not have one registered against it.
+  assert.equal(padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'NONE' }), fullEvidence())), 'PADES_NOT_REQUIRED_BY_POLICY');
+});
+
+test('PAdES admission never claims a level the evidence does not support', () => {
+  // The core guarantee: asking for LTA without an archive timestamp fails
+  // rather than silently recording LT, and the code names what is missing.
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'LTA' }), fullEvidence({ archiveTimestampReference: null }))),
+    'PADES_ARCHIVE_TIMESTAMP_MISSING',
+  );
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'LT' }), fullEvidence({ archiveTimestampReference: null, revocationEvidenceReferences: [] }))),
+    'PADES_REVOCATION_EVIDENCE_MISSING',
+  );
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'LT' }), fullEvidence({ archiveTimestampReference: null, trustListSnapshotReference: null }))),
+    'PADES_TRUST_LIST_MISSING',
+  );
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'T' }), fullEvidence({ signatureTimestampReference: null, archiveTimestampReference: null }))),
+    'PADES_TIMESTAMP_MISSING',
+  );
+  // A policy demanding a timestamp gets one even at level B.
+  assert.equal(
+    padesCode(() => admitPadesSignature(padesPolicy({ requiredPadesLevel: 'B', requiresTimestamp: true }), fullEvidence({ signatureTimestampReference: null, archiveTimestampReference: null }))),
+    'PADES_TIMESTAMP_MISSING',
+  );
+
+  // What is recorded is what the evidence supports, not what was requested:
+  // asking for B with full LTA evidence records LTA, not B.
+  assert.equal(admitPadesSignature(padesPolicy({ requiredPadesLevel: 'B' }), fullEvidence()).admittedLevel, 'LTA');
+  assert.equal(admitPadesSignature(padesPolicy({ requiredPadesLevel: 'LT' }), fullEvidence({ archiveTimestampReference: null })).admittedLevel, 'LT');
+  assert.match(describePadesLevel('LTA'), /arkivtidsstämpel/);
 });
 
 let failed = 0;
