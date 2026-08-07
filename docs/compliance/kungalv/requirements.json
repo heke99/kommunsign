@@ -1,0 +1,1456 @@
+{
+  "source": {
+    "file": "Bilaga 1 - IT-krav Kungälvs Kommun.xlsx",
+    "sha256": "b7c214f9ab729f154ecd6f2c16c5d91fef8f7fbfb006e3588b5f6f4da84a4a7e",
+    "note": "Extraherad ur Kungälvs kommuns upphandlingsunderlag Dnr KS2026/1005. Kravtexten är oförändrad."
+  },
+  "requirements": [
+    {
+      "id": "F001",
+      "sheet": "Funktionella krav",
+      "category": "Signering",
+      "requirement": "Uppfyller Diggs krav på Avancerad elektronisk underskrift",
+      "type": "SKA",
+      "reference": "E-underskrift | Digg",
+      "localId": true
+    },
+    {
+      "id": "F002",
+      "sheet": "Funktionella krav",
+      "category": "Signering",
+      "requirement": "Signering med Freja OrgID för personal",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "F003",
+      "sheet": "Funktionella krav",
+      "category": "Signering",
+      "requirement": "Signering med BankID och Freja+ för medborgare och personer utanför organisationen",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "F004",
+      "sheet": "Funktionella krav",
+      "category": "Inloggning",
+      "requirement": "Inloggning till tjänsten via kommunes IDP-tjänst",
+      "type": "SKA",
+      "reference": "För närvarande Mobility Guard",
+      "localId": true
+    },
+    {
+      "id": "F005",
+      "sheet": "Funktionella krav",
+      "category": "Funktion",
+      "requirement": "Manuell hantering av signerade dokument.",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "F006",
+      "sheet": "Funktionella krav",
+      "category": "Funktion",
+      "requirement": "Möjlighet till integration med verksamhetssystem via API",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "F007",
+      "sheet": "Funktionella krav",
+      "category": "Funktion",
+      "requirement": "Anpassningsbart gränssnitt med egen grafisk profil",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "F008",
+      "sheet": "Funktionella krav",
+      "category": "Funktion",
+      "requirement": "Stödjer signatur av flera personer i turordning",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "F009",
+      "sheet": "Funktionella krav",
+      "category": "Funktion",
+      "requirement": "Stödjer signatur av flera personer parallellt",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "F010",
+      "sheet": "Funktionella krav",
+      "category": "Funktion",
+      "requirement": "Stödjer underskrift av flera dokument samtidigt",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "F011",
+      "sheet": "Funktionella krav",
+      "category": "Funktion",
+      "requirement": "Systemet har stöd för bilagor",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "F012",
+      "sheet": "Funktionella krav",
+      "category": "Funktion",
+      "requirement": "Påminnelse till de som ska signera",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "F013",
+      "sheet": "Funktionella krav",
+      "category": "Arkivering",
+      "requirement": "Signerat dokument ska levereras som PDF/A",
+      "type": "SKA",
+      "localId": true
+    },
+    {
+      "id": "2001",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "Webbaserad lösning",
+      "deliveryForm": "SaaS",
+      "requirement": "Kungälvs Kommun strävar efter att skapa en effektiv och modern IT-plattform som tillåter arbete via olika typer av IT-verktyg: persondator med Windows 11 med webbläsare EDGE och CHROME. Erbjuden systemlösning SKA alltså vara helt webbaserad för att passa in i Kungälvs Kommuns IT-infrastruktur och kunna användas fullt ut med specificerad enhet och med angiven webbläsare. (*)",
+      "type": "SKA"
+    },
+    {
+      "id": "2004",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "Webbaserad lösning",
+      "deliveryForm": "SaaS",
+      "requirement": "Det SKA ej krävas att offererad lösning behöver lokalt installerade plugins eller andra lokalt installerade programvaror. Observera dock att Adobe Reader DC och Microsoft Office 365 inte omfattas av detta krav då denna komponent anses vara en del av standardkonfigurationen för en enhet (PC, Laptop, Platta, Mobil) i Kungälvs Kommun.",
+      "type": "SKA"
+    },
+    {
+      "id": "2005",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "Microsoft Office stöd",
+      "deliveryForm": "SaaS",
+      "requirement": "Offererad lösning SKA fungera tillsammans med Microsoft 365 med online och desktop-redigering (på Personliga datorer) av office dokument. (*)",
+      "type": "SKA"
+    },
+    {
+      "id": "2006",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "Microsoft Office stöd",
+      "deliveryForm": "SaaS",
+      "requirement": "Offererad lösning SKA fungera tillsammans med Microsoft 365 med online (på Gemensamma datorer) av office-dokument. (*)",
+      "type": "SKA"
+    },
+    {
+      "id": "2007",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "Adobe Reader stöd",
+      "deliveryForm": "SaaS",
+      "requirement": "Offererad lösning SKA fungera tillsammans med Adobe Reader DC för PDF-dokument. (*)",
+      "type": "SKA"
+    },
+    {
+      "id": "2008",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "EDGE Webbläsare",
+      "deliveryForm": "SaaS",
+      "requirement": "Samtliga webbaserade gränssnitt SKA fungera utan funktionsbrister i EDGE. (*)",
+      "type": "SKA"
+    },
+    {
+      "id": "2009",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "CHROME Webbläsare",
+      "deliveryForm": "SaaS",
+      "requirement": "Samtliga webbaserade gränssnitt SKA fungera utan funktionsbrister i CHROME. (*)",
+      "type": "SKA"
+    },
+    {
+      "id": "2010",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "Safari Webbläsare",
+      "deliveryForm": "SaaS",
+      "requirement": "Samtliga webbaserade gränssnitt SKA fungera utan funktionsbrister i Safari. (*)",
+      "type": "SKA"
+    },
+    {
+      "id": "2014",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "Användargränssnitt",
+      "deliveryForm": "SaaS",
+      "requirement": "Samtliga webbaserade gränssnitt SKA vara responsiva (responsive web design) så att de anpassar sig utefter den enhet som besökaren använder.",
+      "type": "SKA"
+    },
+    {
+      "id": "2015",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "Användargränssnitt",
+      "deliveryForm": "SaaS",
+      "requirement": "Samtliga webbaserade gränssnitt SKA minimum uppfylla kraven enligt WCAG 2.0 nivå AA (http://webbriktlinjer.se/r/1-utga-fran-wcag-2-0-niva-aa/).",
+      "type": "SKA"
+    },
+    {
+      "id": "2016",
+      "sheet": "Allmänna IT-krav",
+      "category": "01 - Allmänna IT-krav",
+      "subject": "Nätverk",
+      "deliveryForm": "SaaS",
+      "requirement": "Offererad lösning SKA stödja nätverksprotokollet: TCP/IP IPv4",
+      "type": "SKA"
+    },
+    {
+      "id": "2018",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "Kryptering",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemet SKA stödja krypterad webbtrafik minst via https TLS 1.2",
+      "type": "SKA"
+    },
+    {
+      "id": "2019",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "Kryptering",
+      "deliveryForm": "SaaS",
+      "requirement": "All kommunikation till och från systemet SKA vara skyddad mot obehörig åtkomst eller förvanskning.",
+      "type": "SKA"
+    },
+    {
+      "id": "2020",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "Kryptering",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemet SKA inte lagra lösenord i klartext i textfiler, binärfiler eller i registret. Denna typ av information krypteras.",
+      "type": "SKA"
+    },
+    {
+      "id": "2021",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "Kryptering",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemet SKA åtkomstskydda systemkänsliga uppgifter, exempelvis lösenord. Antingen genom direkt åtkomstskydd av filer eller kryptering. Detta omfattar även systemkonton i källkod.",
+      "type": "SKA"
+    },
+    {
+      "id": "2022",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "Loggning",
+      "deliveryForm": "SaaS",
+      "requirement": "För spårbarhet SKA nödvändiga uppgifter kunna samlas in och lagras i loggar vilket också då innebär att den är skyddad mot obehörig åtkomst senast innan driftstart, innehållet i loggarna visar minst:\na) vem som utfört vilken åtgärd, och vid vilken tidpunkt\nb) genomförd gallring\nc) drift- och övervakningshändelser",
+      "type": "SKA"
+    },
+    {
+      "id": "2023",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "GDPR",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemet SKA stödja hantering av personuppgifter i enlighet med GDPR och med funktioner för registerutdrag, rättelse, begränsning, radering, dataportabilitet. Detta gäller både externa parter och användare av systemet.",
+      "type": "SKA"
+    },
+    {
+      "id": "2024",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "Sekretess",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemet SKA göra det omöjligt för andra än behöriga användare att läsa, redigera eller på annat sätt hantera sekretessbelagda ärenden, handlingar eller annan information.",
+      "type": "SKA"
+    },
+    {
+      "id": "2025",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "Support",
+      "deliveryForm": "SaaS",
+      "requirement": "Leverantören SKA under avtalsperioden permanent radera den information som extraheras ur systemet i samband med felsökning, support och löpande underhåll.",
+      "type": "SKA"
+    },
+    {
+      "id": "2026",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "Support",
+      "deliveryForm": "SaaS",
+      "requirement": "Leverantören SKA endast använda personliga användarkonton vid arbete med och i systemet. Inga gruppkonton får förekomma.",
+      "type": "SKA"
+    },
+    {
+      "id": "2027",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "Säkerhetsincidenter",
+      "deliveryForm": "SaaS",
+      "requirement": "Leverantören SKA tillsammans med utpekad roll hos beställaren samråda kring hantering av sårbarheter, säkerhetshändelser eller säkerhetsincidenter.",
+      "type": "SKA"
+    },
+    {
+      "id": "2028",
+      "sheet": "Allmänna IT-krav",
+      "category": "02 - Informationssäkerhet",
+      "subject": "Skyddade personuppgifter",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemet SKA stödja hantering av så kallade skyddade personuppgifter (Skatteverkets samlingsrubrik för sekretessmarkering, skyddad folkbokföring och fingerade personuppgifter).",
+      "type": "SKA"
+    },
+    {
+      "id": "2029",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Dataplacering",
+      "deliveryForm": "SaaS",
+      "requirement": "Databehandling SKA ske inom EU/EES om inget annat uttryckligen godkänns.",
+      "type": "SKA"
+    },
+    {
+      "id": "2030",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Underleveranrör",
+      "deliveryForm": "SaaS",
+      "requirement": "Underleverantörer som behandlar kommunens information SKA vara kända och godkända.",
+      "type": "SKA"
+    },
+    {
+      "id": "2031",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Underleveranrör",
+      "deliveryForm": "SaaS",
+      "requirement": "Byte av underleverantör som påverkar informationshantering SKA godkännas av kommunen.",
+      "type": "SKA"
+    },
+    {
+      "id": "2032",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Etablerad lösning",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemet SKA vara etablerat på marknaden och vara i drift hos minst två (2) kunder. Verksamheter i samverkan räknas som en (1) kund oavsett hur många organisationer som samverkar. Beställaren kan komma att begära in uppgifter som stärker kravet.",
+      "type": "SKA"
+    },
+    {
+      "id": "2033",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Svenska tecken",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemet SKA ha stöd för vanliga svenska tecken enligt ISO/IEC 8859-1 eller Unicode.",
+      "type": "SKA"
+    },
+    {
+      "id": "2034",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Svenskt språk",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemets menyer, dialoger, felmeddelanden och liknande SKA vara på svenska.",
+      "type": "SKA"
+    },
+    {
+      "id": "2035",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Svensk datumstandard",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemet SKA visa datum (och i förekommande fall klockslag) enligt vedertagen svensk standard (åååå-mm-dd respektive tt:mm enligt UTC(SP)).",
+      "type": "SKA"
+    },
+    {
+      "id": "2036",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Digital användarhandbok",
+      "deliveryForm": "SaaS",
+      "requirement": "Digitalt tillgänglig användarhandbok, och/eller hjälpfunktioner direkt i systemet, SKA finnas tillgängligt för användarna.",
+      "type": "SKA"
+    },
+    {
+      "id": "2037",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Backup",
+      "deliveryForm": "SaaS",
+      "requirement": "Backuptagning SKA kunna ske under drift utan att systemet behöver stängas ned.",
+      "type": "SKA"
+    },
+    {
+      "id": "2038",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Ägandeskap",
+      "deliveryForm": "SaaS",
+      "requirement": "Leverantören SKA säkerställa att all information (data), inklusive metadata, som lagras, behandlas eller genereras inom ramen för tjänsten, uteslutande ägs av Kungälvs kommun. Leverantören erhåller ingen äganderätt eller annan självständig rätt till kommunens data, utan får endast behandla denna i egenskap av personuppgiftsbiträde och enligt kommunens dokumenterade instruktioner.",
+      "type": "SKA"
+    },
+    {
+      "id": "2039",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Vidareutveckling",
+      "deliveryForm": "SaaS",
+      "requirement": "Leverantören SKA ha möjlighet att i dialog med leverantören kunna påverka vidareutvecklingen av systemet.",
+      "type": "SKA"
+    },
+    {
+      "id": "2040",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Support",
+      "deliveryForm": "SaaS",
+      "requirement": "Support SKA ges i enlighet med riktlinjerna som finns i bilagan Supportavtal för molnbaserade tjänster;",
+      "type": "SKA"
+    },
+    {
+      "id": "2041",
+      "sheet": "Allmänna IT-krav",
+      "category": "03 - Tillgänglighet och Support",
+      "subject": "Tillgänglighet",
+      "deliveryForm": "SaaS",
+      "requirement": "Tjänsten SKA vara tillgänglig dygnet runt, med undantag för planerat underhåll.",
+      "type": "SKA"
+    },
+    {
+      "id": "2042",
+      "sheet": "Allmänna IT-krav",
+      "category": "04 - Drift och underhåll",
+      "subject": "Kostnader",
+      "deliveryForm": "SaaS",
+      "requirement": "Samtliga kostnader för införande, drift, tillhandahållande, funktionalitet, support, vidareutveckling av systemet och avveckling SKA lämnas i prisbilagan. I de fall tredjepartsprodukter eller specifika systemprogramvaror behövs för att använda systemet ingåe dessa i anbudet.",
+      "type": "SKA"
+    },
+    {
+      "id": "2043",
+      "sheet": "Allmänna IT-krav",
+      "category": "04 - Drift och underhåll",
+      "subject": "Lagstiftning",
+      "deliveryForm": "SaaS",
+      "requirement": "I samråd med beställaren SKA leverantören säkerställa att systemet uppfyller och utvecklas i takt med förändringar i gällande lagstiftning och förordningar som berör beställarens verksamhet – exempelvis tryckfrihetsförordningen, offentlighets- och sekretesslagen, arkivlagen, GDPR, kommunallagen, föräldrabalken samt förmynderskapsförordningen.",
+      "type": "SKA"
+    },
+    {
+      "id": "2044",
+      "sheet": "Allmänna IT-krav",
+      "category": "04 - Drift och underhåll",
+      "subject": "Spårbarhet",
+      "deliveryForm": "SaaS",
+      "requirement": "Leverantören SKA se till att skydd och spårbarhet finns i de verktyg som används för underhåll av systemet samt dess säkerhetskonfiguration och information.",
+      "type": "SKA"
+    },
+    {
+      "id": "2045",
+      "sheet": "Allmänna IT-krav",
+      "category": "04 - Drift och underhåll",
+      "subject": "Sårbarheter",
+      "deliveryForm": "SaaS",
+      "requirement": "Leverantören SKA utan dröjsmål informera beställaren om sårbarheter i levererade komponenter samt åtgärda dessa omgående.",
+      "type": "SKA"
+    },
+    {
+      "id": "2046",
+      "sheet": "Allmänna IT-krav",
+      "category": "04 - Drift och underhåll",
+      "subject": "Kvalitetssäkring",
+      "deliveryForm": "SaaS",
+      "requirement": "Nya versioner SKA vara både testade och kvalitetssäkrade innan systemet uppdateras hos beställaren.",
+      "type": "SKA"
+    },
+    {
+      "id": "2047",
+      "sheet": "Allmänna IT-krav",
+      "category": "04 - Drift och underhåll",
+      "subject": "Rätt till senaste version",
+      "deliveryForm": "SaaS",
+      "requirement": "Beställaren SKA kostnadsfritt ha rätt till senaste versionen av systemet under hela avtalstiden.",
+      "type": "SKA"
+    },
+    {
+      "id": "2048",
+      "sheet": "Allmänna IT-krav",
+      "category": "05 - Införande",
+      "subject": "Införandeplan",
+      "deliveryForm": "SaaS",
+      "requirement": "Leverantören SKA ta fram en införandeplan med tider, aktiviteter och resurser från såväl leverantör som beställare för att möjliggöra en färdig leverans.",
+      "type": "SKA"
+    },
+    {
+      "id": "2051",
+      "sheet": "Allmänna IT-krav",
+      "category": "05 - Införande",
+      "subject": "Införandeplan",
+      "deliveryForm": "SaaS",
+      "requirement": "Införandet SKA ske i nära samarbete med Beställarens projektledare samt verksamheten.",
+      "type": "SKA"
+    },
+    {
+      "id": "2054",
+      "sheet": "Allmänna IT-krav",
+      "category": "05 - Införande",
+      "subject": "Utbildning",
+      "deliveryForm": "SaaS",
+      "requirement": "Leverantören SKA anordna utbildning av systemet, för upp till fyra systemförvaltare och superanvändare/systemadministratörer, innan acceptanstest påbörjas.",
+      "type": "SKA"
+    },
+    {
+      "id": "2055",
+      "sheet": "Allmänna IT-krav",
+      "category": "05 - Införande",
+      "subject": "Utbildning",
+      "deliveryForm": "SaaS",
+      "requirement": "I leveransen av systemet SKA det ingå utbildningsmaterial på god svenska i elektronisk och redigeringsbar form som beställaren har rätt att använda för egen utbildning.",
+      "type": "SKA"
+    },
+    {
+      "id": "2056",
+      "sheet": "Allmänna IT-krav",
+      "category": "05 - Införande",
+      "subject": "Installation",
+      "deliveryForm": "SaaS",
+      "requirement": "Leverantören SKA ha ett totalansvar för installationen så att beställaren vid driftsättning kan ta i bruk ett väl fungerande system.",
+      "type": "SKA"
+    },
+    {
+      "id": "2057",
+      "sheet": "Allmänna IT-krav",
+      "category": "06 - Dokumentation",
+      "subject": "Språk",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemdokumentation SKA vara skriven på Svenska",
+      "type": "SKA"
+    },
+    {
+      "id": "2058",
+      "sheet": "Allmänna IT-krav",
+      "category": "06 - Dokumentation",
+      "subject": "Systemdokumentation",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemdokumentationen SKA innehålla systemkrav, systemdesign och installationsanvisningar.",
+      "type": "SKA"
+    },
+    {
+      "id": "2059",
+      "sheet": "Allmänna IT-krav",
+      "category": "06 - Dokumentation",
+      "subject": "Systemdokumentation",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemdokumentationen SKA omfatta/innehålla beskrivning av hur behörighetskontrollen är uppbyggd",
+      "type": "SKA"
+    },
+    {
+      "id": "2060",
+      "sheet": "Allmänna IT-krav",
+      "category": "06 - Dokumentation",
+      "subject": "Uppgraderingar",
+      "deliveryForm": "SaaS",
+      "requirement": "Ändringsdokumentation (changelog) och releasenotes SKA produceras löpande i samband med leverans av ändringar och nya funktioner.",
+      "type": "SKA"
+    },
+    {
+      "id": "2061",
+      "sheet": "Allmänna IT-krav",
+      "category": "06 - Dokumentation",
+      "subject": "Uppdateringar",
+      "deliveryForm": "SaaS",
+      "requirement": "Uppdatering SKA ske av samtliga dokumentationer där det skett förändringar i systemet.",
+      "type": "SKA"
+    },
+    {
+      "id": "2064",
+      "sheet": "Allmänna IT-krav",
+      "category": "07 - Digitalt bevarande",
+      "subject": "Digitalt bevarande",
+      "deliveryForm": "Arkivering",
+      "requirement": "Systemet SKA följa Riksarkivets RA-FS 2009:2 gällande elektroniska handlingar vid överföring till system för bevarande.",
+      "type": "SKA"
+    },
+    {
+      "id": "2065",
+      "sheet": "Allmänna IT-krav",
+      "category": "07 - Digitalt bevarande",
+      "subject": "Digitalt bevarande",
+      "deliveryForm": "Arkivering",
+      "requirement": "Systemet SKA följa Riksarkivets gällande föreskrifter och allmänna råd gällande lagring, information, standarder, förvaltningsgemensamma specifikationer (FGS 1.2) och dokumentation för framtida avställande eller export.",
+      "type": "SKA"
+    },
+    {
+      "id": "2066",
+      "sheet": "Allmänna IT-krav",
+      "category": "07 - Digitalt bevarande",
+      "subject": "Digitalt bevarande",
+      "deliveryForm": "Arkivering",
+      "requirement": "Systemet SKA kunna skapa exporter för leverans samt exportera metadata i ett teknikneutralt format i enlighet med FGS 1.2.",
+      "type": "SKA"
+    },
+    {
+      "id": "2067",
+      "sheet": "Allmänna IT-krav",
+      "category": "07 - Digitalt bevarande",
+      "subject": "Digitalt bevarande",
+      "deliveryForm": "Arkivering",
+      "requirement": "Det SKA vara möjligt i systemet att exportera filer med tillhörande metadata för digital långtidsarkivering till ett oberoende e-arkiv.",
+      "type": "SKA"
+    },
+    {
+      "id": "2068",
+      "sheet": "Allmänna IT-krav",
+      "category": "08 - Gallring",
+      "subject": "Gallring",
+      "deliveryForm": "Gallring",
+      "requirement": "Systemet SKA ha en gallringsfunktion.",
+      "type": "SKA"
+    },
+    {
+      "id": "2069",
+      "sheet": "Allmänna IT-krav",
+      "category": "08 - Gallring",
+      "subject": "Gallring",
+      "deliveryForm": "Gallring",
+      "requirement": "Beställaren SKA utan inblandning eller hjälp från Leverantör kunna gallra.",
+      "type": "SKA"
+    },
+    {
+      "id": "2070",
+      "sheet": "Allmänna IT-krav",
+      "category": "08 - Gallring",
+      "subject": "Gallring",
+      "deliveryForm": "Gallring",
+      "requirement": "Gallringsfunktionen SKA tillgodose att den gallrade informationen raderas och inte går att återskapa.",
+      "type": "SKA"
+    },
+    {
+      "id": "2071",
+      "sheet": "Allmänna IT-krav",
+      "category": "08 - Gallring",
+      "subject": "Gallring",
+      "deliveryForm": "Gallring",
+      "requirement": "Gallringsfunktionen SKA vara behörighetsstyrd, så att endast behöriga användare kan utföra gallring.",
+      "type": "SKA"
+    },
+    {
+      "id": "2072",
+      "sheet": "Allmänna IT-krav",
+      "category": "08 - Gallring",
+      "subject": "Gallring",
+      "deliveryForm": "Gallring",
+      "requirement": "Gallringsfunktionen SKA kunna generera gallringsrapporter eller gallringsloggar, så att gallring som utförts blir spårbar.",
+      "type": "SKA"
+    },
+    {
+      "id": "2073",
+      "sheet": "Allmänna IT-krav",
+      "category": "09 - Integrationer",
+      "subject": "API",
+      "deliveryForm": "Integration",
+      "requirement": "Systemet SKA tillhandahålla dokumenterade API:er för läsning och skrivning av data till andra system och kommunens integrationsplattform.",
+      "type": "SKA"
+    },
+    {
+      "id": "2074",
+      "sheet": "Allmänna IT-krav",
+      "category": "09 - Integrationer",
+      "subject": "Integration",
+      "deliveryForm": "Integration",
+      "requirement": "Leverantören SKA tillhandahålla teknisk dokumentation för integration.",
+      "type": "SKA"
+    },
+    {
+      "id": "2075",
+      "sheet": "Allmänna IT-krav",
+      "category": "09 - Integrationer",
+      "subject": "Integration",
+      "deliveryForm": "Integration",
+      "requirement": "Kommunens data SKA kunna exporteras i öppna, dokumenterade format.",
+      "type": "SKA"
+    },
+    {
+      "id": "2076",
+      "sheet": "Allmänna IT-krav",
+      "category": "09 - Integrationer",
+      "subject": "API",
+      "deliveryForm": "Integration",
+      "requirement": "Samtliga API:er, både nuvarande och framtida SKA ingå utan kostnad eller volymbegränsing.",
+      "type": "SKA"
+    },
+    {
+      "id": "2079",
+      "sheet": "Allmänna IT-krav",
+      "category": "10 - Inloggning och behörighet",
+      "subject": "Inloggning",
+      "deliveryForm": "SaaS",
+      "requirement": "Inloggning till systemet SKA stödja antingen SAML 2.0 eller OIDC (Open Id Connect).",
+      "type": "SKA"
+    },
+    {
+      "id": "2080",
+      "sheet": "Allmänna IT-krav",
+      "category": "10 - Inloggning och behörighet",
+      "subject": "Behörighet",
+      "deliveryForm": "SaaS",
+      "requirement": "Lösningen SKA stödja roll- och behörighetsstyrning.",
+      "type": "SKA"
+    },
+    {
+      "id": "2081",
+      "sheet": "Allmänna IT-krav",
+      "category": "10 - Inloggning och behörighet",
+      "subject": "Behörighet",
+      "deliveryForm": "SaaS",
+      "requirement": "Det SKA vara möjligt att begränsa åtkomst till funktioner och information baserat på användarroller.",
+      "type": "SKA"
+    },
+    {
+      "id": "2082",
+      "sheet": "Allmänna IT-krav",
+      "category": "10 - Inloggning och behörighet",
+      "subject": "Provisionering",
+      "deliveryForm": "SaaS",
+      "requirement": "Systemet SKA stödja automatisk provisionering av användare.",
+      "type": "SKA"
+    },
+    {
+      "id": "2083",
+      "sheet": "Allmänna IT-krav",
+      "category": "10 - Inloggning och behörighet",
+      "subject": "Provisionering",
+      "deliveryForm": "SaaS",
+      "requirement": "Provisioneringen SKA omfatta minst: \n- skapande av användarkonto\n- uppdatering av användaruppgifter\n- avaktivering/avslut av användare",
+      "type": "SKA"
+    },
+    {
+      "id": "2084",
+      "sheet": "Allmänna IT-krav",
+      "category": "10 - Inloggning och behörighet",
+      "subject": "Provisionering",
+      "deliveryForm": "SaaS",
+      "requirement": "Provisioneringen SKA baseras på kommunens centrala identitetskälla.",
+      "type": "SKA"
+    },
+    {
+      "id": "2085",
+      "sheet": "Allmänna IT-krav",
+      "category": "10 - Inloggning och behörighet",
+      "subject": "Provisionering",
+      "deliveryForm": "SaaS",
+      "requirement": "Det SKA vara möjligt att tilldela roller och behörigheter automatiskt vid provisionering.",
+      "type": "SKA"
+    },
+    {
+      "id": "3501",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.6.1 Intern organisation",
+      "isoArea": "A.6.1.1 Informationssäkerhetsroller och ansvar",
+      "requirement": "Leverantören ska för de delar av verksamheten som berörs i leveransen ha ett ledningssystem för informationssäkerhet (LIS) som baseras på SS-EN ISO/IEC27001:2017 eller motsvarande. Ledningssystemet ska omfatta bland annat att samtliga säkerhetskritiska administrativa och tekniska processer är dokumenterade och vilar på en formell grund där roller, ansvar och befogenheter finns tydligt definierade.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3502",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.6.1 Intern organisation",
+      "isoArea": "A.6.1.2 Uppdelning av arbetsuppgifter",
+      "requirement": "Leverantören ska ha tillsett att ansvar och arbetsuppgifter som står i konflikt med varandra och kan leda till missbruk är tekniskt eller organisatoriskt åtskilda.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3503",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.6.1 Intern organisation",
+      "isoArea": "A.6.1.3 Kontakt med myndigheter",
+      "requirement": "Leverantören ska ha upprättat och upprätthålla kontakter med de myndigheter som berörs av leveransen",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3504",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.6.2 Mobila enheter och distansarbete",
+      "isoArea": "A.6.2.2 Distansarbete",
+      "requirement": "Leverantören ska ha en policy som beskriver hur de anställda får arbeta på distans avseende drift, förvaltning och support av de levererade tjänsterna. Leverantören ska regelbundet kontrollera att den efterlevs.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3505",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.7.1 Före anställning",
+      "isoArea": "A.7.1.1 Bakgrundskontroll",
+      "requirement": "Leverantören ska ha processer och rutiner på plats för bakgrundskontroll av personal.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3506",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.7.1 Före anställning",
+      "isoArea": "A.7.1.2 Anställningsvillkor",
+      "requirement": "Leverantören ska ha avtal om tystnadsplikt med sina anställda. Tystnadsplikten ska omfatta information om leverantörens kunder. Via avtal ska leverantören även säkerställa tystnadsplikt för underleverantörer.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3507",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.7.2 Under anställning",
+      "isoArea": "A.7.2.2 Medvetenhet, utbildning och fortbildning vad gäller informationssäkerhet",
+      "requirement": "Leverantören ska för sin personal regelbundet genomföra utbildningar för ökad medvetenhet kring informationssäkerhet samt hålla sig uppdaterad kring beställarens policys, regler och rutiner.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3508",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.7.2 Under anställning",
+      "isoArea": "A.7.2.3 Disciplinär process",
+      "requirement": "Leverantören ska ha tydliga och kommunicerade åtgärder för överträdelse av informationssäkerhetsregler.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3509",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.7.3 Avslut eller ändring av anställning",
+      "isoArea": "A.7.3.1 Avslut eller ändring av anställds ansvar",
+      "requirement": "Leverantören ska till personalen ha kommunicerat de ansvar och skyldigheter som förblir gällande efter ändring eller avslut av anställning. Personalen ska ha skrivit under en ansvarsförbindelse avseende detta.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3510",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.8.1 Ansvar för tillgångar",
+      "isoArea": "A.8.1.3 Tillåten användning av tillgångar",
+      "requirement": "Leverantören ska ha dokumenterade regler, rutiner och roller som beskriver tillåten användning av de resurser som ingår i leveransen. Leverantören ska regelbundet kontrollera att de efterlevs.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3511",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.8.1 Ansvar för tillgångar",
+      "isoArea": "A.8.1.4 Återlämnande av tillgångar",
+      "requirement": "Leverantören ska ha rutiner och funktioner för att permanent radera information som är relaterade till leveransen. Leverantören ska på begäran kunna uppvisa underlag på att så skett.",
+      "type": "BÖR",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3512",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.8.2 Informationsklassning",
+      "isoArea": "A.8.2.1 Klassning av information",
+      "requirement": "Leverantören ska genomföra regelbundna riskbedömningar för systemet dock minst årligen. Identifierade brister ska åtgärdas omgående enligt en dokumenterad plan och ska kunna redovisas för beställaren.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3513",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.8.2 Informationsklassning",
+      "isoArea": "A.8.2.3 Hantering av tillgångar",
+      "requirement": "Beställarens krav på informationshanteringen ska efterföljas. Om sådana krav inte uttryckligen ställts ska leverantören utan anmodan kunna uppvisa de rutiner som gäller hos leverantören.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3514",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.2 Hantering av användaråtkomst",
+      "isoArea": "A.9.2.1 Registrering och avregistrering av användare",
+      "requirement": "Det ska finnas en dokumenterad och formell process för hur användaridentiteter hanteras i systemet. Identiteterna ska vara personliga, unika över tid, samt verifieras kontinuerligt mot offentliga register såsom folkbokföringsregistret.\n\nSe tillitsramverket (ELN0700) tillitsnivå 3 (LoA3) för detaljer.",
+      "type": "BÖR",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3515",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.2 Hantering av användaråtkomst",
+      "isoArea": "A.9.2.2 Tilldelning av användaråtkomst",
+      "requirement": "Leverantören ska följa en överenskommen rutin som möjliggör för Beställaren att godkänna hantering (skapande, borttag, ändring) av utpekade behörighetsroller t ex avseende priviligierade (högre) behörigheter. Hanteringen ska vara spårbar och redovisas för Beställaren enligt överenskommelse, dock minst årligen.",
+      "type": "BÖR",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3516",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.2 Hantering av användaråtkomst",
+      "isoArea": "A.9.2.3 Hantering av privilegierade åtkomsträttigheter",
+      "requirement": "Leverantören ska använda särskilda personliga användaridentiteter för systemadministration. Dessa konton ska vara spårbara och lätta att skilja från vanliga användare. Beställaren ska informeras vid förändringar av vilka som innehar dessa behörigheter.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3517",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.2 Hantering av användaråtkomst",
+      "isoArea": "A.9.2.4 Hantering av användares konfidentiella autentiseringsinformation",
+      "requirement": "Leverantören ska tillhandahålla ett sätt att distribuera och återställa lösenord utan att lösenordet kan röjas till obehöriga. Behörighetsinformation som t.ex. lösenord får ej lagras i klartext (gäller även systemkonton i källkod). Motsvarande krav gäller även för temporära filer som skapas i användarens arbetsstation när systemet används. Se vägledning för tillitsnivå 3 (LoA3) för detaljer.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3518",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.2 Hantering av användaråtkomst",
+      "isoArea": "A.9.2.5 Granskning av användares åtkomsträttigheter",
+      "requirement": "Behörighetssystemet ska logga information om när användare skapades, togs bort eller förändrades samt senaste inloggning.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3519",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.2 Hantering av användaråtkomst",
+      "isoArea": "A.9.2.6 Borttagning eller justering av åtkomsträttigheter",
+      "requirement": "Leverantören ska ha en rutin för att både avaktivera användarkonton och permanent ta bort konton från systemet.",
+      "type": "BÖR",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3520",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.3 Användaransvar",
+      "isoArea": "A.9.3.1 Användning av konfidentiell autentiseringsinformation",
+      "requirement": "Leverantören ska för sin personal ha fastställda regler för hur autentiseringsinformation får hanteras.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3521",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.4 Styrning av åtkomst till system och tillämpningar",
+      "isoArea": "A.9.4.1 Begränsning av åtkomst till information",
+      "requirement": "Leverantörens behörigheter ska tilldelas enligt principen där minsta möjliga behörighet tilldelas utifrån användares roll och arbetsuppgifter. Detta gäller även konton som används vid kommunikation mellan systemkomponenter, exempelvis mellan applikation och databas samt priviligierade konton.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3522",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.4 Styrning av åtkomst till system och tillämpningar",
+      "isoArea": "A.9.4.2 Säkra inloggningsrutiner",
+      "requirement": "Inloggningen ska vara flerfaktorsbaserad i enlighet med kraven som följer av ELN0700.\n\nEndast utfärdare godkända av E-legitimationsnämnden (minst nivå 3) eller anslutna inom eIDAS (minst nivå substantial) rekommenderas.\n\nSe vägledning för tillitsnivå 3 (LoA3) för detaljer.",
+      "type": "BÖR",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3524",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.4 Styrning av åtkomst till system och tillämpningar",
+      "isoArea": "A.9.4.4 Användning av privilegierade verktygsprogram",
+      "requirement": "Leverantören ska skydda och tillse att det finns spårbarhet i de verktyg som avses för underhåll av systemet, dess säkerhetskonfiguration och information.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3525",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.9.4 Styrning av åtkomst till system och tillämpningar",
+      "isoArea": "A.9.4.5 Åtkomstkontroll till källkod för program",
+      "requirement": "Källkod framtagen i egen utveckling ska skyddas för obehöriga förändringar gentemot den godkända och fastställda versionen. Källkod ska deponeras på ett sådant sätt att beställaren garanteras tillgång om leverantören inte uppfyller sina avtalade förpliktelser.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3526",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.10.1 Kryptografiska säkerhetsåtgärder",
+      "isoArea": "A.10.1.1 Regler för användning av kryptografiska säkerhetsåtgärder",
+      "requirement": "Leverantören ska ha rutiner för kryptering där val av algoritmer, protokoll och nyckellängder samt hantering av krypteringsnycklar framgår.",
+      "type": "BÖR",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3527",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.11.1 Säkra områden",
+      "isoArea": "A.11.1.1 Fysiska säkerhetsavgränsningar",
+      "requirement": "Om leverantörens anbud avser tjänst som driftas utanför Kungälvs Kommun gäller kravet: Datahallen uppfyller minst skyddsnivå 3 (\"datahall\" enligt MSB \"Vägledning för fysisk informationssäkerhet i it-utrymmen\")",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3528",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.11.1 Säkra områden",
+      "isoArea": "A.11.1.2 Fysiska tillträdesbegränsningar",
+      "requirement": "Om leverantörens anbud avser tjänst som driftas utanför Kungälvs Kommun gäller kravet: Leverantören ska ha rutiner som säkerställer att endast behörig personal har fysisk åtkomst till datahall.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3529",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.12.1 Driftsrutiner och ansvar",
+      "isoArea": "A.12.1.2 Ändringshantering",
+      "requirement": "Leverantören ska ha rutiner avseende förändringshantering för de delar som kan påverka leveransens säkerhet och tillgänglighet. Leverantören ska vid anmodan redovisa sin process för beställaren.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3530",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.12.1 Driftsrutiner och ansvar",
+      "isoArea": "A.12.1.3 Kapacitetshantering",
+      "requirement": "Leverantören ska ha funktioner, processer och rutiner för att övervaka och göra prognoser avseende kapacitet och prestanda.",
+      "type": "BÖR",
+      "levels": {
+        "konfidentialitet": null,
+        "riktighet": null,
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3531",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.12.1 Driftsrutiner och ansvar",
+      "isoArea": "A.12.1.4 Separation av utvecklings-, test och driftmiljöer",
+      "requirement": "Leverantören ska testa samtliga leveranser i separat testmiljö innan de införs i Beställarens tjänst. Testdata ska skyddas och kontrolleras och får inte innehålla information som är känslig eller omfattas av sekretess.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": null,
+        "riktighet": "2",
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3532",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.12.2 Skydd mot skadlig kod",
+      "isoArea": "A.12.2.1 Säkerhetsåtgärder mot skadlig kod",
+      "requirement": "Leverantören ska ha ett skydd mot skadlig kod som uppdateras kontinuerligt för de delar som ingår i leveransen.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3533",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.12.3 Säkerhetskopiering",
+      "isoArea": "A.12.3.1 Säkerhetskopiering av information",
+      "requirement": "Om leverantörens anbud avser tjänst som driftas utanför Kungälvs Kommun gäller kravet: Leverantören ska ha rutiner och funktioner för säkerhetskopiering och återställande av information enligt överenskomna tillgänglighetskrav med Beställaren. Säkerhetskopior ska skyddas på motsvarande sätt som originalinformationen samt förvaras åtskilt.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": null,
+        "riktighet": "2",
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3534",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.12.4 Loggning och övervakning",
+      "isoArea": "A.12.4.1 Loggning av händelser",
+      "requirement": "Loggningsfunktioner ska finnas för säkerhetsrelaterade händelser, minst för felaktiga inloggningar, förändring av behörigheter, otillåten anslutning samt överträdelser av behörigheter. Tiden som logginformation sparas ska kunna bestämmas av Beställaren som också ska kunna genomföra granskning av användarrelaterade loggar.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3535",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.12.4 Loggning och övervakning",
+      "isoArea": "A.12.4.2 Skydd av logginformation",
+      "requirement": "Leverantören ska skydda loggningsfunktioner och loggningsverktyg mot manipulation och obehörig åtkomst som även omfattar leverantörens personal.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3536",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.12.4 Loggning och övervakning",
+      "isoArea": "A.12.4.4 Synkronisering av tid",
+      "requirement": "Systemet och relaterad infrastruktur ska använda tidssynkronisering mot samma tidskälla (GPS eller svenska UTC (SP)).",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": null,
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3537",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.12.5 Styrning av driftsystem",
+      "isoArea": "A.12.5.1 Installation av program på driftsystem",
+      "requirement": "Leverantören ska verifiera och begränsa den mjukvara som får exekveras inom den levererade tjänsten",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": null,
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3538",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.12.6 Hantering av tekniska sårbarheter",
+      "isoArea": "A.12.6.1 Hantering av tekniska sårbarheter",
+      "requirement": "Leverantören ska utan dröjsmål informera beställaren om tekniska sårbarheter i levererade komponenter. Upptäckta sårbarheter ska åtgärdas omgående.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3539",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.13.1 Hantering av nätverkssäkerhet",
+      "isoArea": "A.13.1.1 Säkerhetsåtgärder för nätverk",
+      "requirement": "All kommunikation till och från systemet ska vara skyddad mot obehörig åtkomst eller förvanskning. Det gäller både kommunikation mellan klient och server och mellan olika systemkomponenter. Skyddet ska uppdateras löpande utifrån kända sårbarheter.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3540",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.13.1 Hantering av nätverkssäkerhet",
+      "isoArea": "A.13.1.3 Separation av nätverk",
+      "requirement": "Om leverantörens anbud avser tjänst som driftas utanför Kungälvs Kommun gäller kravet: Leverantören ska tillhandahålla en (logisk eller fysiskt) separerad kundmiljö inklusive behörighetskontrollsystem, loggar och lagring för varje kund.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3541",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.13.2 Informationsöverföring",
+      "isoArea": "A.13.2.1 Regler och rutiner för informationsöverföring",
+      "requirement": "Beställaren ska godkänna alla informationsutbyten som sker med andra system",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3543",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.14.1 Säkerhetskrav på informationssystem",
+      "isoArea": "A.14.1.1 Analys och specifikation av informationssäkerhetskrav",
+      "requirement": "Leverantören ska ha fastlagda och dokumenterade principer och metoder för utveckling av säkra system. Vid webbutveckling ska OWASP:s (www.owasp.org) rekommendationer följas.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3544",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.14.1 Säkerhetskrav på informationssystem",
+      "isoArea": "A.14.1.2 Säkerställande av programtjänster på publika nätverk",
+      "requirement": "Leverantören ska ha genomfört säkerhetsåtgärder mot obehörig åtkomst samt obehörig ändring av information som systemet utbyter med andra.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3545",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.14.2 Säkerhet i utvecklings- och supportprocesser",
+      "isoArea": "A.14.2.2 Rutiner för hantering av systemändringar",
+      "requirement": "Leverantören ska ha riktlinjer för informationssäkerhet inom sina utvecklingsprocesser. Vid större ändringar ska leverantören identifiera och hantera risker som säkerställer att säkerhetskraven i systemet är uppfyllda.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3546",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.14.2 Säkerhet i utvecklings- och supportprocesser",
+      "isoArea": "A.14.2.3 Teknisk granskning av tillämpningar efter ändringar i driftsmiljö",
+      "requirement": "Leverantören ska ha rutiner för att granska och testa tillgänglighet och säkerhet av ändringar i verksamhetskritiska driftsplattformar.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3547",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.14.2 Säkerhet i utvecklings- och supportprocesser",
+      "isoArea": "A.14.2.4 Restriktioner för ändringar av programpaket",
+      "requirement": "Leverantören ska ha riktlinjer och instruktioner om Beställaren avser att göra egna förändringar i programpaket.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3548",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.15.1 Informationssäkerhet i leverantörsrelationer",
+      "isoArea": "A.15.1.1 Informationssäkerhetsregler för leverantörsrelationer",
+      "requirement": "Leverantörens ansvar omfattar även underleverantörer. Underleverantörer ska godkännas av beställaren.Leverantören ska lista sina underleverantörer i anbudet som kommentar till detta krav.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3549",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.16.1 Hantering av informationssäkerhetsincidenter och förbättringar",
+      "isoArea": "A.16.1.1 Ansvar och rutiner",
+      "requirement": "Leverantören ska ha dokumenterade rutiner för övervakning, upptäckt, analys, rapportering, eskalering och hantering av säkerhetshändelser och säkerhetsincidenter.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3550",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.16.1 Hantering av informationssäkerhetsincidenter och förbättringar",
+      "isoArea": "A.16.1.4 Bedömning av och beslut om informationssäkerhetshändelser",
+      "requirement": "Leverantören ska tillsammans med utpekad roll hos Beställaren samverka i hanteringen av sårbarheter, säkerhetshändelser eller säkerhetsincidenter.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3551",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.16.1 Hantering av informationssäkerhetsincidenter och förbättringar",
+      "isoArea": "A.16.1.5 Hantering av informationssäkerhetsincidenter",
+      "requirement": "Leverantören ska ha rutiner för att hantera säkerhetsincidenter enligt gällande lagar och förordningar.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": null,
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3552",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.17.1 Kontinuitet för informationssäkerhet",
+      "isoArea": "A.17.1.2 Införa kontinuitet för informationssäkerhet",
+      "requirement": "Leverantören ska ha reservrutiner, reservlösningar och återstartsplaner som uppfyller beställarens krav på tillgänglighet (SLA).",
+      "type": "BÖR",
+      "levels": {
+        "konfidentialitet": null,
+        "riktighet": null,
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3554",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.18.1 Efterlevnad av juridiska och avtalsmässiga krav",
+      "isoArea": "A.18.1.1 Identifiering av tillämplig lagstiftning och avtalsmässiga krav",
+      "requirement": "Leverantören ska löpande och i samråd med Beställaren arbeta för att leveransen i alla lägen följer de aktuella lagar, förordningar, regler och föreskrifter som ställs på Beställarens verksamhet",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3555",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.18.1 Efterlevnad av juridiska och avtalsmässiga krav",
+      "isoArea": "A.18.1.4 Skydd av personlig integritet och personuppgifter",
+      "requirement": "Om leverantören behandlar personuppgifter i systemet ska Beställaren upprätta biträdesavtal med leverantören avseende personuppgiftsbiträde samt sekretessförbindelse innan avtalet träder i kraft.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    },
+    {
+      "id": "3556",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.18.2 Granskningar av informationssäkerhet",
+      "isoArea": "A.18.2.3 Granskning av teknisk efterlevnad",
+      "requirement": "Beställaren ska i samråd med leverantören ha rätt att genomföra säkerhetsrevisioner av ingående delar i leveransen.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": "2"
+      }
+    },
+    {
+      "id": "3557",
+      "sheet": "KLASSA Inform. Tekn. Krav",
+      "isoChapter": "A.18.1 Efterlevnad av juridiska och avtalsmässiga krav",
+      "isoArea": "A. 18.1.2 Immateriella rättigheter",
+      "requirement": "Leverantören ska begära tillstånd innan information i systemet (texter, bilder etc) återanvänds i andra sammanhang.",
+      "type": "SKA",
+      "levels": {
+        "konfidentialitet": "3",
+        "riktighet": "2",
+        "tillganglighet": null
+      }
+    }
+  ]
+}
