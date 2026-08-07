@@ -26,8 +26,8 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 9 | 57 | 29 | 35 | 130 |
-| BÖR | 0 | 3 | 4 | 1 | 8 |
+| SKA | 9 | 62 | 24 | 35 | 130 |
+| BÖR | 0 | 4 | 3 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 
@@ -1057,7 +1057,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Ingen. |
 | Status | GAP |
 
-### 2068 — GAP
+### 2068 — PARTIAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1065,14 +1065,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | app.retention_jobs, app.legal_holds och control.tenant_retention_policies finns i schemat. |
-| Gap | Ingen gallringsfunktion i applikationen: inga endpoints, ingen jobbkörning, ingen rapport. |
-| Lösning | Gallringsmotor med policystyrd, idempotent radering av databasrader, storage och härledd data. |
-| Kodevidens | migrations/data/0007_extended_required_model.sql |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Beslutslagret för gallring är implementerat i packages/retention: policyvalidering, beslut per ärende (RETAIN/ARCHIVE_THEN_DELETE/DELETE) med legal hold och terminalstatus som spärrar, samt gallringsrapport. app.retention_jobs, app.legal_holds och control.tenant_retention_policies finns i schemat. |
+| Gap | Exekveringslagret saknas: ingen jobbkörning som faktiskt raderar databasrader, storage och härledd data, och inga API-endpoints. |
+| Lösning | Idempotent gallringsjobb i worker som konsumerar besluten och rapporterar per target, plus endpoints för policyhantering och körning. |
+| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
+| Verifiering | tests/run.mjs: fem gallringstester (legal hold, periodutgång, PUB-golv, rapportfullständighet, behörighet). |
+| Status | PARTIAL |
 
-### 2069 — GAP
+### 2069 — PARTIAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1080,14 +1080,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Ingen gallringsfunktion att exponera för beställaren. |
-| Gap | Beställaren kan inte gallra själv. |
-| Lösning | Gallring exponerad i tenant-portalen och API:t. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Behörigheterna retention:manage och retention:execute finns på tenant_admin och tenant_archive_admin. Ingen plattforms-/leverantörsroll har dem, vilket gör gallring till en ren kundoperation. |
+| Gap | Ingen exponering i tenant-portalen eller API:t, så beställaren kan ännu inte utföra gallringen praktiskt. |
+| Lösning | Gallringsvy i tenant-portalen och endpoints under /v1. |
+| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
+| Verifiering | tests/run.mjs: gallring är behörighetsstyrd och reserverad för kunden. |
+| Status | PARTIAL |
 
-### 2070 — GAP
+### 2070 — PARTIAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1095,14 +1095,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Ingen gallringsfunktion. |
-| Gap | Ingen verifiering av att gallrad information inte går att återskapa, inklusive storage, cache och backuper. |
-| Lösning | Radering av samtliga kopior plus verifieringssteg. Backupretention måste hanteras explicit. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Gallringsrapporten spårar varje target (databas, storage, evidens, härledda renderingar, sökindex, cache, notifieringar) och markerar gallringen som ofullständig om något target inte kunnat verifieras raderat. |
+| Gap | Ingen faktisk radering är implementerad, och backupretention efter gallring är inte hanterad. |
+| Lösning | Radering per target med verifieringssteg, samt explicit hantering av backuper. |
+| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
+| Verifiering | tests/run.mjs: gallringsrapport är fullständig endast när varje kopia verifierats raderad. |
+| Status | PARTIAL |
 
-### 2071 — GAP
+### 2071 — PARTIAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1110,14 +1110,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Behörighetsmodellen har archive:manage men ingen gallringsspecifik behörighet. |
-| Gap | Ingen behörighetsstyrd gallring. |
-| Lösning | Capabilities retention.manage och retention.execute. |
-| Kodevidens | packages/authorization/src/index.ts |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Gallring är behörighetsstyrd via två separata capabilities: retention:manage för policy och retention:execute för att faktiskt radera. tenant_security_admin får konfigurera men inte radera. |
+| Gap | Ingen serverside-kontroll i endpoint-lagret eftersom endpoints saknas. |
+| Lösning | Kontrollera capability i gallrings-endpoints när de läggs till. |
+| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
+| Verifiering | tests/run.mjs: gallring är behörighetsstyrd och reserverad för kunden (verifierar även att övriga roller nekas). |
+| Status | PARTIAL |
 
-### 2072 — GAP
+### 2072 — PARTIAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1125,12 +1125,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Ingen gallringsfunktion. |
-| Gap | Inga gallringsrapporter eller gallringsloggar. |
-| Lösning | Gallringsrapport plus auditkedjehändelse per gallring. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | buildGallringReport producerar en versionerad rapport (schemaVersion 1) med tenant, jobb, policy och version, utförare, tidpunkt, berörda ärenden och utfall per target. |
+| Gap | Rapporten skrivs inte till audit-kedjan eftersom exekveringen saknas. |
+| Lösning | Persistera rapporten och skapa en auditkedjehändelse per gallring. |
+| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
+| Verifiering | tests/run.mjs: gallringsrapporttest inklusive avvisning av tom rapport och duplicerade targets. |
+| Status | PARTIAL |
 
 ### 2073 — PARTIAL
 
@@ -1449,19 +1449,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Antagen policy och kontrollrutin. |
 
-### 3511 — GAP
+### 3511 — PARTIAL
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha rutiner och funktioner för att permanent radera information som är relaterade till leveransen. Leverantören ska på begäran kunna uppvisa underlag på att så skett. |
 | Typ | BÖR |
 | ISO | A.8.1 Ansvar för tillgångar — A.8.1.4 Återlämnande av tillgångar |
-| Nuläge | Ingen raderingsfunktion med underlag. |
-| Gap | Samma gap som 2068 och 2025. |
-| Lösning | Gallringsmotor med rapport som kan uppvisas. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Gallringsrapporten utgör det underlag som kan uppvisas för genomförd radering. |
+| Gap | Exekveringen saknas, se 2068. |
+| Lösning | Se 2068. |
+| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
+| Verifiering | tests/run.mjs: fem gallringstester (legal hold, periodutgång, PUB-golv, rapportfullständighet, behörighet). |
+| Status | PARTIAL |
 
 ### 3512 — BLOCKED_EXTERNAL
 

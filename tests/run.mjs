@@ -25,7 +25,10 @@ import { buildHostOnlySessionCookie, issueAuthorizationCode, exchangeAuthorizati
 import { createSensitiveDataAdapter } from '../dist/apps/api/src/adapters/aes-gcm-sensitive-data.js';
 import { createAuthenticationRepository } from '../dist/apps/api/src/production-adapters/postgres/authentication-repository.js';
 import { expectedSupabaseAuthConfig, verifySupabaseAuthConfig } from '../scripts/supabase-auth-config-lib.mjs';
-import { hasPlatformPermission } from '../dist/packages/authorization/src/index.js';
+import { hasPlatformPermission, hasPermission } from '../dist/packages/authorization/src/index.js';
+import {
+  ACCESS_LOG_MINIMUM_RETENTION_DAYS, assertPolicyIsLawful, buildGallringReport, decideRetention,
+} from '../dist/packages/retention/src/index.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -851,6 +854,112 @@ test('provenance gate pins donors and reports zero unverified imports', async ()
   assert.equal(report.totalReused, 0);
   assert.ok(report.sources.every((source) => /^[0-9a-f]{40}$/.test(source.pinned_commit)));
   assert.ok(report.sources.every((source) => source.imported === false));
+});
+
+const retentionPolicy = (overrides = {}) => ({
+  policyKey: 'signature-cases', version: 1, retentionClass: 'business_data',
+  mode: 'delete_after_period', periodDays: 30, active: true, ...overrides,
+});
+const retentionSubject = (overrides = {}) => ({
+  tenantId: '00000000-0000-4000-8000-000000000001', caseId: '00000000-0000-4000-8000-000000000002',
+  status: 'completed', closedAt: '2026-01-01T00:00:00.000Z', legalHoldActive: false, ...overrides,
+});
+const AFTER_PERIOD = new Date('2026-06-01T00:00:00.000Z');
+
+test('gallring never touches a case under legal hold or still running', () => {
+  // Legal hold outranks an otherwise long-elapsed retention period.
+  const held = decideRetention(retentionPolicy(), retentionSubject({ legalHoldActive: true }), AFTER_PERIOD);
+  assert.equal(held.action, 'RETAIN');
+  assert.equal(held.reason, 'LEGAL_HOLD');
+
+  // A policy in legal_hold mode holds even without a per-case hold.
+  assert.equal(decideRetention(retentionPolicy({ mode: 'legal_hold', periodDays: null }), retentionSubject(), AFTER_PERIOD).reason, 'LEGAL_HOLD');
+
+  // The retention clock starts at closure, so an open case is never eligible
+  // however old it is.
+  const open = decideRetention(retentionPolicy(), retentionSubject({ status: 'in_progress', closedAt: null }), AFTER_PERIOD);
+  assert.equal(open.action, 'RETAIN');
+  assert.equal(open.reason, 'CASE_NOT_CLOSED');
+
+  assert.equal(decideRetention(retentionPolicy({ active: false }), retentionSubject(), AFTER_PERIOD).reason, 'POLICY_INACTIVE');
+  assert.equal(decideRetention(retentionPolicy({ mode: 'retain_forever', periodDays: null }), retentionSubject(), AFTER_PERIOD).action, 'RETAIN');
+});
+
+test('gallring becomes due only after the period elapses and distinguishes automatic from minimum retention', () => {
+  const beforeDue = decideRetention(retentionPolicy({ periodDays: 30 }), retentionSubject(), new Date('2026-01-15T00:00:00.000Z'));
+  assert.equal(beforeDue.action, 'RETAIN');
+  assert.equal(beforeDue.reason, 'PERIOD_NOT_ELAPSED');
+  assert.equal(beforeDue.eligibleAt, '2026-01-31T00:00:00.000Z');
+
+  const due = decideRetention(retentionPolicy({ periodDays: 30 }), retentionSubject(), AFTER_PERIOD);
+  assert.equal(due.action, 'DELETE');
+  assert.equal(due.reason, 'DUE_FOR_DELETION');
+
+  assert.equal(decideRetention(retentionPolicy({ mode: 'archive_then_delete' }), retentionSubject(), AFTER_PERIOD).action, 'ARCHIVE_THEN_DELETE');
+
+  // retain_for_period is a minimum retention, not an instruction to delete:
+  // it must never produce an automatic DELETE.
+  assert.equal(decideRetention(retentionPolicy({ mode: 'retain_for_period' }), retentionSubject(), AFTER_PERIOD).action, 'RETAIN');
+});
+
+test('access log retention below the PUB floor requires a documented instruction', () => {
+  const short = { policyKey: 'access-log', version: 1, retentionClass: 'access_log', mode: 'delete_after_period', periodDays: 90, active: true };
+  assert.throws(() => assertPolicyIsLawful(short), (error) => error.code === 'RETENTION_BELOW_PUB_FLOOR');
+
+  // PUB-avtalet 7.5 allows a shorter period only when the Instruktion says so.
+  assertPolicyIsLawful({ ...short, instructionReference: 'Instruktion 2026-08-01 §4' });
+  assertPolicyIsLawful({ ...short, periodDays: ACCESS_LOG_MINIMUM_RETENTION_DAYS });
+
+  // Business data carries no such floor.
+  assertPolicyIsLawful(retentionPolicy({ periodDays: 1 }));
+  // Modes that need a period must carry one, and those that don't must not.
+  assert.throws(() => assertPolicyIsLawful(retentionPolicy({ periodDays: null })), (error) => error.code === 'RETENTION_PERIOD_REQUIRED');
+  assert.throws(() => assertPolicyIsLawful(retentionPolicy({ mode: 'retain_forever' })), (error) => error.code === 'RETENTION_PERIOD_FORBIDDEN');
+});
+
+test('gallring report is only complete when every copy is verified deleted', () => {
+  const base = {
+    tenantId: '00000000-0000-4000-8000-000000000001', jobId: '00000000-0000-4000-8000-000000000003',
+    policyKey: 'signature-cases', policyVersion: 1, retentionClass: 'business_data',
+    executedBy: '00000000-0000-4000-8000-000000000004', executedAt: '2026-06-01T00:00:00.000Z',
+    caseIds: ['00000000-0000-4000-8000-000000000002'],
+  };
+  const complete = buildGallringReport({ ...base, outcomes: [
+    { target: 'signature_case', deletedCount: 1, verified: true },
+    { target: 'object_storage', deletedCount: 3, verified: true },
+  ] });
+  assert.equal(complete.complete, true);
+  assert.equal(complete.deletedTotal, 4);
+  assert.equal(complete.caseCount, 1);
+  assert.equal(complete.schemaVersion, 1);
+
+  // Krav 2070: gallrad information must not be recoverable. A target that could
+  // not be confirmed deleted makes the gallring incomplete rather than passing.
+  const partial = buildGallringReport({ ...base, outcomes: [
+    { target: 'signature_case', deletedCount: 1, verified: true },
+    { target: 'object_storage', deletedCount: 0, verified: false, note: 'storage timeout' },
+  ] });
+  assert.equal(partial.complete, false);
+  assert.deepEqual(partial.unverifiedTargets, ['object_storage']);
+
+  assert.throws(() => buildGallringReport({ ...base, caseIds: [], outcomes: [] }), (error) => error.code === 'GALLRING_REPORT_EMPTY');
+  assert.throws(() => buildGallringReport({ ...base, outcomes: [
+    { target: 'signature_case', deletedCount: 1, verified: true },
+    { target: 'signature_case', deletedCount: 1, verified: true },
+  ] }), (error) => error.code === 'GALLRING_TARGET_DUPLICATE');
+});
+
+test('gallring is permission controlled and reserved for the customer', () => {
+  // Krav 2071: only authorised roles may gallra.
+  assert.ok(hasPermission(['tenant_admin'], 'retention:execute'));
+  assert.ok(hasPermission(['tenant_archive_admin'], 'retention:execute'));
+  // Separation of duties: the security admin configures policy but does not destroy data.
+  assert.ok(hasPermission(['tenant_security_admin'], 'retention:manage'));
+  assert.equal(hasPermission(['tenant_security_admin'], 'retention:execute'), false);
+  for (const role of ['document_creator', 'document_sender', 'approver', 'auditor', 'readonly', 'department_admin']) {
+    assert.equal(hasPermission([role], 'retention:execute'), false, `${role} must not gallra`);
+    assert.equal(hasPermission([role], 'retention:manage'), false, `${role} must not configure retention`);
+  }
 });
 
 let failed = 0;

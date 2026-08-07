@@ -25,7 +25,10 @@ export type Permission =
   | 'validation:read' | 'evidence:download'
   | 'policy:manage' | 'integration:manage' | 'webhook:manage'
   | 'event:read' | 'template:read' | 'template:manage'
-  | 'audit:read' | 'archive:manage' | 'tenant:manage';
+  | 'audit:read' | 'archive:manage' | 'tenant:manage'
+  // Gallring is split so that configuring a retention policy and actually
+  // destroying data are separate grants (krav 2071).
+  | 'retention:manage' | 'retention:execute';
 
 const permissions: Readonly<Record<TenantRole, readonly Permission[]>> = {
   tenant_admin: [
@@ -33,11 +36,11 @@ const permissions: Readonly<Record<TenantRole, readonly Permission[]>> = {
     'document:add', 'document:download', 'signer:add', 'signer:personnummer-binding-exempt', 'upload:create',
     'validation:read', 'evidence:download', 'policy:manage', 'integration:manage',
     'webhook:manage', 'event:read', 'template:read', 'template:manage',
-    'audit:read', 'archive:manage', 'tenant:manage',
+    'audit:read', 'archive:manage', 'tenant:manage', 'retention:manage', 'retention:execute',
   ],
-  tenant_security_admin: ['case:read', 'validation:read', 'policy:manage', 'audit:read', 'event:read', 'integration:manage'],
+  tenant_security_admin: ['case:read', 'validation:read', 'policy:manage', 'audit:read', 'event:read', 'integration:manage', 'retention:manage'],
   tenant_integration_admin: ['case:create', 'case:read', 'document:add', 'signer:add', 'upload:create', 'integration:manage', 'webhook:manage', 'event:read', 'template:read'],
-  tenant_archive_admin: ['case:read', 'document:download', 'validation:read', 'evidence:download', 'archive:manage', 'audit:read', 'event:read'],
+  tenant_archive_admin: ['case:read', 'document:download', 'validation:read', 'evidence:download', 'archive:manage', 'audit:read', 'event:read', 'retention:manage', 'retention:execute'],
   department_admin: ['case:create', 'case:send', 'case:cancel', 'case:read', 'case:remind', 'document:add', 'document:download', 'signer:add', 'upload:create', 'validation:read', 'evidence:download', 'template:read'],
   document_creator: ['case:create', 'case:read', 'document:add', 'signer:add', 'upload:create', 'template:read'],
   document_sender: ['case:create', 'case:send', 'case:cancel', 'case:read', 'case:remind', 'document:add', 'document:download', 'signer:add', 'upload:create', 'validation:read', 'evidence:download', 'template:read'],
