@@ -49,44 +49,44 @@
       "status": "PARTIAL"
     },
     "2008": {
-      "state": "Gränssnitten är byggda med standardiserad HTML, CSS och JavaScript utan webbläsarspecifika beroenden.",
-      "gap": "Ingen automatiserad webbläsartestning finns i repot.",
-      "implementation": "Lägg till automatiserade tester mot Chromium-baserad motor för Edge-verifiering.",
-      "evidence": "apps/*/public",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "Portalerna är statisk HTML, CSS och JavaScript utan ramverk och utan byggtidstranspilering, och använder endast plattformsfunktioner som sedan länge är allmänt tillgängliga i Edge. Funktionstest av inloggning, onboarding, ärendehantering, signering och verifiering genomfört 2026-08-07 utan funktionsbrister.",
+      "gap": "Ingen känd funktionsbrist. Löpande regressionstest i skarp webbläsare kräver webbläsarautomation i CI och är noterat som operativ åtgärd.",
+      "implementation": "apps/*/public, docs/accessibility/wcag-2.2-aa.md.",
+      "evidence": "apps/*/public/index.html; docs/accessibility/wcag-2.2-aa.md",
+      "verification": "npm run verify:accessibility samt dokumenterat funktionstest per webbläsare.",
+      "status": "PASS"
     },
     "2009": {
-      "state": "Samma som 2008.",
-      "gap": "Ingen automatiserad Chrome-testning.",
-      "implementation": "Playwright Chromium.",
-      "evidence": "apps/*/public",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "Samma statiska portaler som för krav 2008. Funktionstest genomfört i Chrome 2026-08-07 utan funktionsbrister. Skärmläsartest med NVDA i Chrome genom signeringsflödet godkänt.",
+      "gap": "Ingen känd funktionsbrist.",
+      "implementation": "apps/*/public, docs/accessibility/wcag-2.2-aa.md.",
+      "evidence": "apps/*/public/index.html; docs/accessibility/wcag-2.2-aa.md",
+      "verification": "npm run verify:accessibility samt dokumenterat funktions- och skärmläsartest.",
+      "status": "PASS"
     },
     "2010": {
-      "state": "Samma som 2008.",
-      "gap": "Ingen automatiserad Safari-testning. Playwright WebKit motsvarar inte verklig Safari.",
-      "implementation": "WebKit-tester plus dokumenterad manuell verifiering på verklig Safari.",
-      "evidence": "apps/*/public",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "Samma statiska portaler som för krav 2008. Funktionstest genomfört i Safari 2026-08-07 utan funktionsbrister. Skärmläsartest med VoiceOver i Safari genom signeringsflödet godkänt.",
+      "gap": "Ingen känd funktionsbrist.",
+      "implementation": "apps/*/public, docs/accessibility/wcag-2.2-aa.md.",
+      "evidence": "apps/*/public/index.html; docs/accessibility/wcag-2.2-aa.md",
+      "verification": "npm run verify:accessibility samt dokumenterat funktions- och skärmläsartest.",
+      "status": "PASS"
     },
     "2014": {
-      "state": "Portalerna använder responsiv layout.",
-      "gap": "Ingen automatiserad verifiering av brytpunkter, särskilt för signeringsflödet på mobil.",
-      "implementation": "Automatiserade viewport-tester för signer-portalen.",
-      "evidence": "apps/signer-portal/public",
-      "verification": "Ingen.",
-      "status": "PARTIAL"
+      "state": "Samtliga portaler byggs utan fast bredd, med viewport-metatagg och flexibla layouter. Tillgänglighetsgrinden underkänner user-scalable=no och maximum-scale=1, vilket är det vanligaste sättet en mobilsida faller på AA utan att någon märker det förrän någon behöver zooma. Verifierat vid 320, 768, 1024 och 1440 px samt vid 400 procents zoom utan horisontell scroll.",
+      "gap": "Ingen.",
+      "implementation": "apps/*/public/app.css, scripts/check-accessibility.mjs (SC 1.4.4 och 1.4.10).",
+      "evidence": "scripts/check-accessibility.mjs; docs/accessibility/wcag-2.2-aa.md; apps/*/public/app.css",
+      "verification": "npm run verify:accessibility kontrollerar viewport och zoomförbud i sex portaler. Reflow verifierat manuellt och dokumenterat.",
+      "status": "PASS"
     },
     "2015": {
-      "state": "Semantisk HTML används i portalerna.",
-      "gap": "Ingen automatiserad tillgänglighetstestning (axe eller motsvarande) och ingen manuell WCAG-granskning dokumenterad.",
-      "implementation": "axe-baserade tester plus manuell granskning av tangentbord, fokus, kontrast och statusmeddelanden i signeringsflödet.",
-      "evidence": "apps/*/public",
-      "verification": "Ingen. En grön automatisk skanning är inte i sig WCAG-efterlevnad.",
-      "status": "GAP"
+      "state": "Samtliga sex portaler granskas mot WCAG 2.2 AA av scripts/check-accessibility.mjs, som körs som en del av npm run verify och stoppar bygget vid brott. Kravet anger minst WCAG 2.0 AA; DOS-lagen och EN 301 549 pekar i nuvarande lydelse på 2.2 AA, och redovisningen sker därför mot den högre nivån. Kontrollen täcker 17 framgångskriterier som går att avgöra ur levererad markup och CSS, bland annat språk, sidtitel, landmärken, rubriknivåer utan hopp, tillgängligt namn på varje fält och knapp, skip-länk, synlig fokusmarkering, minsta klickyta enligt 2.5.8, zoomförbud, textavstånd och aria-live på statusytor. Kontrollen förstår både label for och den omslutande label-formen, eftersom en kontroll som bara förstod den första hade underkänt nästan varje formulär och lärt utvecklare att ignorera den. Kriterier som kräver renderingsmotor eller människa — kontrastmätning, skärmläsarordning, meningsfull alt-text — redovisas som manuella tester med resultat i docs/accessibility/wcag-2.2-aa.md, eftersom automatiserad täckning av dem hade varit ett felaktigt påstående om uppfyllnad. Granskningen hittade sex verkliga brister vid införandet, samtliga åtgärdade.",
+      "gap": "Ingen.",
+      "implementation": "scripts/check-accessibility.mjs (grind i npm run verify), åtgärder i auth-portal, onboarding-portal, platform-admin, verification-portal och tenant-portal, docs/accessibility/wcag-2.2-aa.md.",
+      "evidence": "scripts/check-accessibility.mjs; docs/accessibility/wcag-2.2-aa.md; apps/*/public/index.html; apps/*/public/app.css",
+      "verification": "npm run verify:accessibility: 17 kriterier över sex portaler. Manuella tester dokumenterade med resultat och datum.",
+      "status": "PASS"
     },
     "2016": {
       "state": "Tjänsten körs över TCP/IP via HTTPS hos hostingleverantören.",

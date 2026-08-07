@@ -1,1 +1,24 @@
 :root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#16202a;background:#f4f7fb;line-height:1.5;color-scheme:light}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at top left,#d9e8f8,transparent 36%),#f4f7fb}.shell{width:min(100%,480px)}.brand{display:flex;align-items:center;gap:12px;margin:0 0 18px}.mark{width:42px;height:42px;border-radius:12px;background:#174a7e;color:white;display:grid;place-items:center;font-weight:800}.brand strong{font-size:1.2rem}.brand span{display:block;color:#526171;font-size:.9rem}.card{background:white;border:1px solid #d9e1ea;border-radius:20px;padding:30px;box-shadow:0 18px 50px rgba(23,74,126,.12)}h1{font-size:1.75rem;line-height:1.2;margin:0 0 8px}p{margin:0 0 20px;color:#526171}form{display:grid;gap:16px}label{display:grid;gap:7px;font-weight:650}input{width:100%;border:1px solid #aebdca;border-radius:10px;padding:12px 13px;font:inherit;background:white}input:focus{outline:3px solid rgba(23,74,126,.18);border-color:#174a7e}button{border:0;border-radius:10px;background:#174a7e;color:white;padding:12px 16px;font:inherit;font-weight:750;cursor:pointer}button:hover{background:#123d69}button:disabled{cursor:not-allowed;opacity:.65}.link-button{background:none;color:#174a7e;padding:0;text-align:left;font-weight:650}.link-button:hover{background:none;text-decoration:underline}.actions{display:flex;justify-content:space-between;gap:16px;align-items:center}.status{margin-top:18px;padding:12px 14px;border-radius:10px;background:#eef4fa;color:#23384d}.status.error{background:#fff0f0;color:#8f1d1d}.status.success{background:#eef8f1;color:#176239}.hidden{display:none!important}.fineprint{font-size:.875rem;margin-top:20px}.skip-link{position:absolute;left:-9999px}.skip-link:focus{left:16px;top:16px;background:white;padding:8px;z-index:10}@media(max-width:520px){.card{padding:22px}.actions{align-items:flex-start;flex-direction:column}}
+
+/* WCAG 2.2 SC 2.5.8 Target Size (Minimum): every interactive control is at
+   least 24x24 CSS px. 44px is used because it is the size a finger actually
+   hits — 24 is the floor for conformance, not a usable target. */
+button,
+[type="submit"],
+[type="button"],
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea,
+.link-button {
+  min-height: 44px;
+}
+
+/* Checkboxes and radios keep their native box, so the label row carries the
+   target instead. */
+label:has(> input[type="checkbox"]),
+label:has(> input[type="radio"]) {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

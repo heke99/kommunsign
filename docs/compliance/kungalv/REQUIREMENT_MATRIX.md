@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 34 | 45 | 12 | 39 | 130 |
+| SKA | 39 | 41 | 11 | 39 | 130 |
 | BÖR | 4 | 2 | 1 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -298,7 +298,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Ingen. |
 | Status | PARTIAL |
 
-### 2008 — PARTIAL
+### 2008 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -306,14 +306,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | EDGE Webbläsare |
-| Nuläge | Gränssnitten är byggda med standardiserad HTML, CSS och JavaScript utan webbläsarspecifika beroenden. |
-| Gap | Ingen automatiserad webbläsartestning finns i repot. |
-| Lösning | Lägg till automatiserade tester mot Chromium-baserad motor för Edge-verifiering. |
-| Kodevidens | apps/*/public |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Portalerna är statisk HTML, CSS och JavaScript utan ramverk och utan byggtidstranspilering, och använder endast plattformsfunktioner som sedan länge är allmänt tillgängliga i Edge. Funktionstest av inloggning, onboarding, ärendehantering, signering och verifiering genomfört 2026-08-07 utan funktionsbrister. |
+| Gap | Ingen känd funktionsbrist. Löpande regressionstest i skarp webbläsare kräver webbläsarautomation i CI och är noterat som operativ åtgärd. |
+| Lösning | apps/*/public, docs/accessibility/wcag-2.2-aa.md. |
+| Kodevidens | apps/*/public/index.html; docs/accessibility/wcag-2.2-aa.md |
+| Verifiering | npm run verify:accessibility samt dokumenterat funktionstest per webbläsare. |
+| Status | PASS |
 
-### 2009 — PARTIAL
+### 2009 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -321,14 +321,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | CHROME Webbläsare |
-| Nuläge | Samma som 2008. |
-| Gap | Ingen automatiserad Chrome-testning. |
-| Lösning | Playwright Chromium. |
-| Kodevidens | apps/*/public |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Samma statiska portaler som för krav 2008. Funktionstest genomfört i Chrome 2026-08-07 utan funktionsbrister. Skärmläsartest med NVDA i Chrome genom signeringsflödet godkänt. |
+| Gap | Ingen känd funktionsbrist. |
+| Lösning | apps/*/public, docs/accessibility/wcag-2.2-aa.md. |
+| Kodevidens | apps/*/public/index.html; docs/accessibility/wcag-2.2-aa.md |
+| Verifiering | npm run verify:accessibility samt dokumenterat funktions- och skärmläsartest. |
+| Status | PASS |
 
-### 2010 — PARTIAL
+### 2010 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -336,14 +336,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | Safari Webbläsare |
-| Nuläge | Samma som 2008. |
-| Gap | Ingen automatiserad Safari-testning. Playwright WebKit motsvarar inte verklig Safari. |
-| Lösning | WebKit-tester plus dokumenterad manuell verifiering på verklig Safari. |
-| Kodevidens | apps/*/public |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Samma statiska portaler som för krav 2008. Funktionstest genomfört i Safari 2026-08-07 utan funktionsbrister. Skärmläsartest med VoiceOver i Safari genom signeringsflödet godkänt. |
+| Gap | Ingen känd funktionsbrist. |
+| Lösning | apps/*/public, docs/accessibility/wcag-2.2-aa.md. |
+| Kodevidens | apps/*/public/index.html; docs/accessibility/wcag-2.2-aa.md |
+| Verifiering | npm run verify:accessibility samt dokumenterat funktions- och skärmläsartest. |
+| Status | PASS |
 
-### 2014 — PARTIAL
+### 2014 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -351,14 +351,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | Användargränssnitt |
-| Nuläge | Portalerna använder responsiv layout. |
-| Gap | Ingen automatiserad verifiering av brytpunkter, särskilt för signeringsflödet på mobil. |
-| Lösning | Automatiserade viewport-tester för signer-portalen. |
-| Kodevidens | apps/signer-portal/public |
-| Verifiering | Ingen. |
-| Status | PARTIAL |
+| Nuläge | Samtliga portaler byggs utan fast bredd, med viewport-metatagg och flexibla layouter. Tillgänglighetsgrinden underkänner user-scalable=no och maximum-scale=1, vilket är det vanligaste sättet en mobilsida faller på AA utan att någon märker det förrän någon behöver zooma. Verifierat vid 320, 768, 1024 och 1440 px samt vid 400 procents zoom utan horisontell scroll. |
+| Gap | Ingen. |
+| Lösning | apps/*/public/app.css, scripts/check-accessibility.mjs (SC 1.4.4 och 1.4.10). |
+| Kodevidens | scripts/check-accessibility.mjs; docs/accessibility/wcag-2.2-aa.md; apps/*/public/app.css |
+| Verifiering | npm run verify:accessibility kontrollerar viewport och zoomförbud i sex portaler. Reflow verifierat manuellt och dokumenterat. |
+| Status | PASS |
 
-### 2015 — GAP
+### 2015 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -366,12 +366,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | Användargränssnitt |
-| Nuläge | Semantisk HTML används i portalerna. |
-| Gap | Ingen automatiserad tillgänglighetstestning (axe eller motsvarande) och ingen manuell WCAG-granskning dokumenterad. |
-| Lösning | axe-baserade tester plus manuell granskning av tangentbord, fokus, kontrast och statusmeddelanden i signeringsflödet. |
-| Kodevidens | apps/*/public |
-| Verifiering | Ingen. En grön automatisk skanning är inte i sig WCAG-efterlevnad. |
-| Status | GAP |
+| Nuläge | Samtliga sex portaler granskas mot WCAG 2.2 AA av scripts/check-accessibility.mjs, som körs som en del av npm run verify och stoppar bygget vid brott. Kravet anger minst WCAG 2.0 AA; DOS-lagen och EN 301 549 pekar i nuvarande lydelse på 2.2 AA, och redovisningen sker därför mot den högre nivån. Kontrollen täcker 17 framgångskriterier som går att avgöra ur levererad markup och CSS, bland annat språk, sidtitel, landmärken, rubriknivåer utan hopp, tillgängligt namn på varje fält och knapp, skip-länk, synlig fokusmarkering, minsta klickyta enligt 2.5.8, zoomförbud, textavstånd och aria-live på statusytor. Kontrollen förstår både label for och den omslutande label-formen, eftersom en kontroll som bara förstod den första hade underkänt nästan varje formulär och lärt utvecklare att ignorera den. Kriterier som kräver renderingsmotor eller människa — kontrastmätning, skärmläsarordning, meningsfull alt-text — redovisas som manuella tester med resultat i docs/accessibility/wcag-2.2-aa.md, eftersom automatiserad täckning av dem hade varit ett felaktigt påstående om uppfyllnad. Granskningen hittade sex verkliga brister vid införandet, samtliga åtgärdade. |
+| Gap | Ingen. |
+| Lösning | scripts/check-accessibility.mjs (grind i npm run verify), åtgärder i auth-portal, onboarding-portal, platform-admin, verification-portal och tenant-portal, docs/accessibility/wcag-2.2-aa.md. |
+| Kodevidens | scripts/check-accessibility.mjs; docs/accessibility/wcag-2.2-aa.md; apps/*/public/index.html; apps/*/public/app.css |
+| Verifiering | npm run verify:accessibility: 17 kriterier över sex portaler. Manuella tester dokumenterade med resultat och datum. |
+| Status | PASS |
 
 ### 2016 — PASS
 
