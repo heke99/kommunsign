@@ -795,12 +795,12 @@
       "blocker": "Escrow-avtal med tredje part."
     },
     "3526": {
-      "state": "Kryptografi används genomgående (SHA-256, HMAC-SHA-256, TLS) men det finns ingen samlad kryptopolicy. Kravet är BÖR.",
-      "gap": "Ingen dokumentation av algoritmer, nyckellängder och nyckelhantering.",
-      "implementation": "docs/security/CRYPTOGRAPHY_AND_KEY_MANAGEMENT.md.",
-      "evidence": "packages/crypto/src/",
-      "verification": "tests/run.mjs HMAC-tester.",
-      "status": "GAP"
+      "state": "Kryptorutinerna är dokumenterade och implementerade: AES-256-GCM med autentiserad ciphertext och purpose binding för känsliga uppgifter, HMAC-SHA-256 för blind index, SHA-256 för hashar och checksummor, RFC 3161 för tidsstämplar. packages/crypto/src/key-rotation.ts implementerar nyckelversionering med exakt en aktiv version, staged rotation (pending → active → decrypt_only → retired), dual read under migrering och write-new-only, verifierad återkryptering före pensionering av gammal nyckel, samt rollback som tillåts före men aldrig efter pensionering. Blind index roteras separat och strängare: uppslag sker mot samtliga kvarvarande versioner under migreringen så att sökning fortsätter fungera, men ett komprometterat indexvärde måste skrivas över och inte behållas vid sidan av det nya — den som har den läckta nyckeln kan annars räkna fram indexet för en utpekad person och slå upp hen.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "packages/crypto/src/key-rotation.ts, packages/crypto (aes-gcm, hmac, hash), docs/operations/leaked-key-rotation-2026-08.md.",
+      "evidence": "packages/crypto/src/key-rotation.ts; apps/api/src/adapters/aes-gcm-sensitive-data.ts; docs/operations/leaked-key-rotation-2026-08.md",
+      "verification": "tests/run.mjs: tre rotationstester (dual read och write-new-only, verifierad pensionering och rollback, överskrivning av komprometterat blind index) samt befintligt test för autentiserad ciphertext och purpose.",
+      "status": "PASS"
     },
     "3527": {
       "state": "Drift sker hos molnleverantörer.",

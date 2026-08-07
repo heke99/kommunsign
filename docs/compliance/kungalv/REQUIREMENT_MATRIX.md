@@ -27,7 +27,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | SKA | 34 | 45 | 12 | 39 | 130 |
-| BÖR | 3 | 2 | 2 | 1 | 8 |
+| BÖR | 4 | 2 | 1 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 
@@ -1652,19 +1652,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Escrow-avtal med tredje part. |
 
-### 3526 — GAP
+### 3526 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha rutiner för kryptering där val av algoritmer, protokoll och nyckellängder samt hantering av krypteringsnycklar framgår. |
 | Typ | BÖR |
 | ISO | A.10.1 Kryptografiska säkerhetsåtgärder — A.10.1.1 Regler för användning av kryptografiska säkerhetsåtgärder |
-| Nuläge | Kryptografi används genomgående (SHA-256, HMAC-SHA-256, TLS) men det finns ingen samlad kryptopolicy. Kravet är BÖR. |
-| Gap | Ingen dokumentation av algoritmer, nyckellängder och nyckelhantering. |
-| Lösning | docs/security/CRYPTOGRAPHY_AND_KEY_MANAGEMENT.md. |
-| Kodevidens | packages/crypto/src/ |
-| Verifiering | tests/run.mjs HMAC-tester. |
-| Status | GAP |
+| Nuläge | Kryptorutinerna är dokumenterade och implementerade: AES-256-GCM med autentiserad ciphertext och purpose binding för känsliga uppgifter, HMAC-SHA-256 för blind index, SHA-256 för hashar och checksummor, RFC 3161 för tidsstämplar. packages/crypto/src/key-rotation.ts implementerar nyckelversionering med exakt en aktiv version, staged rotation (pending → active → decrypt_only → retired), dual read under migrering och write-new-only, verifierad återkryptering före pensionering av gammal nyckel, samt rollback som tillåts före men aldrig efter pensionering. Blind index roteras separat och strängare: uppslag sker mot samtliga kvarvarande versioner under migreringen så att sökning fortsätter fungera, men ett komprometterat indexvärde måste skrivas över och inte behållas vid sidan av det nya — den som har den läckta nyckeln kan annars räkna fram indexet för en utpekad person och slå upp hen. |
+| Gap | Ingen kodbrist. |
+| Lösning | packages/crypto/src/key-rotation.ts, packages/crypto (aes-gcm, hmac, hash), docs/operations/leaked-key-rotation-2026-08.md. |
+| Kodevidens | packages/crypto/src/key-rotation.ts; apps/api/src/adapters/aes-gcm-sensitive-data.ts; docs/operations/leaked-key-rotation-2026-08.md |
+| Verifiering | tests/run.mjs: tre rotationstester (dual read och write-new-only, verifierad pensionering och rollback, överskrivning av komprometterat blind index) samt befintligt test för autentiserad ciphertext och purpose. |
+| Status | PASS |
 
 ### 3527 — BLOCKED_EXTERNAL
 

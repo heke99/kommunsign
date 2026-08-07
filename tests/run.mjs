@@ -75,6 +75,11 @@ import {
   assertBundleUnchanged, assertOrderIsWellFormed, assertSignerMaySign, buildSigningBundle,
   caseOutcome, decideReminder, signersAwaitingAction,
 } from '../dist/packages/signing-workflow/src/index.js';
+import {
+  activeKeyVersion, assertKeyRingIsSane, assertNoCompromisedIndexRemains, assertReadableVersion,
+  assertRotationComplete, assertWritableVersion, beginDualRead, planBlindIndexRotation,
+  retireOldVersion, rollbackRotation, rotationRequired,
+} from '../dist/packages/crypto/src/key-rotation.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -2301,6 +2306,100 @@ test('reminders go only to signers whose turn it actually is', () => {
   assert.equal(stale.nextReminderAt, '2026-08-08T12:00:00.000Z');
 
   assert.equal(wfCode(() => decideReminder(schedule({ tenantId: S1 }), seq(), expiry, WF_NOW)), 'WORKFLOW_TENANT_MISMATCH');
+});
+
+const keyVersion = (version, state, overrides = {}) => ({
+  version, state, secretReference: `vault://kommunsign/data-key-v${version}`,
+  createdAt: '2026-08-01T00:00:00.000Z', compromised: false, ...overrides,
+});
+const ring = (versions, purpose = 'sensitive_data') => ({ purpose, versions });
+const rotating = () => ring([keyVersion(1, 'active', { compromised: true }), keyVersion(2, 'pending')]);
+const progress = (overrides = {}) => ({
+  purpose: 'sensitive_data', state: 'REENCRYPTING', fromVersion: 1, toVersion: 2,
+  totalRows: 1000, reencryptedRows: 1000, verifiedRows: 1000, failedRows: 0, ...overrides,
+});
+const keyCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('key rotation reads under both versions and writes only under the new one', () => {
+  // Two active versions mean two writers producing ciphertext under different
+  // keys with no record of which is which.
+  assert.equal(keyCode(() => assertKeyRingIsSane(ring([keyVersion(1, 'active'), keyVersion(2, 'active')]))), 'KEY_MULTIPLE_ACTIVE_VERSIONS');
+  assert.equal(keyCode(() => assertKeyRingIsSane(ring([keyVersion(1, 'decrypt_only')]))), 'KEY_NO_ACTIVE_VERSION');
+  // A compromised active key is an urgent state, not an invalid one: rejecting
+  // it here would make rotating away from a leaked key impossible, since every
+  // operation on the ring would fail before the rotation could start.
+  assert.equal(keyCode(() => assertKeyRingIsSane(ring([keyVersion(1, 'active', { compromised: true })]))), 'NO_ERROR');
+  assert.equal(rotationRequired(rotating()), true);
+  assert.equal(rotationRequired(ring([keyVersion(1, 'active')])), false);
+
+  const dual = beginDualRead(rotating(), 2);
+  assert.equal(activeKeyVersion(dual).version, 2);
+  assert.equal(dual.versions.find((v) => v.version === 1).state, 'decrypt_only');
+
+  // Read old, write new. Writing under anything but the active version grows
+  // the set of rows still needing migration, so the rotation never converges.
+  assert.equal(keyCode(() => assertWritableVersion(dual, 2)), 'NO_ERROR');
+  assert.equal(keyCode(() => assertWritableVersion(dual, 1)), 'KEY_WRITE_TO_NON_ACTIVE_VERSION');
+  assert.equal(keyCode(() => assertReadableVersion(dual, 1)), 'NO_ERROR');
+  assert.equal(keyCode(() => assertReadableVersion(dual, 2)), 'NO_ERROR');
+  assert.equal(keyCode(() => assertReadableVersion(dual, 9)), 'KEY_VERSION_UNKNOWN');
+
+  // A key must be distributed before anything is written under it, or a node
+  // that has not received it writes ciphertext its neighbours cannot read.
+  assert.equal(keyCode(() => assertReadableVersion(rotating(), 2)), 'KEY_STATE_INVALID');
+  assert.equal(keyCode(() => beginDualRead(dual, 2)), 'KEY_STATE_INVALID');
+  assert.equal(
+    keyCode(() => beginDualRead(ring([keyVersion(1, 'active'), keyVersion(2, 'pending', { compromised: true })]), 2)),
+    'KEY_STATE_INVALID',
+  );
+});
+
+test('the old key is retired only after counted, verified re-encryption', () => {
+  const dual = beginDualRead(rotating(), 2);
+  assert.equal(retireOldVersion(dual, progress()).versions.find((v) => v.version === 1).state, 'retired');
+  // A retired key that still decrypts is not retired.
+  assert.equal(keyCode(() => assertReadableVersion(retireOldVersion(dual, progress()), 1)), 'KEY_VERSION_RETIRED');
+
+  // "It has probably finished by now" is how the last few thousand rows become
+  // unreadable, and this mistake has no recovery once the key is destroyed.
+  assert.equal(keyCode(() => assertRotationComplete(progress({ reencryptedRows: 999 }))), 'KEY_ROTATION_INCOMPLETE');
+  assert.equal(keyCode(() => assertRotationComplete(progress({ failedRows: 1 }))), 'KEY_ROTATION_INCOMPLETE');
+  // Re-encrypting and confirming the result are different claims: a writer can
+  // report success for a row that does not decrypt under the new key.
+  assert.equal(keyCode(() => assertRotationComplete(progress({ verifiedRows: 998 }))), 'KEY_ROTATION_NOT_VERIFIED');
+
+  // Rolling back costs nothing while the old key still decrypts...
+  const back = rollbackRotation(ring([keyVersion(1, 'decrypt_only'), keyVersion(2, 'active')]), progress());
+  assert.equal(activeKeyVersion(back).version, 1);
+  // ...and loses data afterwards, because rows under the new key have no other
+  // reader.
+  assert.equal(keyCode(() => rollbackRotation(retireOldVersion(dual, progress()), progress())), 'KEY_STATE_INVALID');
+  // Rolling back onto the leaked key would undo the only thing the rotation was for.
+  assert.equal(
+    keyCode(() => rollbackRotation(ring([keyVersion(1, 'decrypt_only', { compromised: true }), keyVersion(2, 'active')]), progress())),
+    'KEY_STATE_INVALID',
+  );
+});
+
+test('a compromised blind index is overwritten rather than kept alongside the new one', () => {
+  const entries = [
+    { keyVersion: 1, indexValue: 'old-a' },
+    { keyVersion: 1, indexValue: 'old-b' },
+    { keyVersion: 2, indexValue: 'new-a' },
+  ];
+  const plan = planBlindIndexRotation(entries, [1], 2);
+  // Lookups span every version still present, so a search keeps finding people
+  // while the rotation runs.
+  assert.deepEqual(plan.lookupVersions, [1, 2]);
+  // But the compromised values must be destroyed, not retained for convenience:
+  // anyone with the leaked key can compute the index for a person they are
+  // looking for and match it.
+  assert.deepEqual(plan.mustOverwrite, [1]);
+
+  assert.equal(keyCode(() => assertNoCompromisedIndexRemains(entries, [1])), 'KEY_COMPROMISED_INDEX_RETAINED');
+  assert.equal(keyCode(() => assertNoCompromisedIndexRemains(entries.filter((e) => e.keyVersion !== 1), [1])), 'NO_ERROR');
+  // The active version is never in the overwrite set, even if it were flagged.
+  assert.deepEqual(planBlindIndexRotation(entries, [1, 2], 2).mustOverwrite, [1]);
 });
 
 let failed = 0;
