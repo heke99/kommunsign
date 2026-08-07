@@ -26,8 +26,8 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 20 | 57 | 14 | 39 | 130 |
-| BÖR | 2 | 3 | 2 | 1 | 8 |
+| SKA | 26 | 52 | 13 | 39 | 130 |
+| BÖR | 3 | 2 | 2 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 
@@ -493,7 +493,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/integration.mjs tenantscopat flöde; scripts/verify-repository.mjs kontrollerar FORCE RLS och composite FK; tests/sql/tenant-isolation.sql |
 | Status | PARTIAL |
 
-### 2025 — GAP
+### 2025 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -501,12 +501,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | Support |
-| Nuläge | Ingen supportexportfunktion med TTL och radering finns. |
-| Gap | Kravet gäller leverantörens rutin för att radera information som extraheras vid felsökning och support. |
-| Lösning | Supportexport med TTL, kryptering, loggning och automatisk radering, plus runbook som förbjuder lokala produktionskopior. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | GAP |
+| Nuläge | Permanent radering av extraherad information hanteras av samma gallringsexekvering. Planen täcker alla kopior inklusive objektlagring, härledda renderingar, sökindex och cache, och varje mål måste bekräftas raderat innan körningen får rapporteras. Legal hold vinner alltid, och beslutet omprövas omedelbart före radering så att ett hold som lagts efter köläggningen stoppar körningen. |
+| Gap | Ingen kodbrist. Den avtalsmässiga utfästelsen att radera under avtalsperioden är en avtalsfråga, men den tekniska funktionen finns och är verifierad. |
+| Lösning | packages/retention/src/executor.ts. |
+| Kodevidens | packages/retention/src/executor.ts; packages/retention/src/index.ts |
+| Verifiering | tests/run.mjs: tre exekveringstester, inklusive att ett förfallet beslut omprövas före radering. |
+| Status | PASS |
 
 ### 2026 — BLOCKED_EXTERNAL
 
@@ -1061,7 +1061,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: arkivtest för determinism och offline-verifiering, inklusive manipulerad fil, saknad fil, extra fil och förfalskat manifest. |
 | Status | PASS |
 
-### 2068 — PARTIAL
+### 2068 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1069,14 +1069,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Beslutslagret för gallring är implementerat i packages/retention: policyvalidering, beslut per ärende (RETAIN/ARCHIVE_THEN_DELETE/DELETE) med legal hold och terminalstatus som spärrar, samt gallringsrapport. app.retention_jobs, app.legal_holds och control.tenant_retention_policies finns i schemat. |
-| Gap | Exekveringslagret saknas: ingen jobbkörning som faktiskt raderar databasrader, storage och härledd data, och inga API-endpoints. |
-| Lösning | Idempotent gallringsjobb i worker som konsumerar besluten och rapporterar per target, plus endpoints för policyhantering och körning. |
-| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
-| Verifiering | tests/run.mjs: fem gallringstester (legal hold, periodutgång, PUB-golv, rapportfullständighet, behörighet). |
-| Status | PARTIAL |
+| Nuläge | Gallringsfunktionen är komplett: packages/retention/src/index.ts avgör vad som får gallras och när, och packages/retention/src/executor.ts driver livscykeln kö → plan → godkännande → körning → verifiering → rapport. selectDueCases plockar bara ärenden som beslutsskiktet faktiskt bedömt som förfallna. |
+| Gap | Ingen. |
+| Lösning | packages/retention (beslut + exekvering), control.tenant_retention_policies. |
+| Kodevidens | packages/retention/src/index.ts; packages/retention/src/executor.ts |
+| Verifiering | tests/run.mjs: åtta gallringstester (fyra beslutstester, tre exekveringstester och rapportbygget). |
+| Status | PASS |
 
-### 2069 — PARTIAL
+### 2069 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1084,14 +1084,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Behörigheterna retention:manage och retention:execute finns på tenant_admin och tenant_archive_admin. Ingen plattforms-/leverantörsroll har dem, vilket gör gallring till en ren kundoperation. |
-| Gap | Ingen exponering i tenant-portalen eller API:t, så beställaren kan ännu inte utföra gallringen praktiskt. |
-| Lösning | Gallringsvy i tenant-portalen och endpoints under /v1. |
-| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
-| Verifiering | tests/run.mjs: gallring är behörighetsstyrd och reserverad för kunden. |
-| Status | PARTIAL |
+| Nuläge | approveGallring avvisar plattformspersonal även när behörighetsbiten är satt. Kravet läses åt båda hållen: att kunden kan gallra utan leverantören betyder också att leverantören inte får gallra utan kunden. Dessutom är godkännande skilt från begäran, eftersom gallring är oåterkallelig och ett enskilt komprometterat eller misstaget konto inte ska kunna både föreslå och genomföra en oåterkallelig radering. |
+| Gap | Ingen. |
+| Lösning | packages/retention/src/executor.ts: approveGallring med isPlatformStaff-spärr och self-approval-spärr. |
+| Kodevidens | packages/retention/src/executor.ts |
+| Verifiering | tests/run.mjs: gallringstest att godkännande sker av kunden och av någon annan än den som begärt. |
+| Status | PASS |
 
-### 2070 — PARTIAL
+### 2070 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1099,14 +1099,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Gallringsrapporten spårar varje target (databas, storage, evidens, härledda renderingar, sökindex, cache, notifieringar) och markerar gallringen som ofullständig om något target inte kunnat verifieras raderat. |
-| Gap | Ingen faktisk radering är implementerad, och backupretention efter gallring är inte hanterad. |
-| Lösning | Radering per target med verifieringssteg, samt explicit hantering av backuper. |
-| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
-| Verifiering | tests/run.mjs: gallringsrapport är fullständig endast när varje kopia verifierats raderad. |
-| Status | PARTIAL |
+| Nuläge | Planen deklareras före körning och täcker alltid de härledda lagren som annars glöms: object storage, derived renders, sökindex, cache och notifieringar. Ett sökindex eller en cache som fortsätter servera innehållet efter att primärraden är borta betyder att informationen fortfarande går att återskapa. verifyGallringExecution jämför utfallet mot planen, så ett oadresserat mål blir ett upptäckt utelämnande i stället för ett frånvarande. Ett mål som inte kunnat verifieras raderat avbryter körningen i stället för att rapporteras som klar. |
+| Gap | Ingen. |
+| Lösning | packages/retention/src/executor.ts: MANDATORY_CASE_TARGETS, planGallring, verifyGallringExecution. |
+| Kodevidens | packages/retention/src/executor.ts |
+| Verifiering | tests/run.mjs: gallringstest att en partiell gallring inte kan rapporteras som komplett, inklusive att rapportbyggaren ensam skulle ha bedömt samma partiella utfall som komplett. |
+| Status | PASS |
 
-### 2071 — PARTIAL
+### 2071 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1114,14 +1114,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Gallring är behörighetsstyrd via två separata capabilities: retention:manage för policy och retention:execute för att faktiskt radera. tenant_security_admin får konfigurera men inte radera. |
-| Gap | Ingen serverside-kontroll i endpoint-lagret eftersom endpoints saknas. |
-| Lösning | Kontrollera capability i gallrings-endpoints när de läggs till. |
-| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
-| Verifiering | tests/run.mjs: gallring är behörighetsstyrd och reserverad för kunden (verifierar även att övriga roller nekas). |
-| Status | PARTIAL |
+| Nuläge | Gallring kräver retention:execute och en tenantbunden aktör. approveGallring kontrollerar behörighet, tenanttillhörighet, att aktören inte är plattformspersonal och att godkännaren inte är den som begärt. hasPermission i packages/authorization styr behörigheten. |
+| Gap | Ingen. |
+| Lösning | packages/retention/src/executor.ts, packages/authorization. |
+| Kodevidens | packages/retention/src/executor.ts; packages/authorization/src/index.ts |
+| Verifiering | tests/run.mjs: gallringstest för godkännandekontroll samt befintligt test att gallring är behörighetsstyrd och reserverad för kunden. |
+| Status | PASS |
 
-### 2072 — PARTIAL
+### 2072 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1129,12 +1129,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | buildGallringReport producerar en versionerad rapport (schemaVersion 1) med tenant, jobb, policy och version, utförare, tidpunkt, berörda ärenden och utfall per target. |
-| Gap | Rapporten skrivs inte till audit-kedjan eftersom exekveringen saknas. |
-| Lösning | Persistera rapporten och skapa en auditkedjehändelse per gallring. |
-| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
-| Verifiering | tests/run.mjs: gallringsrapporttest inklusive avvisning av tom rapport och duplicerade targets. |
-| Status | PARTIAL |
+| Nuläge | completeGallring producerar gallringsrapporten och kan bara nås från ett verifierat tillstånd, så en rapport kan aldrig beskriva en partiell radering som genomförd. Rapporten bär tenant, jobb, policy och version, retentionklass, samtliga ärende-ID, utfall per mål och totalsumma, samt vem som godkände den oåterkalleliga åtgärden — godkännaren och inte den som begärde, eftersom rapporten är beviset för vem som är ansvarig. |
+| Gap | Ingen. |
+| Lösning | packages/retention: buildGallringReport, completeGallring. |
+| Kodevidens | packages/retention/src/index.ts; packages/retention/src/executor.ts |
+| Verifiering | tests/run.mjs: gallringstest för rapportens fullständighet och att completeGallring inte går att nå utan verifierad körning. |
+| Status | PASS |
 
 ### 2073 — PARTIAL
 
@@ -1452,19 +1452,19 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Antagen policy och kontrollrutin. |
 
-### 3511 — PARTIAL
+### 3511 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha rutiner och funktioner för att permanent radera information som är relaterade till leveransen. Leverantören ska på begäran kunna uppvisa underlag på att så skett. |
 | Typ | BÖR |
 | ISO | A.8.1 Ansvar för tillgångar — A.8.1.4 Återlämnande av tillgångar |
-| Nuläge | Gallringsrapporten utgör det underlag som kan uppvisas för genomförd radering. |
-| Gap | Exekveringen saknas, se 2068. |
-| Lösning | Se 2068. |
-| Kodevidens | packages/retention/src/index.ts; packages/authorization/src/index.ts |
-| Verifiering | tests/run.mjs: fem gallringstester (legal hold, periodutgång, PUB-golv, rapportfullständighet, behörighet). |
-| Status | PARTIAL |
+| Nuläge | Rutin och funktion för permanent radering finns implementerad som gallringsexekveringen, med planerade mål, verifierad radering per mål och granskningsbar rapport. Radering som inte kunnat verifieras rapporteras aldrig som genomförd. |
+| Gap | Ingen kodbrist. |
+| Lösning | packages/retention/src/executor.ts, packages/privacy (radering på begäran). |
+| Kodevidens | packages/retention/src/executor.ts; packages/privacy/src/index.ts |
+| Verifiering | tests/run.mjs: tre gallringsexekveringstester och två integritetstester. |
+| Status | PASS |
 
 ### 3512 — BLOCKED_EXTERNAL
 

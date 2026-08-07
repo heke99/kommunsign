@@ -59,6 +59,10 @@ import {
 import {
   buildArchivePackage, buildDescriptiveMetadata, verifyArchivePackage,
 } from '../dist/packages/archive/src/index.js';
+import {
+  abandonGallring, approveGallring, beginGallringExecution, completeGallring,
+  MANDATORY_CASE_TARGETS, planGallring, selectDueCases, verifyGallringExecution,
+} from '../dist/packages/retention/src/executor.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1802,6 +1806,140 @@ test('an archive package is deterministic and verifiable with nothing but itself
   assert.equal(metadata.signatories[0].identifier, '19800101-****');
   assert.equal(metadata.documents[0].format, 'PDF/A-2b');
   assert.doesNotMatch(canonicalJson(metadata), /\d{8}-?\d{4}/);
+});
+
+const GAL_TENANT = '00000000-0000-4000-8000-0000000000e1';
+const GAL_CASE = '00000000-0000-4000-8000-0000000000e2';
+const REQUESTER = '00000000-0000-4000-8000-0000000000e3';
+const APPROVER = '00000000-0000-4000-8000-0000000000e4';
+const GAL_NOW = new Date('2026-08-07T12:00:00.000Z');
+const galPolicy = (overrides = {}) => ({
+  policyKey: 'case-default', version: 1, retentionClass: 'business_data',
+  mode: 'delete_after_period', periodDays: 30, active: true, ...overrides,
+});
+const galSubject = (overrides = {}) => ({
+  tenantId: GAL_TENANT, caseId: GAL_CASE, status: 'completed',
+  closedAt: '2026-01-01T00:00:00.000Z', legalHoldActive: false, ...overrides,
+});
+const galJob = (overrides = {}) => ({
+  tenantId: GAL_TENANT, jobId: '00000000-0000-4000-8000-0000000000e5', state: 'QUEUED',
+  policyKey: 'case-default', policyVersion: 1, caseIds: [GAL_CASE],
+  queuedDecision: { action: 'DELETE', reason: 'DUE_FOR_DELETION', eligibleAt: '2026-01-31T00:00:00.000Z' },
+  queuedAt: '2026-08-06T00:00:00.000Z', plannedTargets: [], requestedBy: REQUESTER,
+  approvedBy: null, approvedAt: null, ...overrides,
+});
+const galApprover = (overrides = {}) => ({
+  actorId: APPROVER, tenantId: GAL_TENANT, hasRetentionExecutePermission: true, isPlatformStaff: false, ...overrides,
+});
+const allOutcomes = (overrides = {}) => MANDATORY_CASE_TARGETS.map((target) => ({
+  target, deletedCount: 1, verified: true, ...(overrides[target] ?? {}),
+}));
+const galCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('gallring is approved by the customer, by someone other than the requester', () => {
+  const due = selectDueCases(galPolicy(), [galSubject(), galSubject({ caseId: 'x', legalHoldActive: true })], GAL_NOW);
+  assert.equal(due.length, 1);
+  assert.equal(due[0].decision.action, 'DELETE');
+
+  const planned = planGallring(galJob());
+  assert.equal(planned.state, 'PLANNED');
+  // The plan always covers the derived stores people forget — a search index or
+  // cache that keeps serving content after the primary row is gone means the
+  // information is still recoverable (krav 2070).
+  for (const target of ['search_index', 'cache', 'notifications', 'object_storage']) {
+    assert.ok(planned.plannedTargets.includes(target), target);
+  }
+
+  const approved = approveGallring(planned, galApprover(), GAL_NOW.toISOString());
+  assert.equal(approved.state, 'APPROVED');
+  assert.equal(approved.approvedBy, APPROVER);
+
+  // Krav 2069 cuts both ways: the customer can gallra without the supplier,
+  // so the supplier must not gallra without the customer.
+  assert.equal(galCode(() => approveGallring(planned, galApprover({ isPlatformStaff: true }))), 'GALLRING_APPROVER_NOT_PERMITTED');
+  assert.equal(galCode(() => approveGallring(planned, galApprover({ hasRetentionExecutePermission: false }))), 'GALLRING_APPROVER_NOT_PERMITTED');
+  assert.equal(galCode(() => approveGallring(planned, galApprover({ tenantId: 'other' }))), 'GALLRING_TENANT_MISMATCH');
+  // Gallring is irreversible; one account must not both propose and execute it.
+  assert.equal(galCode(() => approveGallring(planned, galApprover({ actorId: REQUESTER }))), 'GALLRING_SELF_APPROVAL');
+  // States are ordered: approval cannot skip planning.
+  assert.equal(galCode(() => approveGallring(galJob(), galApprover())), 'GALLRING_STATE_INVALID');
+});
+
+test('a queued gallring decision is re-checked before anything is deleted', () => {
+  const approved = approveGallring(planGallring(galJob()), galApprover(), GAL_NOW.toISOString());
+  assert.equal(beginGallringExecution(approved, galPolicy(), [galSubject()], GAL_NOW).state, 'EXECUTING');
+
+  // This is the defect the re-check exists for: a legal hold placed after the
+  // job was queued must stop the deletion, not be overridden by yesterday's
+  // decision.
+  assert.equal(
+    galCode(() => beginGallringExecution(approved, galPolicy(), [galSubject({ legalHoldActive: true })], GAL_NOW)),
+    'GALLRING_DECISION_STALE',
+  );
+  // A case reopened since queuing is no longer closed, so its clock restarted.
+  assert.equal(
+    galCode(() => beginGallringExecution(approved, galPolicy(), [galSubject({ status: 'in_progress', closedAt: null })], GAL_NOW)),
+    'GALLRING_DECISION_STALE',
+  );
+  // A policy changed to archive-then-delete changes the act, not just its timing.
+  assert.equal(
+    galCode(() => beginGallringExecution(approved, galPolicy({ mode: 'archive_then_delete' }), [galSubject()], GAL_NOW)),
+    'GALLRING_DECISION_STALE',
+  );
+  // Nothing outside the approved job may be swept in.
+  assert.equal(
+    galCode(() => beginGallringExecution(approved, galPolicy(), [galSubject({ caseId: 'other-case' })], GAL_NOW)),
+    'GALLRING_DECISION_STALE',
+  );
+  assert.equal(
+    galCode(() => beginGallringExecution(approved, galPolicy(), [galSubject({ tenantId: 'other-tenant' })], GAL_NOW)),
+    'GALLRING_TENANT_MISMATCH',
+  );
+  assert.equal(galCode(() => beginGallringExecution(planGallring(galJob()), galPolicy(), [galSubject()], GAL_NOW)), 'GALLRING_STATE_INVALID');
+});
+
+test('a partial gallring cannot be reported as complete', () => {
+  const executing = beginGallringExecution(
+    approveGallring(planGallring(galJob()), galApprover(), GAL_NOW.toISOString()),
+    galPolicy(), [galSubject()], GAL_NOW,
+  );
+
+  const verified = verifyGallringExecution(executing, allOutcomes());
+  assert.equal(verified.state, 'VERIFIED');
+  const { job, report } = completeGallring(verified, allOutcomes(), 'business_data', GAL_NOW.toISOString());
+  assert.equal(job.state, 'REPORTED');
+  assert.equal(report.complete, true);
+  assert.equal(report.caseCount, 1);
+  // The report records who authorised the irreversible act, not who asked.
+  assert.equal(report.executedBy, APPROVER);
+
+  // The defect: a run addressing only some targets hands over only verified
+  // outcomes and looks complete. Comparing against the declared plan is what
+  // turns an unaddressed target into a detected omission.
+  const partial = allOutcomes().filter((outcome) => !['search_index', 'cache'].includes(outcome.target));
+  assert.equal(galCode(() => verifyGallringExecution(executing, partial)), 'GALLRING_TARGET_NOT_EXECUTED');
+  // Note the same partial set is judged complete by the report builder alone,
+  // which is exactly why the plan check has to exist.
+  assert.equal(buildGallringReport({
+    tenantId: GAL_TENANT, jobId: galJob().jobId, policyKey: 'k', policyVersion: 1,
+    retentionClass: 'business_data', executedBy: APPROVER, executedAt: GAL_NOW.toISOString(),
+    caseIds: [GAL_CASE], outcomes: partial,
+  }).complete, true);
+
+  // A target we could not confirm may still hold a readable copy (krav 2070).
+  assert.equal(galCode(() => verifyGallringExecution(executing, allOutcomes({ object_storage: { verified: false } }))), 'GALLRING_NOT_VERIFIED');
+  // Deleting from a store nobody authorised is also a failure.
+  assert.equal(
+    galCode(() => verifyGallringExecution(executing, [...allOutcomes(), { target: 'signature_case', deletedCount: 1, verified: true }])),
+    'GALLRING_TARGET_DUPLICATE',
+  );
+  // Completion is unreachable without a verified execution.
+  assert.equal(galCode(() => completeGallring(executing, allOutcomes(), 'business_data', GAL_NOW.toISOString())), 'GALLRING_STATE_INVALID');
+
+  // Stopping a deletion is never the dangerous direction, so abandoning is
+  // always allowed — except once the deletion has already been reported.
+  assert.equal(abandonGallring(executing, 'operator stopped it').state, 'ABANDONED');
+  assert.equal(galCode(() => abandonGallring(job, 'too late')), 'GALLRING_STATE_INVALID');
 });
 
 let failed = 0;

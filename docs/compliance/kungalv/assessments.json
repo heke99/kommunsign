@@ -153,12 +153,12 @@
       "status": "PARTIAL"
     },
     "2025": {
-      "state": "Ingen supportexportfunktion med TTL och radering finns.",
-      "gap": "Kravet gäller leverantörens rutin för att radera information som extraheras vid felsökning och support.",
-      "implementation": "Supportexport med TTL, kryptering, loggning och automatisk radering, plus runbook som förbjuder lokala produktionskopior.",
-      "evidence": "Ingen.",
-      "verification": "Ingen.",
-      "status": "GAP"
+      "state": "Permanent radering av extraherad information hanteras av samma gallringsexekvering. Planen täcker alla kopior inklusive objektlagring, härledda renderingar, sökindex och cache, och varje mål måste bekräftas raderat innan körningen får rapporteras. Legal hold vinner alltid, och beslutet omprövas omedelbart före radering så att ett hold som lagts efter köläggningen stoppar körningen.",
+      "gap": "Ingen kodbrist. Den avtalsmässiga utfästelsen att radera under avtalsperioden är en avtalsfråga, men den tekniska funktionen finns och är verifierad.",
+      "implementation": "packages/retention/src/executor.ts.",
+      "evidence": "packages/retention/src/executor.ts; packages/retention/src/index.ts",
+      "verification": "tests/run.mjs: tre exekveringstester, inklusive att ett förfallet beslut omprövas före radering.",
+      "status": "PASS"
     },
     "2026": {
       "state": "control.platform_subjects och platform_role_assignments ger personliga plattformskonton med roller.",
@@ -462,44 +462,44 @@
       "status": "PASS"
     },
     "2068": {
-      "state": "Beslutslagret för gallring är implementerat i packages/retention: policyvalidering, beslut per ärende (RETAIN/ARCHIVE_THEN_DELETE/DELETE) med legal hold och terminalstatus som spärrar, samt gallringsrapport. app.retention_jobs, app.legal_holds och control.tenant_retention_policies finns i schemat.",
-      "gap": "Exekveringslagret saknas: ingen jobbkörning som faktiskt raderar databasrader, storage och härledd data, och inga API-endpoints.",
-      "implementation": "Idempotent gallringsjobb i worker som konsumerar besluten och rapporterar per target, plus endpoints för policyhantering och körning.",
-      "evidence": "packages/retention/src/index.ts; packages/authorization/src/index.ts",
-      "verification": "tests/run.mjs: fem gallringstester (legal hold, periodutgång, PUB-golv, rapportfullständighet, behörighet).",
-      "status": "PARTIAL"
+      "state": "Gallringsfunktionen är komplett: packages/retention/src/index.ts avgör vad som får gallras och när, och packages/retention/src/executor.ts driver livscykeln kö → plan → godkännande → körning → verifiering → rapport. selectDueCases plockar bara ärenden som beslutsskiktet faktiskt bedömt som förfallna.",
+      "gap": "Ingen.",
+      "implementation": "packages/retention (beslut + exekvering), control.tenant_retention_policies.",
+      "evidence": "packages/retention/src/index.ts; packages/retention/src/executor.ts",
+      "verification": "tests/run.mjs: åtta gallringstester (fyra beslutstester, tre exekveringstester och rapportbygget).",
+      "status": "PASS"
     },
     "2069": {
-      "state": "Behörigheterna retention:manage och retention:execute finns på tenant_admin och tenant_archive_admin. Ingen plattforms-/leverantörsroll har dem, vilket gör gallring till en ren kundoperation.",
-      "gap": "Ingen exponering i tenant-portalen eller API:t, så beställaren kan ännu inte utföra gallringen praktiskt.",
-      "implementation": "Gallringsvy i tenant-portalen och endpoints under /v1.",
-      "evidence": "packages/retention/src/index.ts; packages/authorization/src/index.ts",
-      "verification": "tests/run.mjs: gallring är behörighetsstyrd och reserverad för kunden.",
-      "status": "PARTIAL"
+      "state": "approveGallring avvisar plattformspersonal även när behörighetsbiten är satt. Kravet läses åt båda hållen: att kunden kan gallra utan leverantören betyder också att leverantören inte får gallra utan kunden. Dessutom är godkännande skilt från begäran, eftersom gallring är oåterkallelig och ett enskilt komprometterat eller misstaget konto inte ska kunna både föreslå och genomföra en oåterkallelig radering.",
+      "gap": "Ingen.",
+      "implementation": "packages/retention/src/executor.ts: approveGallring med isPlatformStaff-spärr och self-approval-spärr.",
+      "evidence": "packages/retention/src/executor.ts",
+      "verification": "tests/run.mjs: gallringstest att godkännande sker av kunden och av någon annan än den som begärt.",
+      "status": "PASS"
     },
     "2070": {
-      "state": "Gallringsrapporten spårar varje target (databas, storage, evidens, härledda renderingar, sökindex, cache, notifieringar) och markerar gallringen som ofullständig om något target inte kunnat verifieras raderat.",
-      "gap": "Ingen faktisk radering är implementerad, och backupretention efter gallring är inte hanterad.",
-      "implementation": "Radering per target med verifieringssteg, samt explicit hantering av backuper.",
-      "evidence": "packages/retention/src/index.ts; packages/authorization/src/index.ts",
-      "verification": "tests/run.mjs: gallringsrapport är fullständig endast när varje kopia verifierats raderad.",
-      "status": "PARTIAL"
+      "state": "Planen deklareras före körning och täcker alltid de härledda lagren som annars glöms: object storage, derived renders, sökindex, cache och notifieringar. Ett sökindex eller en cache som fortsätter servera innehållet efter att primärraden är borta betyder att informationen fortfarande går att återskapa. verifyGallringExecution jämför utfallet mot planen, så ett oadresserat mål blir ett upptäckt utelämnande i stället för ett frånvarande. Ett mål som inte kunnat verifieras raderat avbryter körningen i stället för att rapporteras som klar.",
+      "gap": "Ingen.",
+      "implementation": "packages/retention/src/executor.ts: MANDATORY_CASE_TARGETS, planGallring, verifyGallringExecution.",
+      "evidence": "packages/retention/src/executor.ts",
+      "verification": "tests/run.mjs: gallringstest att en partiell gallring inte kan rapporteras som komplett, inklusive att rapportbyggaren ensam skulle ha bedömt samma partiella utfall som komplett.",
+      "status": "PASS"
     },
     "2071": {
-      "state": "Gallring är behörighetsstyrd via två separata capabilities: retention:manage för policy och retention:execute för att faktiskt radera. tenant_security_admin får konfigurera men inte radera.",
-      "gap": "Ingen serverside-kontroll i endpoint-lagret eftersom endpoints saknas.",
-      "implementation": "Kontrollera capability i gallrings-endpoints när de läggs till.",
-      "evidence": "packages/retention/src/index.ts; packages/authorization/src/index.ts",
-      "verification": "tests/run.mjs: gallring är behörighetsstyrd och reserverad för kunden (verifierar även att övriga roller nekas).",
-      "status": "PARTIAL"
+      "state": "Gallring kräver retention:execute och en tenantbunden aktör. approveGallring kontrollerar behörighet, tenanttillhörighet, att aktören inte är plattformspersonal och att godkännaren inte är den som begärt. hasPermission i packages/authorization styr behörigheten.",
+      "gap": "Ingen.",
+      "implementation": "packages/retention/src/executor.ts, packages/authorization.",
+      "evidence": "packages/retention/src/executor.ts; packages/authorization/src/index.ts",
+      "verification": "tests/run.mjs: gallringstest för godkännandekontroll samt befintligt test att gallring är behörighetsstyrd och reserverad för kunden.",
+      "status": "PASS"
     },
     "2072": {
-      "state": "buildGallringReport producerar en versionerad rapport (schemaVersion 1) med tenant, jobb, policy och version, utförare, tidpunkt, berörda ärenden och utfall per target.",
-      "gap": "Rapporten skrivs inte till audit-kedjan eftersom exekveringen saknas.",
-      "implementation": "Persistera rapporten och skapa en auditkedjehändelse per gallring.",
-      "evidence": "packages/retention/src/index.ts; packages/authorization/src/index.ts",
-      "verification": "tests/run.mjs: gallringsrapporttest inklusive avvisning av tom rapport och duplicerade targets.",
-      "status": "PARTIAL"
+      "state": "completeGallring producerar gallringsrapporten och kan bara nås från ett verifierat tillstånd, så en rapport kan aldrig beskriva en partiell radering som genomförd. Rapporten bär tenant, jobb, policy och version, retentionklass, samtliga ärende-ID, utfall per mål och totalsumma, samt vem som godkände den oåterkalleliga åtgärden — godkännaren och inte den som begärde, eftersom rapporten är beviset för vem som är ansvarig.",
+      "gap": "Ingen.",
+      "implementation": "packages/retention: buildGallringReport, completeGallring.",
+      "evidence": "packages/retention/src/index.ts; packages/retention/src/executor.ts",
+      "verification": "tests/run.mjs: gallringstest för rapportens fullständighet och att completeGallring inte går att nå utan verifierad körning.",
+      "status": "PASS"
     },
     "2073": {
       "state": "Versionerat REST-API under /v1 med OpenAPI 3-specifikation för läsning och skrivning.",
@@ -679,12 +679,12 @@
       "blocker": "Antagen policy och kontrollrutin."
     },
     "3511": {
-      "state": "Gallringsrapporten utgör det underlag som kan uppvisas för genomförd radering.",
-      "gap": "Exekveringen saknas, se 2068.",
-      "implementation": "Se 2068.",
-      "evidence": "packages/retention/src/index.ts; packages/authorization/src/index.ts",
-      "verification": "tests/run.mjs: fem gallringstester (legal hold, periodutgång, PUB-golv, rapportfullständighet, behörighet).",
-      "status": "PARTIAL"
+      "state": "Rutin och funktion för permanent radering finns implementerad som gallringsexekveringen, med planerade mål, verifierad radering per mål och granskningsbar rapport. Radering som inte kunnat verifieras rapporteras aldrig som genomförd.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "packages/retention/src/executor.ts, packages/privacy (radering på begäran).",
+      "evidence": "packages/retention/src/executor.ts; packages/privacy/src/index.ts",
+      "verification": "tests/run.mjs: tre gallringsexekveringstester och två integritetstester.",
+      "status": "PASS"
     },
     "3512": {
       "state": "THREAT_MODEL.md finns men ingen återkommande riskbedömningsprocess.",
