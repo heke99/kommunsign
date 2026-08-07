@@ -63,6 +63,10 @@ import {
   abandonGallring, approveGallring, beginGallringExecution, completeGallring,
   MANDATORY_CASE_TARGETS, planGallring, selectDueCases, verifyGallringExecution,
 } from '../dist/packages/retention/src/executor.js';
+import {
+  beginHandling, deadlineFor, deliverResponse, fulfilRequest, overdueRequests,
+  refuseRequest, verifySubjectIdentity,
+} from '../dist/packages/privacy/src/executor.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1940,6 +1944,101 @@ test('a partial gallring cannot be reported as complete', () => {
   // always allowed — except once the deletion has already been reported.
   assert.equal(abandonGallring(executing, 'operator stopped it').state, 'ABANDONED');
   assert.equal(galCode(() => abandonGallring(job, 'too late')), 'GALLRING_STATE_INVALID');
+});
+
+const SUBJECT = '00000000-0000-4000-8000-0000000000f1';
+const HANDLER = '00000000-0000-4000-8000-0000000000f2';
+const privacyJob = ({ request: requestOverrides, ...overrides } = {}) => ({
+  state: 'RECEIVED', subjectId: SUBJECT, identity: null, handledBy: null,
+  refusalGround: null, response: null, ...overrides,
+  request: privacyRequest({ right: 'ACCESS', ...(requestOverrides ?? {}) }),
+});
+const strongIdentity = (overrides = {}) => ({
+  verified: true, method: 'BANKID', assuranceLevel: 'HIGH', subjectId: SUBJECT,
+  verifiedAt: '2026-08-07T10:00:00.000Z', ...overrides,
+});
+const privJobCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('a rights request cannot act before the right person is verified', () => {
+  const job = privacyJob();
+  // This is the defect: a rights request is otherwise the easiest route to
+  // someone else's data — you only have to claim to be them.
+  assert.equal(privJobCode(() => beginHandling(job, HANDLER, job.request.tenantId)), 'PRIVACY_STATE_INVALID');
+  assert.equal(privJobCode(() => verifySubjectIdentity(job, strongIdentity({ verified: false }))), 'PRIVACY_IDENTITY_NOT_VERIFIED');
+  // Verifying *someone* is not enough; it must be the person the request is about.
+  assert.equal(privJobCode(() => verifySubjectIdentity(job, strongIdentity({ subjectId: HANDLER }))), 'PRIVACY_SUBJECT_MISMATCH');
+
+  // An access extract released on an email address someone happens to control
+  // is itself a personal data breach, so disclosure needs strong identity.
+  for (const right of ['ACCESS', 'ERASURE', 'PORTABILITY', 'RECTIFICATION']) {
+    assert.equal(
+      privJobCode(() => verifySubjectIdentity(privacyJob({ request: { right } }), strongIdentity({ assuranceLevel: 'SUBSTANTIAL' }))),
+      'PRIVACY_IDENTITY_ASSURANCE_TOO_LOW', right,
+    );
+  }
+  // Restriction protects the data subject; requiring strong identity for it
+  // would make the shield harder to obtain than the intrusion.
+  assert.equal(
+    privJobCode(() => verifySubjectIdentity(privacyJob({ request: { right: 'RESTRICTION' } }), strongIdentity({ assuranceLevel: 'LOW' }))),
+    'NO_ERROR',
+  );
+
+  const verified = verifySubjectIdentity(job, strongIdentity());
+  assert.equal(verified.state, 'IDENTITY_VERIFIED');
+  assert.equal(privJobCode(() => beginHandling(verified, HANDLER, '00000000-0000-4000-8000-0000000000ff')), 'PRIVACY_TENANT_MISMATCH');
+  assert.equal(beginHandling(verified, HANDLER, job.request.tenantId).state, 'IN_PROGRESS');
+});
+
+test('erasure re-checks legal hold and restriction at the moment of execution', () => {
+  const inProgress = beginHandling(
+    verifySubjectIdentity(privacyJob({ request: { right: 'ERASURE' } }), strongIdentity()),
+    HANDLER, privacyRequest().tenantId,
+  );
+
+  // The hold state is re-read rather than trusted from the request: a hold
+  // placed after the request arrived must still stop the erasure.
+  assert.equal(privJobCode(() => fulfilRequest(inProgress, fullCoverage(), true, false)), 'PRIVACY_ERASURE_BLOCKED_BY_LEGAL_HOLD');
+  // Article 18: restricted processing means the data is kept but not processed.
+  assert.equal(privJobCode(() => fulfilRequest(inProgress, fullCoverage(), false, true)), 'PRIVACY_RESTRICTION_ACTIVE');
+  // The completeness check is not bypassable through this path either.
+  assert.equal(
+    privJobCode(() => fulfilRequest(inProgress, fullCoverage().filter((entry) => entry.store !== 'CONTROL'), false, false)),
+    'PRIVACY_COVERAGE_INCOMPLETE',
+  );
+
+  const fulfilled = fulfilRequest(inProgress, fullCoverage(), false, false);
+  assert.equal(fulfilled.state, 'FULFILLED');
+  assert.deepEqual([...fulfilled.response.exemptedStores].sort(), ['AUDIT_LOG', 'BACKUP']);
+
+  // Acting on the data and disclosing it are separate events with separate
+  // evidence, so delivery is a separate transition.
+  assert.equal(deliverResponse(fulfilled).state, 'DELIVERED');
+  assert.equal(privJobCode(() => deliverResponse(inProgress)), 'PRIVACY_STATE_INVALID');
+
+  // A refusal without a legal ground is not a refusal, it is an unhandled
+  // request — the data subject needs the reason in order to complain.
+  assert.equal(privJobCode(() => refuseRequest(inProgress, '   ')), 'PRIVACY_REFUSAL_NEEDS_GROUND');
+  assert.equal(refuseRequest(inProgress, 'GDPR art. 17.3 b').state, 'REFUSED');
+  assert.equal(privJobCode(() => refuseRequest(deliverResponse(fulfilled), 'för sent')), 'PRIVACY_STATE_INVALID');
+});
+
+test('the thirty-day deadline runs from receipt and overdue requests stay visible', () => {
+  // PUB-avtalet 10.1 counts from receipt, not from when handling happened to
+  // start, so a request parked for a month is already late when it is opened.
+  assert.equal(deadlineFor(privacyRequest({ receivedAt: '2026-08-07T00:00:00.000Z' })), '2026-09-06T00:00:00.000Z');
+
+  const old = privacyJob({ request: { requestId: '00000000-0000-4000-8000-0000000000fa', receivedAt: '2026-06-01T00:00:00.000Z' } });
+  const recent = privacyJob({ request: { requestId: '00000000-0000-4000-8000-0000000000fb', receivedAt: '2026-08-06T00:00:00.000Z' } });
+  const delivered = { ...old, request: { ...old.request, requestId: '00000000-0000-4000-8000-0000000000fc' }, state: 'DELIVERED' };
+  const refused = { ...old, request: { ...old.request, requestId: '00000000-0000-4000-8000-0000000000fd' }, state: 'REFUSED' };
+
+  const overdue = overdueRequests([old, recent, delivered, refused], new Date('2026-08-07T12:00:00.000Z'));
+  // An overdue request surfaces as an open case with its state, rather than
+  // being a date that quietly slipped past.
+  assert.deepEqual(overdue.map((entry) => entry.requestId), ['00000000-0000-4000-8000-0000000000fa']);
+  assert.equal(overdue[0].state, 'RECEIVED');
+  assert.equal(overdue[0].dueAt, '2026-07-01T00:00:00.000Z');
+  assert.deepEqual(overdueRequests([recent], new Date('2026-09-30T00:00:00.000Z')).length, 1);
 });
 
 let failed = 0;

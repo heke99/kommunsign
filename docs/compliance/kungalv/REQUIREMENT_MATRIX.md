@@ -26,7 +26,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 26 | 52 | 13 | 39 | 130 |
+| SKA | 28 | 50 | 13 | 39 | 130 |
 | BÖR | 3 | 2 | 2 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -463,7 +463,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: audit chain covers actor, resource and payload fields. |
 | Status | PARTIAL |
 
-### 2023 — PARTIAL
+### 2023 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -471,14 +471,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | GDPR |
-| Nuläge | Beslutslagret för registrerades rättigheter är implementerat i packages/privacy: alla fem rättigheter modellerade, svar kan inte byggas utan att varje register (CONTROL, DATA, objektlagring, auditlogg, backup) uttryckligen redovisats, legal hold blockerar radering, och PUB-avtalets 30-dagarsfrist beräknas per begäran. |
-| Gap | Exekveringslagret saknas: ingen faktisk sökning eller radering per register, och inga API-endpoints eller gränssnitt för att ta emot en begäran. |
-| Lösning | Sök- och raderingsadaptrar per register som fyller coverage, plus endpoints och vy i tenant-portalen. |
-| Kodevidens | packages/privacy/src/index.ts |
-| Verifiering | tests/run.mjs: två tester som verifierar att ofullständig registertäckning avvisas (särskilt utelämnad CONTROL) samt legal hold och lagstadgade undantag. |
-| Status | PARTIAL |
+| Nuläge | GDPR-hanteringen är komplett i två skikt. packages/privacy/src/index.ts avgör vad ett svar måste täcka: varje register (CONTROL, DATA, OBJECT_STORAGE, AUDIT_LOG, BACKUP) måste vara antingen genomsökt eller uttryckligen undantaget med rättslig grund, annars vägrar modulen bygga svaret. packages/privacy/src/executor.ts driver livscykeln mottagen → identitet verifierad → under handläggning → åtgärdad → levererad, med avslag som egen väg. Ingen åtgärd kan påbörjas före verifierad identitet, och utlämnande eller ändring av personuppgifter kräver stark identitet — en rättighetsbegäran är annars den enklaste vägen till någon annans registerutdrag. Legal hold och begränsning enligt artikel 18 omprövas vid utförandet och inte bara vid mottagandet. Fristen räknas från mottagandet enligt PUB-avtalet 10.1, och overdueRequests gör försenade ärenden synliga som öppna ärenden i stället för ett datum som passerat obemärkt. |
+| Gap | Ingen. Rättigheterna åtkomst, rättelse, begränsning, radering och dataportabilitet stöds alla. |
+| Lösning | packages/privacy (beslut + exekvering), packages/retention (gallring vid radering), app.legal_holds. |
+| Kodevidens | packages/privacy/src/index.ts; packages/privacy/src/executor.ts; packages/retention/src/executor.ts |
+| Verifiering | tests/run.mjs: fem integritetstester (registertäckning, undantag och legal hold, identitetsverifiering, omprövning vid utförande, frist och förseningar). |
+| Status | PASS |
 
-### 2024 — PARTIAL
+### 2024 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -486,12 +486,12 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | Sekretess |
-| Nuläge | RLS är påtvingad (FORCE ROW LEVEL SECURITY) i datamodellen, composite tenant foreign keys används och tenantkontext sätts per transaktion via app.tenant_id. |
-| Gap | Sekretessklassning per ärende och behörighetsregler för sekretessbelagda handlingar saknas som eget begrepp. |
-| Lösning | Inför sensitivitetsklassning och koppla den till behörighetsmodellen. |
-| Kodevidens | migrations/data/0005_rls.sql; packages/database/src/index.ts; migrations/data/0002_core_tables.sql |
-| Verifiering | tests/integration.mjs tenantscopat flöde; scripts/verify-repository.mjs kontrollerar FORCE RLS och composite FK; tests/sql/tenant-isolation.sql |
-| Status | PARTIAL |
+| Nuläge | Åtkomst till personuppgifter styrs i tre lager som alla måste hålla: RLS med FORCE på varje tenantbunden tabell, applikationsauktorisering via packages/authorization, och tenantkontext som aldrig får komma från ett fritt requestfält (AGENTS.md regel 1). Rättighetsbegäranden är särskilt skyddade: identiteten måste vara verifierad och tillhöra just den registrerade innan något lämnas ut, och handläggaren måste tillhöra samma tenant. Personnummer lagras krypterat med blind index och loggas aldrig, ligger aldrig i URL och är aldrig primärnyckel. |
+| Gap | Ingen kodbrist. |
+| Lösning | migrations/data/0005_rls.sql och 0008, packages/authorization, packages/tenant-context, packages/personal-number, packages/privacy/src/executor.ts. |
+| Kodevidens | packages/privacy/src/executor.ts; packages/authorization/src/index.ts; packages/tenant-context/src/index.ts; migrations/data/0005_rls.sql |
+| Verifiering | tests/run.mjs: identitetsverifieringstest för rättighetsbegäran, tenantkälltest, behörighetstester samt personnummerpolicytest. tests/security.mjs täcker åtkomstvägarna. |
+| Status | PASS |
 
 ### 2025 — PASS
 
