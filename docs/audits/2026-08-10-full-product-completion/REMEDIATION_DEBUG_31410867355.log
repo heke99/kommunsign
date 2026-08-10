@@ -1,0 +1,5 @@
+  File "/home/runner/work/kommunsign/kommunsign/scripts/repair-remediation-script-v7.py", line 16
+    r'''    for \(const membership of memberships\.rows\) \{.*?    \}\n    throw new Error\('AUTH_ACCOUNT_NOT_AUTHORIZED'\);''',
+            ^^^
+SyntaxError: invalid syntax
+CaseRow interface not found
