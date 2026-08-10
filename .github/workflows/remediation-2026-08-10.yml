@@ -10,7 +10,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: node --version
-      - run: npm --version
-      - run: test -f AGENTS.md
-      - run: echo "workflow parsed and runner started"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply remediation
+        run: |
+          if [ ! -f docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md ]; then
+            python3 scripts/apply-full-product-remediation.py
+            mkdir -p docs/audits/2026-08-10-full-product-completion
+            cat > docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md <<'EOF'
+          # Patch applied — 2026-08-10
+
+          Server-authoritative case detail remediation and concurrent tenant discovery were applied by GitHub Actions.
+          EOF
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add apps/api/src/production-adapters/postgres/data-database.ts apps/api/src/production-adapters/postgres/authentication-repository.ts apps/tenant-portal/public/app.js apps/tenant-portal/public/index.html scripts/apply-full-product-remediation.py docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md
+            git commit -m "fix: make case detail server authoritative"
+            git push
+          fi
+      - name: Full repository verification
+        run: |
+          npm ci --ignore-scripts
+          npm run verify
+      - name: Record successful verification
+        if: success()
+        run: |
+          cat > docs/audits/2026-08-10-full-product-completion/VERIFICATION_COMPLETE.md <<'EOF'
+          # Verification complete — 2026-08-10
+
+          This file is written only after the complete `npm run verify` command succeeds in GitHub Actions on Node 22.
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/audits/2026-08-10-full-product-completion/VERIFICATION_COMPLETE.md
+          git commit -m "test: record full verification" || true
+          git push
