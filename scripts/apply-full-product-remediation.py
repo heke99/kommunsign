@@ -17,11 +17,11 @@ def replace_once(path: str, pattern: str, replacement: str, flags=re.S):
 p = ROOT / 'apps/api/src/production-adapters/postgres/data-database.ts'
 s = p.read_text()
 if 'interface CaseDetailRow' not in s:
-    marker = re.search(r'interface CaseRow\s*\{.*?\n\}', s, re.S)
+    marker = re.search(r'const caseSelect =', s)
     if not marker:
-        raise SystemExit('CaseRow interface not found')
+        raise SystemExit('caseSelect marker not found')
     detail = '''\ninterface CaseDetailRow extends CaseRow {\n  readonly policy_id: string;\n  readonly policy_version: number|string;\n  readonly policy_snapshot: Readonly<Record<string, unknown>>;\n  readonly created_by: string;\n  readonly sent_at: string|Date|null;\n  readonly completed_at: string|Date|null;\n  readonly expires_at: string|Date|null;\n  readonly updated_at: string|Date;\n  readonly evidence_available: boolean;\n  readonly archive_completed: boolean;\n}\n'''
-    s = s[:marker.end()] + detail + s[marker.end():]
+    s = s[:marker.start()] + detail + s[marker.start():]
 
 get_pattern = r'''    async get\(context, id\) \{.*?\n    \},\n    async list\(context, page\)'''
 get_replacement = '''    async get(context, id) {
@@ -87,7 +87,7 @@ p.write_text(s)
 # AUTH: resolve eligible tenant memberships concurrently.
 replace_once(
     'apps/api/src/production-adapters/postgres/authentication-repository.ts',
-    r'''    for \(const membership of memberships\.rows\) \{\n      try \{ return await primaryTenantDestination\(controlDatabase, membership\.tenant_id, tenantDiscoveryHostname\); \}\n      catch \(cause\) \{ if \(\.\.\.\(cause instanceof Error\) \|\| cause\.message !== 'ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE'\) throw cause; \}\n    \}\n    throw new Error\('AUTH_ACCOUNT_NOT_AUTHORIZED'\);''',
+    r'''    for \(const membership of memberships\.rows\) \{.*?    \}\n    throw new Error\('AUTH_ACCOUNT_NOT_AUTHORIZED'\);''',
     '''    const destinations = await Promise.all(memberships.rows.map(async (membership) => {
       try { return await primaryTenantDestination(controlDatabase, membership.tenant_id, tenantDiscoveryHostname); }
       catch (cause) {
