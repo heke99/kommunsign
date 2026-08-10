@@ -1,0 +1,12 @@
+name: verify-minimal
+on:
+  push:
+    branches:
+      - remediation/kommunsign-full-product-completion-2026-08-10
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node --version
+      - run: npm --version
