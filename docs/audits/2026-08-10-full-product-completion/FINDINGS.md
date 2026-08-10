@@ -1,33 +1,31 @@
 # Findings — 2026-08-10 full product completion
 
-## P0 — case detail is not yet server-authoritative in the portal
+## Closed P0 — case detail is now server-authoritative
 
-The API already exposes `GET /v1/signature-cases/:id`, but the production repository currently returns the shallow `SignatureCaseView` only. The tenant portal still declares `const caseDetails = new Map()` and uses that browser map to retain documents and signers for the preview. This violates the masterprompt requirement that refresh, logout/login, another browser and another computer must reconstruct the same state from the server.
+`GET /v1/signature-cases/:id` now reads the case, policy snapshot/version, lifecycle timestamps, current document versions, scan/processing reports, signer state/order, audit events, and evidence/archive availability from DATA inside the authenticated tenant transaction. The tenant portal no longer keeps authoritative document/signer state in a browser-only `Map`; it reloads server detail after selection and mutations.
 
-**Required remediation:** enrich the server case-detail contract with policy/version, lifecycle timestamps, current document versions and processing/scan/PDF-A state, signer state/order, audit events and evidence/archive availability; then make the portal load that contract after refresh and after every mutation. No business state should be persisted in a browser map.
+This closes the refresh/logout-login/other-browser/other-computer source-of-truth finding.
 
-## P1 — login destination resolution is serial across tenant candidates
+## Closed P1 — tenant destination resolution
 
-`resolveSubjectDestination` first resolves memberships from DATA and then awaits each tenant's primary-domain lookup one at a time. This is a measurable round-trip pattern that can become slow for subjects with multiple memberships. A safe optimization is to resolve candidate destinations concurrently, preserve the existing deterministic membership order when choosing the first valid destination, and keep fail-closed handling for every other error.
+`resolveSubjectDestination` now resolves eligible tenant primary-domain candidates concurrently and selects the first valid destination according to the existing deterministic membership ordering. Unexpected errors remain fail-closed.
 
-This should be followed by real p95 measurement; no performance claim is made from code inspection alone.
+## Remaining P1 — requested auth timing instrumentation
 
-## P1 — performance instrumentation requested by the masterprompt is not present
+The repository verification gate passes, but the masterprompt's explicit low-cardinality auth timing series is not yet part of the runtime metric vocabulary: `auth.rate_limit_ms`, `auth.provider_ms`, `auth.platform_lookup_ms`, `auth.membership_lookup_ms`, `auth.tenant_resolution_ms`, `auth.authorization_ms`, `auth.session_create_ms`, `auth.session_verify_ms`, `auth.redirect_ms`, and `auth.total_ms`.
 
-The repository has an observability vocabulary, but the requested auth timing series (`auth.rate_limit_ms`, `auth.provider_ms`, `auth.platform_lookup_ms`, `auth.membership_lookup_ms`, `auth.tenant_resolution_ms`, `auth.authorization_ms`, `auth.session_create_ms`, `auth.session_verify_ms`, `auth.redirect_ms`, `auth.total_ms`) are not currently part of the metric vocabulary or emitted by the login path. The next implementation step must add a low-cardinality timing mechanism and benchmark it against the stated p95 budgets.
+This remains an implementation item if the masterprompt requires those exact runtime metrics rather than merely the existing observability vocabulary. No p95 performance claim is made without real measurements.
 
-## Database — schema and migration ledger had drift
+## Database — schema and migration drift reconciled
 
-The live CONTROL migration ledger stopped at 0016 while the schema already contained the objects from 0017. The live DATA ledger stopped at 0016 while the schema already contained the SCIM and attachment objects from 0017/0018.
+The live CONTROL migration ledger had stopped at 0016 while schema objects from 0017 existed; DATA likewise had 0017/0018 objects while the ledger stopped at 0016. The actual objects were verified first and the custom `kommunsign_meta.schema_migrations` ledger was reconciled to the repository checksums without blindly replaying already-present DDL.
 
-The schema was verified against the repository verification logic. All 72 live `app` tables have RLS enabled and FORCE RLS enabled, and the tenant isolation policies use `app.current_tenant_id()` for both `USING` and `WITH CHECK`.
+The DATA runtime currently has 72/72 `app` tables with RLS enabled and FORCE RLS enabled, and tenant policies use `app.current_tenant_id()` for both `USING` and `WITH CHECK`.
 
-After verifying the actual objects, the custom `kommunsign_meta.schema_migrations` ledger was reconciled with the repository checksums for CONTROL 0017 and DATA 0017/0018. This was a metadata reconciliation, not a blind re-run of DDL: an attempted DATA 0017 replay was stopped because the live SCIM tenant policy already existed.
+## Verification
 
-## Verification limitation
+The complete repository gate `npm run verify` passed in GitHub Actions on Node 22 after installing Temurin Java 21. The first remote verification failure was environmental: the runner's default JDK did not support `--release 21`. With Java 21 installed, the full gate completed successfully.
 
-The local environment could not complete `npm ci --ignore-scripts`: the available package registry returned HTTP 404 for `postgres@3.4.7`. Therefore this campaign does not claim a fresh local `npm run verify` pass. GitHub Actions runs were also not available for the temporary remote patch workflow, so no code patch was claimed from that mechanism.
+## Current disposition
 
-## Current branch disposition
-
-The remediation branch is intentionally not represented as complete yet. It currently contains the baseline/live-database audit evidence and skill routing, while the code P0/P1 remediation remains to be implemented and verified before a PR is opened.
+The code remediation is implemented and the repository gate is green. The remaining explicit technical item from the findings is the requested auth timing instrumentation/p95 measurement; external integrations and live production secrets remain outside this repository-only verification gate.
