@@ -15,8 +15,6 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply remediation
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           if [ ! -f docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md ]; then
             python3 scripts/repair-remediation-script-v9.py
@@ -39,8 +37,10 @@ jobs:
           LOG="docs/audits/2026-08-10-full-product-completion/VERIFY_${GITHUB_RUN_ID}.log"
           mkdir -p docs/audits/2026-08-10-full-product-completion
           npm ci --ignore-scripts
+          set +e
           npm run verify > "$LOG" 2>&1
           CODE=$?
+          set -e
           if [ "$CODE" -ne 0 ]; then
             cat "$LOG"
             LOG="$LOG" python3 - <<'PY'
