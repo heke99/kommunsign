@@ -27,11 +27,6 @@ jobs:
             set -e
             if [ "$R1" -ne 0 ] || [ "$R2" -ne 0 ]; then
               cat docs/audits/2026-08-10-full-product-completion/REMEDIATION_DEBUG.log
-              git config user.name "github-actions[bot]"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git add docs/audits/2026-08-10-full-product-completion/REMEDIATION_DEBUG.log
-              git commit -m "chore: record remediation diagnostics"
-              git push
               exit 1
             fi
             cat > docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md <<'EOF'
@@ -45,6 +40,13 @@ jobs:
             git commit -m "fix: make case detail server authoritative"
             git push
           fi
+      - name: Upload remediation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remediation-diagnostics
+          path: docs/audits/2026-08-10-full-product-completion/REMEDIATION_DEBUG.log
+          if-no-files-found: ignore
       - name: Full repository verification
         run: |
           npm ci --ignore-scripts
