@@ -74,8 +74,56 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
     },
     async get(context, id) {
       return tenantTx(database, context, async (transaction) => {
-        const result = await transaction.query<CaseRow>(`${caseSelect} where tenant_id = $1 and id = $2`, [context.tenantId, id]);
-        return result.rows[0] ? caseView(result.rows[0]) : null;
+        const result = await transaction.query<CaseDetailRow>(
+          `select c.id,c.tenant_id,c.status::text as status,c.status_version,c.decision_mode::text as decision_mode,
+                  c.title,c.external_reference,c.policy_id,c.policy_version,c.policy_snapshot,
+                  c.created_by,c.created_at,c.sent_at,c.completed_at,c.expires_at,c.updated_at,
+                  exists(select 1 from app.evidence_packages ep where ep.tenant_id=c.tenant_id and ep.signature_case_id=c.id and ep.status='ready') as evidence_available,
+                  exists(select 1 from app.archive_exports ae where ae.tenant_id=c.tenant_id and ae.signature_case_id=c.id and ae.status='completed') as archive_completed
+             from app.signature_cases c
+            where c.tenant_id=$1 and c.id=$2`,
+          [context.tenantId, id],
+        );
+        const row = result.rows[0];
+        if (!row) return null;
+        const documents = await transaction.query<{ readonly payload: unknown }>(
+          `select coalesce(jsonb_agg(jsonb_build_object(
+             'id',d.id,'displayName',d.display_name,'role',d.document_role,'ordinal',d.document_ordinal,
+             'version',v.version,'status',v.status::text,'mimeType',v.mime_type,'byteSize',v.byte_size,'sha256',v.sha256,
+             'sourcePageCount',v.source_page_count,'canonicalPageCount',v.canonical_page_count,'pdfProfile',v.pdf_profile,'lockedAt',v.locked_at,
+             'scanResult',(select sr.result from app.document_scan_results sr where sr.tenant_id=d.tenant_id and sr.document_version_id=v.id order by sr.scanned_at desc limit 1),
+             'processingResult',(select pr.result from app.document_processor_reports pr where pr.tenant_id=d.tenant_id and pr.document_version_id=v.id order by pr.created_at desc limit 1)
+           ) order by d.document_ordinal,d.created_at,d.id), '[]'::jsonb) as payload
+             from app.documents d
+             join lateral (select v.* from app.document_versions v where v.tenant_id=d.tenant_id and v.document_id=d.id order by v.version desc limit 1) v on true
+            where d.tenant_id=$1 and d.signature_case_id=$2`, [context.tenantId,id],
+        );
+        const signers = await transaction.query<{ readonly payload: unknown }>(
+          `select coalesce(jsonb_agg(jsonb_build_object(
+             'id',s.id,'displayName',s.display_name,'status',s.status::text,'signingOrder',s.signing_order,'required',s.required,
+             'identifierBindingMode',s.identifier_binding_mode,'identifierBindingExceptionCode',s.identifier_binding_exception_code,
+             'emailConfigured',(s.email_ciphertext is not null)
+           ) order by s.signing_order,s.id), '[]'::jsonb) as payload
+             from app.signers s where s.tenant_id=$1 and s.signature_case_id=$2`, [context.tenantId,id],
+        );
+        const events = await transaction.query<{ readonly payload: unknown }>(
+          `select coalesce(jsonb_agg(jsonb_build_object('id',a.id,'type',a.event_type,'category',a.category,'actorType',a.actor_type,'resourceType',a.resource_type,'resourceId',a.resource_id,'occurredAt',a.occurred_at) order by a.sequence), '[]'::jsonb) as payload
+             from audit.audit_events a where a.tenant_id=$1 and a.resource_type='signature_case' and a.resource_id=$2`, [context.tenantId,id],
+        );
+        const view = caseView(row);
+        return { ...view,
+          policy: { id: row.policy_id, version: Number(row.policy_version), snapshot: row.policy_snapshot },
+          createdBy: row.created_by, createdAt: iso(row.created_at),
+          sentAt: row.sent_at ? iso(row.sent_at) : undefined,
+          completedAt: row.completed_at ? iso(row.completed_at) : undefined,
+          expiresAt: row.expires_at ? iso(row.expires_at) : undefined,
+          updatedAt: iso(row.updated_at),
+          documents: documents.rows[0]?.payload ?? [],
+          signers: signers.rows[0]?.payload ?? [],
+          events: events.rows[0]?.payload ?? [],
+          evidenceAvailable: row.evidence_available,
+          archiveCompleted: row.archive_completed,
+        };
       });
     },
     async list(context, page) {
@@ -588,6 +636,19 @@ interface UploadRow { readonly id:string; readonly object_key:string; readonly f
 interface WebhookRow { readonly id:string; readonly url:string; readonly subscribed_events:readonly string[]; readonly active:boolean; readonly created_at:string|Date; }
 interface OutboxRow { readonly id:string; readonly event_type:string; readonly payload:Readonly<Record<string,unknown>>; readonly occurred_at:string|Date; }
 interface TemplateRow { readonly id:string; readonly template_key:string; readonly version:number; readonly locale:string; readonly subject_template:string; readonly body_template:string; readonly active:boolean; }
+
+interface CaseDetailRow extends CaseRow {
+  readonly policy_id: string;
+  readonly policy_version: number|string;
+  readonly policy_snapshot: Readonly<Record<string, unknown>>;
+  readonly created_by: string;
+  readonly sent_at: string|Date|null;
+  readonly completed_at: string|Date|null;
+  readonly expires_at: string|Date|null;
+  readonly updated_at: string|Date;
+  readonly evidence_available: boolean;
+  readonly archive_completed: boolean;
+}
 const caseSelect = `select id,tenant_id,status::text as status,status_version,decision_mode::text as decision_mode,title,external_reference,created_at from app.signature_cases`;
 function caseView(row: CaseRow): SignatureCaseView { return { id:row.id,tenantId:row.tenant_id,status:row.status,statusVersion:Number(row.status_version),decisionMode:row.decision_mode,title:row.title,createdAt:iso(row.created_at),...(row.external_reference ? {externalReference:row.external_reference}:{}) }; }
 function webhookView(row: WebhookRow): WebhookEndpointView { return { id:row.id,url:row.url,subscribedEvents:row.subscribed_events,active:row.active,createdAt:iso(row.created_at) }; }

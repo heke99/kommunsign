@@ -70,10 +70,15 @@ export function createAuthenticationRepository(
         limit 25`,
       [subjectId],
     ));
-    for (const membership of memberships.rows) {
+    const destinations = await Promise.all(memberships.rows.map(async (membership) => {
       try { return await primaryTenantDestination(controlDatabase, membership.tenant_id, tenantDiscoveryHostname); }
-      catch (cause) { if (!(cause instanceof Error) || cause.message !== 'ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE') throw cause; }
-    }
+      catch (cause) {
+        if (cause instanceof Error && cause.message === 'ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE') return null;
+        throw cause;
+      }
+    }));
+    const destination = destinations.find((value): value is ResolvedDestination => value !== null);
+    if (destination) return destination;
     throw new Error('AUTH_ACCOUNT_NOT_AUTHORIZED');
   }
 
