@@ -17,6 +17,7 @@ jobs:
       - name: Apply remediation
         run: |
           if [ ! -f docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md ]; then
+            python3 scripts/repair-remediation-script.py
             python3 scripts/apply-full-product-remediation.py
             mkdir -p docs/audits/2026-08-10-full-product-completion
             cat > docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md <<'EOF'
@@ -26,7 +27,7 @@ jobs:
           EOF
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add apps/api/src/production-adapters/postgres/data-database.ts apps/api/src/production-adapters/postgres/authentication-repository.ts apps/tenant-portal/public/app.js apps/tenant-portal/public/index.html scripts/apply-full-product-remediation.py docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md
+            git add apps/api/src/production-adapters/postgres/data-database.ts apps/api/src/production-adapters/postgres/authentication-repository.ts apps/tenant-portal/public/app.js apps/tenant-portal/public/index.html scripts/apply-full-product-remediation.py scripts/repair-remediation-script.py docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md
             git commit -m "fix: make case detail server authoritative"
             git push
           fi
