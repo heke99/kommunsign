@@ -14,6 +14,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Apply remediation
         run: |
           if [ ! -f docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md ]; then
@@ -59,7 +63,7 @@ jobs:
           cat > docs/audits/2026-08-10-full-product-completion/VERIFICATION_COMPLETE.md <<'EOF'
           # Verification complete — 2026-08-10
 
-          The complete repository verification passed in GitHub Actions on Node 22.
+          The complete repository verification passed in GitHub Actions on Node 22 with Java 21.
           EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
