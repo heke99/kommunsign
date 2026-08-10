@@ -17,9 +17,23 @@ jobs:
       - name: Apply remediation
         run: |
           if [ ! -f docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md ]; then
-            python3 scripts/repair-remediation-script.py
-            python3 scripts/apply-full-product-remediation.py
             mkdir -p docs/audits/2026-08-10-full-product-completion
+            : > docs/audits/2026-08-10-full-product-completion/REMEDIATION_DEBUG.log
+            set +e
+            python3 scripts/repair-remediation-script.py >> docs/audits/2026-08-10-full-product-completion/REMEDIATION_DEBUG.log 2>&1
+            R1=$?
+            python3 scripts/apply-full-product-remediation.py >> docs/audits/2026-08-10-full-product-completion/REMEDIATION_DEBUG.log 2>&1
+            R2=$?
+            set -e
+            if [ "$R1" -ne 0 ] || [ "$R2" -ne 0 ]; then
+              cat docs/audits/2026-08-10-full-product-completion/REMEDIATION_DEBUG.log
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add docs/audits/2026-08-10-full-product-completion/REMEDIATION_DEBUG.log
+              git commit -m "chore: record remediation diagnostics"
+              git push
+              exit 1
+            fi
             cat > docs/audits/2026-08-10-full-product-completion/PATCH_APPLIED.md <<'EOF'
           # Patch applied — 2026-08-10
 
