@@ -1,0 +1,72 @@
+
+> kommunsign@0.2.0 verify
+> npm run clean && npm run build && npm run verify:repository && npm run verify:deployment-config && npm run verify:migrations && npm run verify:requirements && npm run verify:provenance && npm run verify:sdk && npm run verify:accessibility && npm run scan:secrets && npm run verify:java && node tests/run.mjs && node tests/integration.mjs && node tests/security.mjs
+
+
+> kommunsign@0.2.0 clean
+> node scripts/clean.mjs
+
+
+> kommunsign@0.2.0 prebuild
+> npm run check:toolchain
+
+
+> kommunsign@0.2.0 check:toolchain
+> node scripts/check-toolchain.mjs
+
+toolchain verification: Node 22.23.1, TypeScript 5.8.3
+
+> kommunsign@0.2.0 build
+> tsc -p tsconfig.json && node scripts/build-portals.mjs
+
+portal build: 6 portals
+
+> kommunsign@0.2.0 verify:repository
+> node scripts/verify-repository.mjs
+
+repository verification: OK
+
+> kommunsign@0.2.0 verify:deployment-config
+> node scripts/build-vercel-unified.mjs && node scripts/verify-deployment-config.mjs
+
+Vercel unified build: 7 portaler i build/vercel
+Vercel root fallback: build/vercel/index.html
+Deploymentkonfiguration: OK (Vercel root/routing, auth-gates, images och Railway-tjänster).
+
+> kommunsign@0.2.0 verify:migrations
+> node scripts/check-sql-migrations.mjs
+
+SQL migration verification: OK
+
+> kommunsign@0.2.0 verify:requirements
+> node scripts/build-requirement-matrix.mjs
+
+requirement matrix: 138 requirements (BÖR/BLOCKED_EXTERNAL=1 BÖR/PASS=7 SKA/BLOCKED_EXTERNAL=41 SKA/PASS=89)
+
+> kommunsign@0.2.0 verify:provenance
+> node scripts/check-provenance.mjs
+
+provenance verification: OK (0 donor LOC, 8 pinned donors, 0 mapped imports)
+
+> kommunsign@0.2.0 verify:sdk
+> node scripts/verify-sdk-sync.mjs
+
+SDK sync verification: 2026-08-03.2
+
+> kommunsign@0.2.0 verify:accessibility
+> node scripts/check-accessibility.mjs
+
+WCAG 2.2 AA static verification: OK (6 portals)
+
+> kommunsign@0.2.0 scan:secrets
+> node scripts/scan-secrets.mjs
+
+secret scan: OK
+
+> kommunsign@0.2.0 verify:java
+> bash scripts/build-java.sh
+
+Freja JWS verifier self-test: OK
+error: release version 21 not supported
+Usage: javac <options> <source files>
+use --help for a list of possible options
