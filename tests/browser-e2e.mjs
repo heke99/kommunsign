@@ -5,6 +5,7 @@ import { chromium, firefox, webkit } from 'playwright';
 const ROOT = new URL('../', import.meta.url);
 const API = 'http://127.0.0.1:8787';
 const PORTAL = 'http://127.0.0.1:3002';
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const children = [];
 
 function spawnService(command, args, env = {}) {
@@ -90,6 +91,7 @@ async function assertCaseDetail(page, title) {
   const detail = page.locator('#case-detail-content');
   await detail.filter({ hasText: title }).waitFor();
   await detail.filter({ hasText: 'e2e.pdf' }).waitFor();
+  await detail.filter({ hasText: 'm365-e2e.docx' }).waitFor();
   await detail.filter({ hasText: 'E2E Signerare' }).waitFor();
 }
 
@@ -194,7 +196,15 @@ async function exerciseBrowser(name, browserType) {
       buffer: Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n'),
     });
     await page.locator('#document-form button[type="submit"]').click();
-    await waitForStatus(page, '#document-status', 'ligger i karantän', `${name} upload`);
+    await waitForStatus(page, '#document-status', 'ligger i karantän', `${name} PDF upload`);
+
+    await page.locator('#document-file').setInputFiles({
+      name: 'm365-e2e.docx',
+      mimeType: DOCX_MIME,
+      buffer: Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00]),
+    });
+    await page.locator('#document-form button[type="submit"]').click();
+    await waitForStatus(page, '#document-status', 'Office-filen konverteras till verifierad PDF/A-2b', `${name} Microsoft 365 Office upload`);
 
     await selectCase(page, '#signer-case', title);
     await page.locator('#signer-name').fill('E2E Signerare');
@@ -207,7 +217,6 @@ async function exerciseBrowser(name, browserType) {
     await row.getByRole('button', { name: 'Visa' }).click();
     await assertCaseDetail(page, title);
 
-    // A refresh must reconstruct business state from the API, not from JS memory.
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.locator('#protected-app').waitFor({ state: 'visible' });
     const reloadedRow = page.locator('#case-list tr', { hasText: title });
@@ -215,7 +224,6 @@ async function exerciseBrowser(name, browserType) {
     await reloadedRow.getByRole('button', { name: 'Visa' }).click();
     await assertCaseDetail(page, title);
 
-    // A separate browser context must see the same server-authoritative state.
     await assertIndependentBrowserState(browser, title);
 
     await reloadedRow.getByRole('button', { name: 'Skicka' }).click();
