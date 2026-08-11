@@ -4,6 +4,7 @@ import { TenantHostnameResolver } from '../../../../../packages/tenant-gateway/s
 import type { ApiDependencies } from '../../ports.js';
 import type { ProductionRuntimeConfiguration } from '../../production-runtime.js';
 import { createDataRepositories } from './data-database.js';
+import { withKeysetListRepositories } from './keyset-repositories.js';
 import { createDomainRepository } from './domain-repository.js';
 import { loadProductionInfrastructure } from './infrastructure.js';
 import { createOnboardingRepository } from './onboarding-repository.js';
@@ -20,7 +21,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
   const dataDatabase = await createPostgresDatabase(configuration.dataDatabaseUrl, 'kommunsign-data-api');
   try {
     const infrastructure = await loadProductionInfrastructure(process.env);
-    const data = createDataRepositories(dataDatabase, infrastructure);
+    const data = withKeysetListRepositories(dataDatabase, createDataRepositories(dataDatabase, infrastructure));
     const signingSourceUploads = createSigningSourceUploadRepository(dataDatabase, infrastructure);
     const publicRepositories = createPublicRepositories(dataDatabase, infrastructure, process.env);
     const domains = createDomainRepository(controlDatabase);
@@ -74,7 +75,6 @@ export async function createProductionDependencies(configuration: ProductionRunt
     throw cause;
   }
 }
-
 
 function safePostgresMetadata(cause: unknown): Readonly<Record<string, string>> {
   if (!cause || typeof cause !== 'object') return {};
@@ -130,5 +130,4 @@ export { createEventRepository } from './event-repository.js';
 export { createWebhookRepository } from './webhook-repository.js';
 export { createReadinessRepository } from './readiness-repository.js';
 export { createActivationRepository } from './activation-repository.js';
-
 export { createPublicRepositories } from './public-signing-repository.js';
