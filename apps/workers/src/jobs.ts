@@ -48,7 +48,8 @@ export function retryDelaySeconds(attemptsIncludingCurrentClaim: number): number
 /**
  * Equal-jitter delay in [base/2, base]. The seed is stable per job/attempt so a
  * restarted worker does not reshuffle the schedule, while different jobs avoid
- * synchronized retry storms.
+ * synchronized retry storms. Fractional seconds are preserved so the first
+ * retry is jittered too.
  */
 export function jitteredRetryDelaySeconds(jobId: string, attemptsIncludingCurrentClaim: number): number {
   const base = retryDelaySeconds(attemptsIncludingCurrentClaim);
@@ -59,7 +60,8 @@ export function jitteredRetryDelaySeconds(jobId: string, attemptsIncludingCurren
     hash = Math.imul(hash, 16777619) >>> 0;
   }
   const fraction = hash / 0xffffffff;
-  return Math.max(1, Math.min(3600, Math.round((base / 2) + ((base / 2) * fraction))));
+  const delay = (base / 2) + ((base / 2) * fraction);
+  return Math.min(3600, delay);
 }
 
 function safeWorkerErrorCode(cause: unknown): string {
