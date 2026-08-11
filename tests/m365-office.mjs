@@ -15,6 +15,7 @@ const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const PPTX = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const SUBJECT_ID = '22222222-2222-4222-8222-222222222222';
+const uploadPolicy = { allowedMimeTypes: SIGNING_SOURCE_MIME_TYPES, maximumBytes: 100 * 1024 * 1024 };
 
 assert.deepEqual([...MICROSOFT_365_SOURCE_MIME_TYPES], [DOCX, XLSX, PPTX]);
 for (const [fileName, mimeType] of [['beslut.docx', DOCX], ['budget.xlsx', XLSX], ['presentation.pptx', PPTX]]) {
@@ -24,7 +25,7 @@ for (const [fileName, mimeType] of [['beslut.docx', DOCX], ['budget.xlsx', XLSX]
   assert.equal(plan.sourceFormat, mimeType);
   const validated = validateUploadMetadata(
     { fileName, mimeType, byteSize: 1024, sha256: 'a'.repeat(64) },
-    { allowedMimeTypes: SIGNING_SOURCE_MIME_TYPES, maximumBytes: 100 * 1024 * 1024 },
+    uploadPolicy,
   );
   assert.equal(validated.mimeType, mimeType);
 }
@@ -35,6 +36,20 @@ assert.throws(
 assert.throws(
   () => planOfficeIngestion({ fileName: 'fel.docx', mimeType: XLSX, byteSize: 1024 }),
   /stämmer inte|OFFICE_MIME_MISMATCH/,
+);
+assert.throws(
+  () => validateUploadMetadata(
+    { fileName: 'macro.docm', mimeType: DOCX, byteSize: 1024, sha256: 'a'.repeat(64) },
+    uploadPolicy,
+  ),
+  /UPLOAD_OFFICE_MACRO_FORMAT_FORBIDDEN/,
+);
+assert.throws(
+  () => validateUploadMetadata(
+    { fileName: 'fel.xlsx', mimeType: DOCX, byteSize: 1024, sha256: 'a'.repeat(64) },
+    uploadPolicy,
+  ),
+  /UPLOAD_OFFICE_MIME_EXTENSION_MISMATCH/,
 );
 
 const zipBytes = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
@@ -110,4 +125,4 @@ assert.match(workerSource, /ClamAvInstreamClient/);
 assert.match(workerSource, /VeraPdfRestClient/);
 assert.match(productionAdapter, /createOfficeSourceJobHandlers/);
 
-console.log('m365-office: native Office upload, quarantine and PDF/A conversion contract verified');
+console.log('m365-office: native Office upload, rejection rules, quarantine and PDF/A conversion contract verified');
