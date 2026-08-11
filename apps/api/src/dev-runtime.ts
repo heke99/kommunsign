@@ -53,6 +53,34 @@ function requireCase(context: TenantContext, id: string): SignatureCaseView {
   if (!value) throw new Error('NOT_FOUND');
   return value;
 }
+function caseEventMatches(event: DomainEvent, tenantId: string, caseId: string): boolean {
+  return event.tenantId === tenantId && (event.data as Readonly<Record<string, unknown>>).signatureCaseId === caseId;
+}
+function getCaseDetail(context: TenantContext, id: string): SignatureCaseView | null {
+  const value = cases.get(tenantKey(context.tenantId, id));
+  if (!value) return null;
+  const policy = signaturePolicies.find((item) => item.active && item.decisionMode === value.decisionMode);
+  const caseDocuments = [...documents.entries()]
+    .filter(([keyName, item]) => keyName.startsWith(`${context.tenantId}:`) && item.signatureCaseId === id)
+    .map(([, item], index) => ({ ...item, version: 1, role: 'SIGNABLE', ordinal: index + 1, pdfProfile: null, scanResult: null, processingResult: null }));
+  const caseSigners = [...signers.entries()]
+    .filter(([keyName, item]) => keyName.startsWith(`${context.tenantId}:`) && item.signatureCaseId === id)
+    .map(([, item]) => item);
+  const caseEvents = events.filter((event) => caseEventMatches(event, context.tenantId, id)).map((event) => ({
+    id: event.id, type: event.type, occurredAt: event.occurredAt,
+  }));
+  return {
+    ...value,
+    ...(policy ? { policy: { id: policy.id, version: policy.version, snapshot: { decisionMode: policy.decisionMode } } } : {}),
+    createdBy: context.subjectId,
+    updatedAt: value.createdAt,
+    documents: caseDocuments,
+    signers: caseSigners,
+    events: caseEvents,
+    evidenceAvailable: false,
+    archiveCompleted: false,
+  } as SignatureCaseView;
+}
 function updateCase(context: TenantContext, id: string, status: SignatureCaseView['status'], expectedVersion?: number): SignatureCaseView {
   const current = requireCase(context, id);
   const version = current.statusVersion ?? 1;
@@ -80,7 +108,7 @@ const caseRepository: CaseRepository = {
       return value;
     });
   },
-  async get(context, id) { return cases.get(tenantKey(context.tenantId, id)) ?? null; },
+  async get(context, id) { return getCaseDetail(context, id); },
   async list(context, page) { return paginate([...cases.values()].filter((item) => item.tenantId === context.tenantId), page); },
   async addDocument(context, id, input: AddDocumentInput, key, payloadHash) {
     requireCase(context, id);
