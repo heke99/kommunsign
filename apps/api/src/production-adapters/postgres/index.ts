@@ -12,6 +12,7 @@ import { GatewayRequestAuthenticator } from './request-auth.js';
 import { createPostgresDatabase } from './sql-database.js';
 import { createTenantRepository } from './tenant-repository.js';
 import { createAuthenticationRepository } from './authentication-repository.js';
+import { createSigningSourceUploadRepository } from './signing-source-upload-repository.js';
 import { SupabaseAuthProvider } from '../../../../../packages/provider-adapters/src/supabase-auth.js';
 
 export async function createProductionDependencies(configuration: ProductionRuntimeConfiguration): Promise<ApiDependencies> {
@@ -20,6 +21,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
   try {
     const infrastructure = await loadProductionInfrastructure(process.env);
     const data = createDataRepositories(dataDatabase, infrastructure);
+    const signingSourceUploads = createSigningSourceUploadRepository(dataDatabase, infrastructure);
     const publicRepositories = createPublicRepositories(dataDatabase, infrastructure, process.env);
     const domains = createDomainRepository(controlDatabase);
     const resolver = new TenantHostnameResolver(domains, {
@@ -53,6 +55,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
     );
     return {
       ...data,
+      uploads: signingSourceUploads,
       ...publicRepositories,
       onboarding: createOnboardingRepository(controlDatabase, infrastructure),
       authentication,
