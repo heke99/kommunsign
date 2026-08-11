@@ -27,15 +27,8 @@ read_recorded_checksum() {
   local database_url="$1"
   local migration_scope="$2"
   local migration_file="$3"
-
-  # psql does not perform variable interpolation reliably for SQL supplied
-  # through -c. Feed the statement through stdin so :'name' is SQL-quoted by
-  # psql before PostgreSQL receives it.
-  psql "$database_url" \
-    -v ON_ERROR_STOP=1 \
-    -At \
-    -v migration_scope="$migration_scope" \
-    -v migration_file="$migration_file" <<'SQL'
+  psql "$database_url" -v ON_ERROR_STOP=1 -At \
+    -v migration_scope="$migration_scope" -v migration_file="$migration_file" <<'SQL'
 SELECT migration_checksum
 FROM kommunsign_meta.schema_migrations
 WHERE migration_scope = :'migration_scope'
@@ -43,14 +36,23 @@ WHERE migration_scope = :'migration_scope'
 SQL
 }
 
+write_registry() {
+  local database_url="$1"
+  local migration_scope="$2"
+  local migration_file="$3"
+  local checksum="$4"
+  psql "$database_url" -v ON_ERROR_STOP=1 \
+    -v migration_scope="$migration_scope" -v migration_file="$migration_file" -v migration_checksum="$checksum" <<'SQL'
+INSERT INTO kommunsign_meta.schema_migrations (migration_scope,migration_file,migration_checksum)
+VALUES (:'migration_scope',:'migration_file',:'migration_checksum');
+SQL
+}
+
 apply_migration() {
   local database_url="$1"
   local migration_scope="$2"
   local migration="$3"
-  local migration_file
-  local checksum
-  local recorded_checksum
-  local registry_statement
+  local migration_file checksum recorded_checksum registry_statement
 
   migration_file="$(basename "$migration")"
   checksum="$(shasum -a 256 "$migration" | awk '{print $1}')"
@@ -68,9 +70,18 @@ apply_migration() {
   fi
 
   echo "APPLY ${migration_scope}/${migration_file}"
+
+  if grep -Eq '^-- Transaction: none[[:space:]]*$' "$migration"; then
+    # PostgreSQL operations such as CREATE INDEX CONCURRENTLY cannot execute in
+    # a transaction block. These migrations must therefore be explicitly
+    # marked and written to be safe to retry if registry persistence fails.
+    psql "$database_url" -v ON_ERROR_STOP=1 -f "$migration"
+    write_registry "$database_url" "$migration_scope" "$migration_file" "$checksum"
+    return
+  fi
+
   registry_statement="$(mktemp)"
   trap 'rm -f "$registry_statement"' RETURN
-
   cat > "$registry_statement" <<'SQL'
 INSERT INTO kommunsign_meta.schema_migrations (
   migration_scope,
@@ -84,8 +95,7 @@ VALUES (
 );
 SQL
 
-  # Both files run in the same psql process and one transaction. If either the
-  # migration or registry insert fails, PostgreSQL rolls back both.
+  # Transactional migrations and registry persistence remain atomic.
   psql "$database_url" \
     -v ON_ERROR_STOP=1 \
     --single-transaction \

@@ -64,7 +64,6 @@ export interface TenantContext {
   readonly authMethod: AuthMethod;
 }
 
-
 export interface ApplicantContext {
   readonly applicationId: UUID;
   readonly subjectId: string;
@@ -159,3 +158,5 @@ export interface DomainEvent<T = Readonly<Record<string, unknown>>> {
   readonly apiVersion: '2026-08-01';
   readonly data: T;
 }
+
+export * from './signature-case-detail.js';
