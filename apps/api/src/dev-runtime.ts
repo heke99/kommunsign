@@ -12,8 +12,10 @@ const DEFAULT_TENANT = '11111111-1111-4111-8111-111111111111';
 const DEFAULT_SUBJECT = '22222222-2222-4222-8222-222222222222';
 
 interface IdempotencyRecord<T> { readonly payloadHash: string; readonly response: T; }
+interface DevCaseMetadata { readonly policyId: string; readonly createdBy: string; readonly updatedAt: string; }
 const idempotency = new Map<string, IdempotencyRecord<unknown>>();
 const cases = new Map<string, SignatureCaseView>();
+const caseMetadata = new Map<string, DevCaseMetadata>();
 const documents = new Map<string, DocumentView>();
 const signers = new Map<string, SignerView>();
 const uploads = new Map<string, UploadGrantView>();
@@ -57,9 +59,11 @@ function caseEventMatches(event: DomainEvent, tenantId: string, caseId: string):
   return event.tenantId === tenantId && (event.data as Readonly<Record<string, unknown>>).signatureCaseId === caseId;
 }
 function getCaseDetail(context: TenantContext, id: string): SignatureCaseView | null {
-  const value = cases.get(tenantKey(context.tenantId, id));
+  const storageKey = tenantKey(context.tenantId, id);
+  const value = cases.get(storageKey);
   if (!value) return null;
-  const policy = signaturePolicies.find((item) => item.active && item.decisionMode === value.decisionMode);
+  const metadata = caseMetadata.get(storageKey);
+  const policy = metadata ? signaturePolicies.find((item) => item.id === metadata.policyId) : undefined;
   const caseDocuments = [...documents.entries()]
     .filter(([keyName, item]) => keyName.startsWith(`${context.tenantId}:`) && item.signatureCaseId === id)
     .map(([, item], index) => ({ ...item, version: 1, role: 'SIGNABLE', ordinal: index + 1, pdfProfile: null, scanResult: null, processingResult: null }));
@@ -72,8 +76,7 @@ function getCaseDetail(context: TenantContext, id: string): SignatureCaseView | 
   return {
     ...value,
     ...(policy ? { policy: { id: policy.id, version: policy.version, snapshot: { decisionMode: policy.decisionMode } } } : {}),
-    createdBy: context.subjectId,
-    updatedAt: value.createdAt,
+    ...(metadata ? { createdBy: metadata.createdBy, updatedAt: metadata.updatedAt } : { updatedAt: value.createdAt }),
     documents: caseDocuments,
     signers: caseSigners,
     events: caseEvents,
@@ -86,7 +89,10 @@ function updateCase(context: TenantContext, id: string, status: SignatureCaseVie
   const version = current.statusVersion ?? 1;
   if (expectedVersion !== undefined && expectedVersion !== version) throw new Error('RESOURCE_VERSION_CONFLICT');
   const updated = { ...current, status, statusVersion: version + 1 };
-  cases.set(tenantKey(context.tenantId, id), updated);
+  const storageKey = tenantKey(context.tenantId, id);
+  cases.set(storageKey, updated);
+  const metadata = caseMetadata.get(storageKey);
+  if (metadata) caseMetadata.set(storageKey, { ...metadata, updatedAt: new Date().toISOString() });
   addEvent(context.tenantId, `signature_case.${status}`, { signatureCaseId: id, statusVersion: updated.statusVersion ?? 1 });
   return updated;
 }
@@ -103,7 +109,9 @@ const caseRepository: CaseRepository = {
         decisionMode: input.decisionMode, title: input.title, createdAt: new Date().toISOString(),
         ...(input.externalReference ? { externalReference: input.externalReference } : {}),
       };
-      cases.set(tenantKey(context.tenantId, value.id), value);
+      const storageKey = tenantKey(context.tenantId, value.id);
+      cases.set(storageKey, value);
+      caseMetadata.set(storageKey, { policyId: policy.id, createdBy: context.subjectId, updatedAt: value.createdAt });
       addEvent(context.tenantId, 'signature_case.created', { signatureCaseId: value.id });
       return value;
     });
