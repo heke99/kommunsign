@@ -93,6 +93,78 @@ async function assertCaseDetail(page, title) {
   await detail.filter({ hasText: 'E2E Signerare' }).waitFor();
 }
 
+async function assertIndependentBrowserState(browser, title) {
+  const context = await browser.newContext({ locale: 'sv-SE' });
+  try {
+    const page = await context.newPage();
+    await page.goto(PORTAL, { waitUntil: 'domcontentloaded' });
+    await page.locator('#protected-app').waitFor({ state: 'visible' });
+    const row = page.locator('#case-list tr', { hasText: title });
+    await row.waitFor();
+    await row.getByRole('button', { name: 'Visa' }).click();
+    await assertCaseDetail(page, title);
+  } finally {
+    await context.close();
+  }
+}
+
+function tenantHeaders(tenantId, subjectId, extra = {}) {
+  return {
+    'content-type': 'application/json',
+    'x-kommunsign-tenant-id': tenantId,
+    'x-kommunsign-subject-id': subjectId,
+    'x-kommunsign-roles': 'tenant_admin',
+    'x-request-id': crypto.randomUUID(),
+    ...extra,
+  };
+}
+
+async function exerciseTenantIsolation() {
+  const tenantA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const tenantB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const subjectA = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+  const subjectB = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
+  const create = await fetch(`${API}/v1/signature-cases`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantA, subjectA, { 'idempotency-key': `e2e-tenant-${crypto.randomUUID()}` }),
+    body: JSON.stringify({
+      title: `Tenant isolation ${crypto.randomUUID().slice(0, 8)}`,
+      decisionMode: 'ELECTRONIC_SIGNATURE',
+      signaturePolicyId: '33333333-3333-4333-8333-333333333333',
+    }),
+  });
+  assert(create.ok, `tenant A case creation returned ${create.status}`);
+  const created = await create.json();
+  assert(typeof created.id === 'string', 'tenant A case creation returned no id');
+
+  const ownDetail = await fetch(`${API}/v1/signature-cases/${created.id}`, { headers: tenantHeaders(tenantA, subjectA) });
+  assert(ownDetail.ok, `tenant A cannot read its own case (${ownDetail.status})`);
+
+  const crossTenantDetail = await fetch(`${API}/v1/signature-cases/${created.id}`, { headers: tenantHeaders(tenantB, subjectB) });
+  assert(crossTenantDetail.status === 404, `tenant B read tenant A case: HTTP ${crossTenantDetail.status}`);
+
+  const tenantBList = await fetch(`${API}/v1/signature-cases?limit=50`, { headers: tenantHeaders(tenantB, subjectB) });
+  assert(tenantBList.ok, `tenant B list returned ${tenantBList.status}`);
+  const tenantBPayload = await tenantBList.json();
+  assert(!tenantBPayload.data?.some((item) => item.id === created.id), 'tenant A case leaked into tenant B list');
+
+  const crossTenantMutation = await fetch(`${API}/v1/signature-cases/${created.id}/signers`, {
+    method: 'POST',
+    headers: tenantHeaders(tenantB, subjectB, { 'idempotency-key': `e2e-idor-${crypto.randomUUID()}` }),
+    body: JSON.stringify({
+      displayName: 'Cross tenant attacker',
+      email: 'attacker@example.invalid',
+      personalNumber: '199001010017',
+      requirePersonalNumberMatch: true,
+      personalNumberException: null,
+      required: true,
+      signingOrder: 1,
+    }),
+  });
+  assert(crossTenantMutation.status === 404, `tenant B mutated tenant A case: HTTP ${crossTenantMutation.status}`);
+  process.stdout.write('browser-e2e tenant-isolation: PASS\n');
+}
+
 async function exerciseBrowser(name, browserType) {
   const browser = await browserType.launch({ headless: true });
   try {
@@ -135,13 +207,16 @@ async function exerciseBrowser(name, browserType) {
     await row.getByRole('button', { name: 'Visa' }).click();
     await assertCaseDetail(page, title);
 
-    // A browser refresh must reconstruct business state from the API, not from JS memory.
+    // A refresh must reconstruct business state from the API, not from JS memory.
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.locator('#protected-app').waitFor({ state: 'visible' });
     const reloadedRow = page.locator('#case-list tr', { hasText: title });
     await reloadedRow.waitFor();
     await reloadedRow.getByRole('button', { name: 'Visa' }).click();
     await assertCaseDetail(page, title);
+
+    // A separate browser context must see the same server-authoritative state.
+    await assertIndependentBrowserState(browser, title);
 
     await reloadedRow.getByRole('button', { name: 'Skicka' }).click();
     await waitForStatus(page, '#case-status', 'har skickats', `${name} send`);
@@ -176,6 +251,7 @@ try {
     waitFor(PORTAL),
   ]);
 
+  await exerciseTenantIsolation();
   for (const [name, browserType] of [['chromium', chromium], ['firefox', firefox], ['webkit', webkit]]) {
     await exerciseBrowser(name, browserType);
   }
