@@ -13,8 +13,8 @@ import { GatewayRequestAuthenticator } from './request-auth.js';
 import { createPostgresDatabase } from './sql-database.js';
 import { createTenantRepository } from './tenant-repository.js';
 import { createAuthenticationRepository } from './authentication-repository.js';
+import { productionAuthTimingSink, TimedSupabaseAuthProvider, withAuthenticationOperationTiming, withAuthenticationSqlTiming } from './authentication-observability.js';
 import { createSigningSourceUploadRepository } from './signing-source-upload-repository.js';
-import { SupabaseAuthProvider } from '../../../../../packages/provider-adapters/src/supabase-auth.js';
 
 export async function createProductionDependencies(configuration: ProductionRuntimeConfiguration): Promise<ApiDependencies> {
   const controlDatabase = await createPostgresDatabase(configuration.controlDatabaseUrl, 'kommunsign-control-api');
@@ -36,16 +36,17 @@ export async function createProductionDependencies(configuration: ProductionRunt
       maximumClockSkewSeconds: integerEnvironment('INTERNAL_GATEWAY_MAX_CLOCK_SKEW_SECONDS', 60, 5, 300),
     });
     const tenants = createTenantRepository(dataDatabase);
-    const authentication = createAuthenticationRepository(
-      controlDatabase,
-      dataDatabase,
+    const authTiming = productionAuthTimingSink();
+    const authentication = withAuthenticationOperationTiming(createAuthenticationRepository(
+      withAuthenticationSqlTiming(controlDatabase, authTiming, 'control'),
+      withAuthenticationSqlTiming(dataDatabase, authTiming, 'data'),
       infrastructure,
-      new SupabaseAuthProvider({
+      new TimedSupabaseAuthProvider({
         projectUrl: requiredEnvironment('SUPABASE_AUTH_PROJECT_URL'),
         anonKey: requiredEnvironment('SUPABASE_AUTH_ANON_KEY'),
         serviceRoleKey: requiredEnvironment('SUPABASE_AUTH_SERVICE_ROLE_KEY'),
         requestTimeoutMs: integerEnvironment('SUPABASE_AUTH_REQUEST_TIMEOUT_MS', 10_000, 1_000, 60_000),
-      }),
+      }, authTiming),
       {
         rootDomain: requiredEnvironment('KOMMUNSIGN_ROOT_DOMAIN'),
         platformAdminHostname: new URL(requiredEnvironment('PLATFORM_ADMIN_URL')).hostname,
@@ -53,7 +54,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
         authPortalUrl: requiredEnvironment('AUTH_BROKER_URL'),
         sessionLifetimeSeconds: integerEnvironment('SESSION_COOKIE_MAX_AGE_SECONDS', 28_800, 900, 86_400),
       },
-    );
+    ), authTiming);
     return {
       ...data,
       uploads: signingSourceUploads,
