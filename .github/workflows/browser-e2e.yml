@@ -16,7 +16,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build
       - name: Install pinned browser test runtime
-        run: npm install --no-save --ignore-scripts playwright@1.55.0
+        run: npm install --no-save --ignore-scripts playwright@1.62.1
       - name: Install browser engines
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Run browser E2E
