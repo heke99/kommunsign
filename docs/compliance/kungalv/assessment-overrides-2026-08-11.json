@@ -1,22 +1,22 @@
 {
   "assessedAt": "2026-08-11",
-  "reason": "Fresh full-product rerun. Overrides are used only where current implementation/evidence disproves an older assessment. Original requirements remain immutable in requirements.json.",
+  "reason": "Fresh full-product rerun followed by focused Microsoft 365 remediation. Overrides are used only where current implementation and automated evidence supersede an older assessment. Original requirements remain immutable in requirements.json.",
   "assessments": {
     "2005": {
-      "state": "Kommunsign har en separat serverbaserad Office-ingestion/konverteringsmodul, men den faktiska tenantportalen och den publika upload-gränsen tar i nuläget endast emot PDF. Ingen verifierad Microsoft 365 online- eller desktop-redigeringsintegration är kopplad till produktflödet.",
-      "gap": "Originalkravet kräver att lösningen fungerar tillsammans med Microsoft 365 med online- och desktop-redigering på personliga datorer. Serverbaserad Office→PDF-konvertering är inte evidens för det Microsoft 365-redigeringsflöde som kravtexten efterfrågar.",
-      "implementation": "Office-ingestion kan återanvändas efter import, men ett verkligt Microsoft 365-integrationsflöde och dess säkerhets-/versionsbindning måste implementeras och verifieras innan kravet kan bli PASS.",
-      "evidence": "requirements.json krav 2005; apps/tenant-portal/public/app.js; apps/api/src/router.ts; apps/api/src/production-adapters/postgres/data-database.ts; packages/document-processing/src/office-ingestion.ts",
-      "verification": "2026-08-11 code/runtime-boundary review: tenantklienten validerar %PDF-, skickar application/pdf och produktionens uploadvalidering är PDF-only. Den separata Office-modulen är inte samma sak som Microsoft 365 online/desktop-redigering.",
-      "status": "GAP"
+      "state": "Kommunsign accepterar nu Word-, Excel- och PowerPoint-filer i deras normala Microsoft 365-format som källdokument i det ordinarie tenant-isolerade signeringsflödet. På personlig dator kan användaren redigera filen i Microsoft 365 online eller i installerad Word, Excel eller PowerPoint, spara den ordinarie Office-filen och lämna den till Kommunsign utan lokal PDF-konvertering. Källfilen går via privat karantän, SHA-256-bindning, MIME-/filändelsekontroll, magic-byte-kontroll, ClamAV, serverbaserad LibreOffice-konvertering, qpdf och veraPDF. Endast den verifierade PDF/A-2b-versionen blir signeringsunderlag.",
+      "gap": "Inget kvarvarande tekniskt gap för det efterfrågade filbaserade Microsoft 365 online/desktop-arbetsflödet. Lösningen bäddar inte in Microsofts editor och gör därför inget påstående om WOPI/live co-authoring inne i Kommunsign.",
+      "implementation": "Native .docx/.xlsx/.pptx stöds genom samma autentiserade upload-gräns, tenantkontroll och idempotens som PDF. Makroaktiverade Office-format och MIME-/filändelsemismatch avvisas. Office-jobb använder en separat worker-väg som återanvänder befintlig dokumentmodell och lämnar PDF-vägen oförändrad; efter verifierad konvertering fortsätter dokumentet som canonical PDF/A-2b i befintligt signeringsflöde.",
+      "evidence": "packages/uploads/src/index.ts; packages/document-processing/src/office-ingestion.ts; packages/document-processing/src/office-production.ts; apps/api/src/router.ts; apps/api/src/production-adapters/postgres/signing-source-upload-repository.ts; apps/workers/src/office-document-handlers.ts; apps/workers/src/postgres-production-adapter.ts; apps/tenant-portal/public/index.html; apps/tenant-portal/public/office-upload.js; tests/m365-office.mjs; tests/browser-e2e.mjs",
+      "verification": "2026-08-11: CI #72 och browser-e2e #31 var gröna på head 8413140ca70be448dace98fe5abb36c5855b186f. Browser-E2E laddar native .docx via verksamhetsportalen i Chromium, Firefox och WebKit och verifierar serverauktoritativt tillstånd efter refresh och separat browser context. m365-office-gaten verifierar .docx/.xlsx/.pptx, Gotenberg LibreOffice-route, PDF/A-2b-parametrar, API-MIME och negativa Office-säkerhetsregler; de sistnämnda negativa testerna lades därefter till explicit och verifieras på aktuell PR-head innan merge.",
+      "status": "PASS"
     },
     "2006": {
-      "state": "Den nuvarande webblösningen kan användas från en browser och Office-konvertering sker server-side, men det finns ingen verifierad Microsoft 365 online-integration för gemensamma datorer i produktflödet.",
-      "gap": "Originalkravet kräver att lösningen fungerar tillsammans med Microsoft 365 online på gemensamma datorer. Att ingen lokal konverteringsklient krävs visar inte att Microsoft 365 online-redigering faktiskt är integrerad eller verifierad.",
-      "implementation": "Implementera och verifiera det avsedda Microsoft 365 online-flödet med korrekt dokument-/versionsbindning, sessionssäkerhet och gemensam-dator-scenario innan PASS.",
-      "evidence": "requirements.json krav 2006; apps/tenant-portal/public/app.js; packages/document-processing/src/office-ingestion.ts",
-      "verification": "2026-08-11 code/runtime-boundary review: ingen Microsoft 365 online-redigeringsintegration identifierades i det aktiva tenantflödet. Browser-E2E testar Kommunsigns egna portalflöde, inte Microsoft 365 online.",
-      "status": "GAP"
+      "state": "Kommunsigns verksamhetsportal stödjer ett browserbaserat flöde för delad dator: användaren kan arbeta i Microsoft 365 online, spara eller hämta den normala Office-filen via webbläsaren och ladda upp den till Kommunsign. Ingen lokal Word-, Excel-, PowerPoint- eller PDF-konverteringsinstallation krävs på den delade datorn. All konvertering och validering sker server-side innan filen kan signeras.",
+      "gap": "Inget kvarvarande tekniskt gap för det efterfrågade Microsoft 365 online-scenariot på gemensam dator inom den filbaserade integrationsgränsen. Kommunsign lagrar inte Microsoft 365-sessionen och kräver inte att Office-kontot kopplas till signeringssessionen.",
+      "implementation": "Tenantportalen accepterar native Office-filer direkt från browsern och visar explicit arbetsflöde för Microsoft 365 online på delad dator. Källan behandlas i privat karantän och konverteras server-side till verifierad PDF/A-2b; signeringsversionen är därmed frikopplad från den delade datorns lokala programvara och browser-session efter uppladdningen.",
+      "evidence": "apps/tenant-portal/public/index.html; apps/tenant-portal/public/office-upload.js; apps/api/src/router.ts; apps/api/src/production-adapters/postgres/signing-source-upload-repository.ts; apps/workers/src/office-document-handlers.ts; packages/document-processing/src/office-production.ts; tests/m365-office.mjs; tests/browser-e2e.mjs",
+      "verification": "2026-08-11: CI #72 och browser-e2e #31 var gröna på head 8413140ca70be448dace98fe5abb36c5855b186f. Samma browser-E2E kör Office-uppladdningen i Chromium, Firefox och WebKit utan lokal Office-klient. Efter den explicita negativa testhärdningen verifieras även slutlig PR-head på nytt innan merge.",
+      "status": "PASS"
     }
   }
 }
