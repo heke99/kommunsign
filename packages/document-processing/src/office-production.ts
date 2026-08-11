@@ -7,6 +7,7 @@ export interface OfficePdfAConversionResult {
   readonly sourceMimeType: string;
   readonly sourceFileName: string;
   readonly engine: 'Gotenberg/LibreOffice';
+  readonly engineVersion: string;
   readonly profile: 'PDF/A-2b';
 }
 
@@ -56,12 +57,14 @@ export class GotenbergOfficePdfAClient {
       policy: { maximumBytes: 100 * 1024 * 1024, maximumPages: 500 },
     });
     if (!(await inspectPdfBytes(bytes)).accepted) throw new Error('DOCUMENT_OFFICE_CONVERSION_PROTOCOL_ERROR');
+    const engineVersion = cleanVersion(response.headers.get('gotenberg-version') ?? 'unknown');
     return {
       bytes,
       sourceFormat: plan.sourceFormat,
       sourceMimeType,
       sourceFileName: input.fileName,
       engine: 'Gotenberg/LibreOffice',
+      engineVersion,
       profile: 'PDF/A-2b',
     };
   }
@@ -88,4 +91,8 @@ function safeFileName(value: string): string {
   const cleaned = value.replace(/[\\/\0\r\n]/g, '_').replace(/[^\p{L}\p{N}._ -]/gu, '_').trim().slice(0, 180);
   if (!cleaned || cleaned === '.' || cleaned === '..') throw new Error('DOCUMENT_OFFICE_FILE_NAME_INVALID');
   return cleaned;
+}
+
+function cleanVersion(value: string): string {
+  return value.replace(/[^\x20-\x7E]/g, ' ').trim().slice(0, 200) || 'unknown';
 }
