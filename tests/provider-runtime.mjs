@@ -16,9 +16,13 @@ assert.throws(() => new ConfiguredJsonExternalSigningProvider({
 for (let attempt=1; attempt<=12; attempt+=1) {
   const base=retryDelaySeconds(attempt);
   const jitter=jitteredRetryDelaySeconds('00000000-0000-4000-8000-000000000001',attempt);
-  assert.ok(jitter>=Math.max(1,Math.round(base/2)) && jitter<=base, `jitter ${jitter} outside equal-jitter range for base ${base}`);
+  assert.ok(jitter>=base/2 && jitter<=base, `jitter ${jitter} outside equal-jitter range for base ${base}`);
   assert.equal(jitter,jitteredRetryDelaySeconds('00000000-0000-4000-8000-000000000001',attempt));
 }
+const firstA=jitteredRetryDelaySeconds('00000000-0000-4000-8000-000000000001',1);
+const firstB=jitteredRetryDelaySeconds('00000000-0000-4000-8000-000000000002',1);
+assert.ok(firstA>=0.5&&firstA<=1&&firstB>=0.5&&firstB<=1);
+assert.notEqual(firstA,firstB);
 
 const source=new TextEncoder().encode('%PDF-1.7\nsource');
 const sourceHash=createHash('sha256').update(source).digest('hex');
