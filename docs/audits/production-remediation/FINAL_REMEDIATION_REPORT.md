@@ -1,3 +1,7 @@
+# HISTORICAL SNAPSHOT — SUPERSEDED
+
+> Rapporten nedan beskriver läget den 7 augusti 2026 och är bevarad för revisionshistorik. Den är **inte** aktuell readiness- eller kravstatus. Full-product-rerun 2026-08-11 har verifierat nya tekniska gap, bland annat att Microsoft 365-krav 2005/2006 inte styrks av en fristående Office→PDF-konverteringsmodul. Aktuell status finns i `docs/audits/2026-08-11-full-product-completion/FINAL_REPORT.md` och `docs/readiness/PRODUCTION_GO_LIVE_CHECKLIST.md`.
+
 # Slutrapport — produktionsremediation Kommunsign
 
 Kungälvs kommun, Dnr KS2026/1005
