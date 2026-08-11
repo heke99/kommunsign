@@ -1,7 +1,7 @@
--- Purpose: add fail-closed tenant configuration and durable evidence storage for Freja eID and external document-signing providers, plus indexes required by keyset pagination.
--- Impact: additive provider configuration/evidence tables, rollout switches, and read-path indexes; existing TIC BankID tenants remain unchanged and enabled behavior is opt-in per tenant.
+-- Purpose: add fail-closed tenant configuration and durable evidence storage for Freja eID and external document-signing providers.
+-- Impact: additive provider configuration/evidence tables and rollout switches; existing TIC BankID tenants remain unchanged and enabled behavior is opt-in per tenant.
 -- Backfill: none. Existing tenants keep all new rollout switches disabled and no provider is usable until an explicit enabled configuration with secret references is provisioned.
--- Rollback: disable provider rollouts and workers, export provider evidence, then remove the new triggers/tables/columns and indexes in reverse order during a maintenance window.
+-- Rollback: disable provider rollouts and workers, export provider evidence, then remove the new triggers/tables/columns in reverse order during a maintenance window.
 -- Verification: run clean DATA migration replay, migrations/data/verify.sql, provider integration/security tests, and confirm existing TIC signing remains green.
 
 ALTER TABLE app.tenant_signing_settings
@@ -77,32 +77,19 @@ CREATE TABLE app.external_signature_transactions (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, id),
-  UNIQUE (tenant_id, provider, provider_reference),
-  FOREIGN KEY (tenant_id, signature_case_id) REFERENCES app.signature_cases(tenant_id, id),
-  FOREIGN KEY (tenant_id, signer_id) REFERENCES app.signers(tenant_id, id),
-  FOREIGN KEY (tenant_id, document_version_id) REFERENCES app.document_versions(tenant_id, id),
+  UNIQUE (tenant_id, provider,provider_reference),
+  FOREIGN KEY (tenant_id, signature_case_id) REFERENCES app.signature_cases(tenant_id,id),
+  FOREIGN KEY (tenant_id, signer_id) REFERENCES app.signers(tenant_id,id),
+  FOREIGN KEY (tenant_id, document_version_id) REFERENCES app.document_versions(tenant_id,id),
   CHECK (status <> 'verified' OR (final_document_object_key IS NOT NULL AND final_document_sha256 IS NOT NULL AND verification_report_object_key IS NOT NULL AND verification_report_sha256 IS NOT NULL AND verified_at IS NOT NULL))
 );
-CREATE UNIQUE INDEX external_signature_one_active_idx
-  ON app.external_signature_transactions(tenant_id,provider,signer_id,document_version_id)
-  WHERE status IN ('prepared','submitted','pending','completed_unverified');
-CREATE INDEX external_signature_reconcile_idx
-  ON app.external_signature_transactions(next_reconcile_at,tenant_id,id)
-  WHERE status IN ('submitted','pending','completed_unverified');
+CREATE UNIQUE INDEX external_signature_one_active_idx ON app.external_signature_transactions(tenant_id,provider,signer_id,document_version_id) WHERE status IN ('prepared','submitted','pending','completed_unverified');
+CREATE INDEX external_signature_reconcile_idx ON app.external_signature_transactions(next_reconcile_at,tenant_id,id) WHERE status IN ('submitted','pending','completed_unverified');
 COMMENT ON TABLE app.external_signature_transactions IS 'Durable provider-neutral reconciliation state. Provider completion is non-terminal until final PDF is fetched server-side, hashed and locally verified.';
-
-CREATE INDEX signature_cases_keyset_idx
-  ON app.signature_cases(tenant_id,created_at DESC,id DESC);
-CREATE INDEX outbox_events_keyset_idx
-  ON app.outbox_events(tenant_id,occurred_at DESC,id DESC);
-CREATE INDEX notification_templates_keyset_idx
-  ON app.notification_templates(tenant_id,template_key,locale,version DESC,id DESC);
 
 CREATE OR REPLACE FUNCTION app.reject_external_provider_evidence_mutation() RETURNS trigger
 LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'external provider evidence is append-only'; END $$;
-CREATE TRIGGER freja_identity_artifacts_no_mutation
-BEFORE UPDATE OR DELETE ON app.freja_identity_artifacts
-FOR EACH ROW EXECUTE FUNCTION app.reject_external_provider_evidence_mutation();
+CREATE TRIGGER freja_identity_artifacts_no_mutation BEFORE UPDATE OR DELETE ON app.freja_identity_artifacts FOR EACH ROW EXECUTE FUNCTION app.reject_external_provider_evidence_mutation();
 
 CREATE OR REPLACE FUNCTION app.enforce_bankid_terminal_evidence() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -110,13 +97,9 @@ BEGIN
   IF NEW.status='signed' AND OLD.status IS DISTINCT FROM NEW.status THEN
     IF NOT EXISTS (
       SELECT 1 FROM app.signing_intents si
-      LEFT JOIN app.tic_identity_artifacts tia
-        ON tia.tenant_id=si.tenant_id AND tia.signing_intent_id=si.id AND tia.verification_result='PASS'
-      LEFT JOIN app.freja_identity_artifacts fia
-        ON fia.tenant_id=si.tenant_id AND fia.signing_intent_id=si.id AND fia.verification_result='PASS'
-      WHERE si.tenant_id=NEW.tenant_id AND si.signer_id=NEW.id
-        AND si.status IN ('verified','packaged')
-        AND (tia.id IS NOT NULL OR fia.id IS NOT NULL)
+      LEFT JOIN app.tic_identity_artifacts tia ON tia.tenant_id=si.tenant_id AND tia.signing_intent_id=si.id AND tia.verification_result='PASS'
+      LEFT JOIN app.freja_identity_artifacts fia ON fia.tenant_id=si.tenant_id AND fia.signing_intent_id=si.id AND fia.verification_result='PASS'
+      WHERE si.tenant_id=NEW.tenant_id AND si.signer_id=NEW.id AND si.status IN ('verified','packaged') AND (tia.id IS NOT NULL OR fia.id IS NOT NULL)
     ) THEN RAISE EXCEPTION 'signed signer requires verified identity evidence'; END IF;
   END IF;
   RETURN NEW;
