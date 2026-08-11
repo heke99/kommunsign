@@ -67,6 +67,13 @@ function assert(condition, message) {
   if (!condition) throw new Error(`E2E_ASSERTION_FAILED: ${message}`);
 }
 
+async function selectCase(page, selector, title) {
+  const option = page.locator(`${selector} option`, { hasText: title }).first();
+  const value = await option.getAttribute('value');
+  assert(value, `No ${selector} option exists for ${title}`);
+  await page.locator(selector).selectOption(value);
+}
+
 async function exerciseBrowser(name, browserType) {
   const browser = await browserType.launch({ headless: true });
   try {
@@ -89,7 +96,7 @@ async function exerciseBrowser(name, browserType) {
     await page.locator('#case-status').filter({ hasText: `Skapade ${title}` }).waitFor();
     await page.locator('#case-list tr', { hasText: title }).waitFor();
 
-    await page.locator('#document-case').selectOption({ label: new RegExp(title) });
+    await selectCase(page, '#document-case', title);
     await page.locator('#document-file').setInputFiles({
       name: 'e2e.pdf',
       mimeType: 'application/pdf',
@@ -98,7 +105,7 @@ async function exerciseBrowser(name, browserType) {
     await page.locator('#document-form button[type="submit"]').click();
     await page.locator('#document-status').filter({ hasText: 'ligger i karantän' }).waitFor();
 
-    await page.locator('#signer-case').selectOption({ label: new RegExp(title) });
+    await selectCase(page, '#signer-case', title);
     await page.locator('#signer-name').fill('E2E Signerare');
     await page.locator('#signer-email').fill('e2e-signer@example.invalid');
     await page.locator('#personal-number').fill('199001010017');
