@@ -25,6 +25,16 @@ export const SIGNING_SOURCE_MIME_TYPES = ['application/pdf', ...OFFICE_SOURCE_MI
 export const SIGNING_SOURCE_MAX_BYTES = 100 * 1024 * 1024;
 export const OFFICE_SOURCE_MAX_BYTES = 50 * 1024 * 1024;
 
+const OFFICE_EXTENSION_BY_MIME: Readonly<Record<(typeof OFFICE_SOURCE_MIME_TYPES)[number], string>> = {
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+  'application/vnd.oasis.opendocument.text': '.odt',
+  'application/vnd.oasis.opendocument.spreadsheet': '.ods',
+  'application/rtf': '.rtf',
+};
+const MACRO_OFFICE_EXTENSIONS = ['.docm', '.xlsm', '.pptm', '.dotm', '.xltm', '.potm'] as const;
+
 export function validateUploadMetadata(
   input: UploadMetadata,
   policy: { readonly allowedMimeTypes: readonly string[]; readonly maximumBytes: number },
@@ -37,8 +47,12 @@ export function validateUploadMetadata(
   if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1 || input.byteSize > policy.maximumBytes) {
     throw new Error('UPLOAD_SIZE_FORBIDDEN');
   }
-  if (OFFICE_SOURCE_MIME_TYPES.includes(mimeType as (typeof OFFICE_SOURCE_MIME_TYPES)[number]) && input.byteSize > OFFICE_SOURCE_MAX_BYTES) {
-    throw new Error('UPLOAD_SIZE_FORBIDDEN');
+  const lowerFileName = fileName.toLowerCase();
+  if (MACRO_OFFICE_EXTENSIONS.some((extension) => lowerFileName.endsWith(extension))) throw new Error('UPLOAD_OFFICE_MACRO_FORMAT_FORBIDDEN');
+  if (OFFICE_SOURCE_MIME_TYPES.includes(mimeType as (typeof OFFICE_SOURCE_MIME_TYPES)[number])) {
+    if (input.byteSize > OFFICE_SOURCE_MAX_BYTES) throw new Error('UPLOAD_SIZE_FORBIDDEN');
+    const expectedExtension = OFFICE_EXTENSION_BY_MIME[mimeType as (typeof OFFICE_SOURCE_MIME_TYPES)[number]];
+    if (!lowerFileName.endsWith(expectedExtension)) throw new Error('UPLOAD_OFFICE_MIME_EXTENSION_MISMATCH');
   }
   if (!SHA256.test(sha256)) throw new Error('UPLOAD_SHA256_INVALID');
   return { fileName, mimeType, byteSize: input.byteSize, sha256 };
