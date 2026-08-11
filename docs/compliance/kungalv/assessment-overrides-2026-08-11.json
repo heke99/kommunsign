@@ -1,0 +1,22 @@
+{
+  "assessedAt": "2026-08-11",
+  "reason": "Fresh full-product rerun. Overrides are used only where current implementation/evidence disproves an older assessment. Original requirements remain immutable in requirements.json.",
+  "assessments": {
+    "2005": {
+      "state": "Kommunsign har en separat serverbaserad Office-ingestion/konverteringsmodul, men den faktiska tenantportalen och den publika upload-gränsen tar i nuläget endast emot PDF. Ingen verifierad Microsoft 365 online- eller desktop-redigeringsintegration är kopplad till produktflödet.",
+      "gap": "Originalkravet kräver att lösningen fungerar tillsammans med Microsoft 365 med online- och desktop-redigering på personliga datorer. Serverbaserad Office→PDF-konvertering är inte evidens för det Microsoft 365-redigeringsflöde som kravtexten efterfrågar.",
+      "implementation": "Office-ingestion kan återanvändas efter import, men ett verkligt Microsoft 365-integrationsflöde och dess säkerhets-/versionsbindning måste implementeras och verifieras innan kravet kan bli PASS.",
+      "evidence": "requirements.json krav 2005; apps/tenant-portal/public/app.js; apps/api/src/router.ts; apps/api/src/production-adapters/postgres/data-database.ts; packages/document-processing/src/office-ingestion.ts",
+      "verification": "2026-08-11 code/runtime-boundary review: tenantklienten validerar %PDF-, skickar application/pdf och produktionens uploadvalidering är PDF-only. Den separata Office-modulen är inte samma sak som Microsoft 365 online/desktop-redigering.",
+      "status": "GAP"
+    },
+    "2006": {
+      "state": "Den nuvarande webblösningen kan användas från en browser och Office-konvertering sker server-side, men det finns ingen verifierad Microsoft 365 online-integration för gemensamma datorer i produktflödet.",
+      "gap": "Originalkravet kräver att lösningen fungerar tillsammans med Microsoft 365 online på gemensamma datorer. Att ingen lokal konverteringsklient krävs visar inte att Microsoft 365 online-redigering faktiskt är integrerad eller verifierad.",
+      "implementation": "Implementera och verifiera det avsedda Microsoft 365 online-flödet med korrekt dokument-/versionsbindning, sessionssäkerhet och gemensam-dator-scenario innan PASS.",
+      "evidence": "requirements.json krav 2006; apps/tenant-portal/public/app.js; packages/document-processing/src/office-ingestion.ts",
+      "verification": "2026-08-11 code/runtime-boundary review: ingen Microsoft 365 online-redigeringsintegration identifierades i det aktiva tenantflödet. Browser-E2E testar Kommunsigns egna portalflöde, inte Microsoft 365 online.",
+      "status": "GAP"
+    }
+  }
+}

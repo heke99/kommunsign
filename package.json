@@ -22,7 +22,7 @@
     "test": "npm run build && node tests/run.mjs",
     "test:unit": "npm run test",
     "test:integration": "npm run build && node tests/integration.mjs",
-    "test:e2e": "node scripts/test-category.mjs e2e",
+    "test:e2e": "node tests/browser-e2e.mjs",
     "test:security": "npm run build && node tests/security.mjs",
     "test:accessibility": "node scripts/test-category.mjs accessibility",
     "verify:repository": "node scripts/verify-repository.mjs",

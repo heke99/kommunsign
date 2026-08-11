@@ -1,3 +1,7 @@
+# HISTORICAL SNAPSHOT — SUPERSEDED
+
+> This 2026-08-07 readiness snapshot is retained for audit history only. It is **not** the current Kommunsign readiness status. Current authoritative rerun status is `docs/audits/2026-08-11-full-product-completion/FINAL_REPORT.md` together with `docs/readiness/PRODUCTION_GO_LIVE_CHECKLIST.md`. Do not use the PASS/PARTIAL/GAP counts below for a current procurement or production claim.
+
 # Leveransmognad — Kungälvs kommun, Dnr KS2026/1005
 
 Bedömningsdatum: 2026-08-07
