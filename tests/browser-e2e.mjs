@@ -38,11 +38,14 @@ async function waitFor(url, timeoutMs = 30_000) {
 
 function createUploadSink() {
   return createServer((request, response) => {
+    const requestedHeaders = request.headers['access-control-request-headers'];
     const headers = {
       'access-control-allow-origin': PORTAL,
       'access-control-allow-methods': 'PUT,OPTIONS',
-      'access-control-allow-headers': 'content-type,x-amz-checksum-sha256',
+      'access-control-allow-headers': requestedHeaders || 'content-type,x-amz-checksum-sha256',
+      'access-control-allow-private-network': 'true',
       'access-control-max-age': '60',
+      vary: 'Origin, Access-Control-Request-Headers',
     };
     if (request.method === 'OPTIONS') {
       response.writeHead(204, headers);
@@ -74,6 +77,15 @@ async function selectCase(page, selector, title) {
   await page.locator(selector).selectOption(value);
 }
 
+async function waitForStatus(page, selector, text, context) {
+  try {
+    await page.locator(selector).filter({ hasText: text }).waitFor({ timeout: 30_000 });
+  } catch (error) {
+    const actual = await page.locator(selector).textContent().catch(() => 'status unavailable');
+    throw new Error(`${context}: expected ${JSON.stringify(text)}, actual ${JSON.stringify(actual)}; ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function exerciseBrowser(name, browserType) {
   const browser = await browserType.launch({ headless: true });
   try {
@@ -93,7 +105,7 @@ async function exerciseBrowser(name, browserType) {
     await page.locator('#title').fill(title);
     await page.locator('#external-reference').fill(`E2E-${name.toUpperCase()}`);
     await page.locator('#case-form button[type="submit"]').click();
-    await page.locator('#case-status').filter({ hasText: `Skapade ${title}` }).waitFor();
+    await waitForStatus(page, '#case-status', `Skapade ${title}`, `${name} create case`);
     await page.locator('#case-list tr', { hasText: title }).waitFor();
 
     await selectCase(page, '#document-case', title);
@@ -103,14 +115,14 @@ async function exerciseBrowser(name, browserType) {
       buffer: Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n'),
     });
     await page.locator('#document-form button[type="submit"]').click();
-    await page.locator('#document-status').filter({ hasText: 'ligger i karantän' }).waitFor();
+    await waitForStatus(page, '#document-status', 'ligger i karantän', `${name} upload`);
 
     await selectCase(page, '#signer-case', title);
     await page.locator('#signer-name').fill('E2E Signerare');
     await page.locator('#signer-email').fill('e2e-signer@example.invalid');
     await page.locator('#personal-number').fill('199001010017');
     await page.locator('#signer-form button[type="submit"]').click();
-    await page.locator('#signer-status').filter({ hasText: 'har lagts till' }).waitFor();
+    await waitForStatus(page, '#signer-status', 'har lagts till', `${name} signer`);
 
     const row = page.locator('#case-list tr', { hasText: title });
     await row.getByRole('button', { name: 'Visa' }).click();
@@ -125,7 +137,7 @@ async function exerciseBrowser(name, browserType) {
     await page.locator('#case-detail-content').filter({ hasText: title }).waitFor();
 
     await reloadedRow.getByRole('button', { name: 'Skicka' }).click();
-    await page.locator('#case-status').filter({ hasText: 'har skickats' }).waitFor();
+    await waitForStatus(page, '#case-status', 'har skickats', `${name} send`);
     await page.locator('#case-list tr', { hasText: title }).filter({ hasText: 'Skickad' }).waitFor();
 
     assert(consoleErrors.length === 0, `${name} emitted browser errors: ${consoleErrors.join(' | ')}`);
