@@ -1,9 +1,9 @@
 import { inspectPdfBytes, validatePdfUploadMetadata } from './index.js';
-import { planOfficeIngestion, type OfficeSourceFormat } from './office-ingestion.js';
+import { planOfficeIngestion } from './office-ingestion.js';
 
 export interface OfficePdfAConversionResult {
   readonly bytes: Uint8Array;
-  readonly sourceFormat: OfficeSourceFormat;
+  readonly sourceFormat: string;
   readonly sourceMimeType: string;
   readonly sourceFileName: string;
   readonly engine: 'Gotenberg/LibreOffice';
@@ -27,9 +27,10 @@ export class GotenbergOfficePdfAClient {
     readonly mimeType: string;
     readonly traceId: string;
   }): Promise<OfficePdfAConversionResult> {
-    const plan = planOfficeIngestion({ fileName: input.fileName, mimeType: input.mimeType, byteSize: input.bytes.byteLength });
+    const sourceMimeType = input.mimeType.toLowerCase().split(';', 1)[0]!.trim();
+    const plan = planOfficeIngestion({ fileName: input.fileName, mimeType: sourceMimeType, byteSize: input.bytes.byteLength });
     const form = new FormData();
-    form.append('files', new Blob([input.bytes], { type: plan.sourceMimeType }), safeFileName(input.fileName));
+    form.append('files', new Blob([input.bytes], { type: sourceMimeType }), safeFileName(input.fileName));
     form.append('pdfa', 'PDF/A-2b');
     form.append('pdfua', 'false');
     form.append('exportFormFields', 'false');
@@ -58,7 +59,7 @@ export class GotenbergOfficePdfAClient {
     return {
       bytes,
       sourceFormat: plan.sourceFormat,
-      sourceMimeType: plan.sourceMimeType,
+      sourceMimeType,
       sourceFileName: input.fileName,
       engine: 'Gotenberg/LibreOffice',
       profile: 'PDF/A-2b',
