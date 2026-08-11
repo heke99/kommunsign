@@ -11,6 +11,7 @@ export type DurableJobType =
   | 'SIGNATURE_CREATE'
   | 'SIGNATURE_VALIDATE'
   | 'TIC_EVIDENCE_COLLECT'
+  | 'EXTERNAL_SIGNATURE_RECONCILE'
   | 'EVIDENCE_PACKAGE_BUILD'
   | 'EMAIL_SEND'
   | 'WEBHOOK_DELIVER'
@@ -39,9 +40,27 @@ export interface DurableJobRepository {
   heartbeat?(jobId: string, workerId: string, leaseSeconds: number): Promise<void>;
 }
 
+/** Exponential retry base retained as a stable public helper for callers/tests. */
 export function retryDelaySeconds(attemptsIncludingCurrentClaim: number): number {
   const completedFailures = Math.max(1, attemptsIncludingCurrentClaim);
   return Math.min(3600, 2 ** Math.min(completedFailures - 1, 10));
+}
+
+/**
+ * Equal-jitter delay in [base/2, base]. The seed is stable per job/attempt so a
+ * restarted worker does not reshuffle the schedule, while different jobs avoid
+ * synchronized retry storms.
+ */
+export function jitteredRetryDelaySeconds(jobId: string, attemptsIncludingCurrentClaim: number): number {
+  const base = retryDelaySeconds(attemptsIncludingCurrentClaim);
+  let hash = 2166136261;
+  const seed = `${jobId}:${Math.max(1, attemptsIncludingCurrentClaim)}`;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  const fraction = hash / 0xffffffff;
+  return Math.max(1, Math.min(3600, Math.round((base / 2) + ((base / 2) * fraction))));
 }
 
 function safeWorkerErrorCode(cause: unknown): string {
@@ -71,7 +90,7 @@ export async function processClaimedJob(
     const code = messageCode ?? safeWorkerErrorCode(cause);
     if ((cause instanceof Error && cause.name === 'PermanentWorkerError') || job.attempts >= job.maximumAttempts) await repository.deadLetter(job.id, workerId, code);
     else {
-      const delaySeconds = retryDelaySeconds(job.attempts);
+      const delaySeconds = jitteredRetryDelaySeconds(job.id, job.attempts);
       await repository.retry(job.id, workerId, new Date(Date.now() + delaySeconds * 1000).toISOString(), code);
     }
   } finally {
