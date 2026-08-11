@@ -86,6 +86,13 @@ async function waitForStatus(page, selector, text, context) {
   }
 }
 
+async function assertCaseDetail(page, title) {
+  const detail = page.locator('#case-detail-content');
+  await detail.filter({ hasText: title }).waitFor();
+  await detail.filter({ hasText: 'e2e.pdf' }).waitFor();
+  await detail.filter({ hasText: 'E2E Signerare' }).waitFor();
+}
+
 async function exerciseBrowser(name, browserType) {
   const browser = await browserType.launch({ headless: true });
   try {
@@ -126,7 +133,7 @@ async function exerciseBrowser(name, browserType) {
 
     const row = page.locator('#case-list tr', { hasText: title });
     await row.getByRole('button', { name: 'Visa' }).click();
-    await page.locator('#case-detail-content').filter({ hasText: title }).waitFor();
+    await assertCaseDetail(page, title);
 
     // A browser refresh must reconstruct business state from the API, not from JS memory.
     await page.reload({ waitUntil: 'domcontentloaded' });
@@ -134,7 +141,7 @@ async function exerciseBrowser(name, browserType) {
     const reloadedRow = page.locator('#case-list tr', { hasText: title });
     await reloadedRow.waitFor();
     await reloadedRow.getByRole('button', { name: 'Visa' }).click();
-    await page.locator('#case-detail-content').filter({ hasText: title }).waitFor();
+    await assertCaseDetail(page, title);
 
     await reloadedRow.getByRole('button', { name: 'Skicka' }).click();
     await waitForStatus(page, '#case-status', 'har skickats', `${name} send`);
