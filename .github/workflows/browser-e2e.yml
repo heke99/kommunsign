@@ -1,0 +1,23 @@
+name: browser-e2e
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  browser-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with: { node-version: '22.16.0', cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Install pinned browser test runtime
+        run: npm install --no-save --ignore-scripts playwright@1.55.0
+      - name: Install browser engines
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Run browser E2E
+        run: npm run test:e2e
