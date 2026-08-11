@@ -1,101 +1,172 @@
 # Final report — Kommunsign full product completion rerun 2026-08-11
 
-> **LIVE STATUS DOCUMENT.** This report supersedes earlier completion/readiness summaries where they conflict with evidence from the 2026-08-11 rerun.
-
-This file is updated as remediation proceeds. It must not be converted to GO until every claimed gate has matching evidence.
+> **LIVE STATUS DOCUMENT.** This is the authoritative technical/readiness report for the 2026-08-11 rerun. Earlier reports are historical snapshots where they conflict with this document.
 
 ## Baseline
 
 - Repository: `heke99/kommunsign`
-- Start branch: `main`
-- Start commit: `62ccda967cbcba596aa684dabc171355ff65f1ca`
-- Previous remediation: PR #3 was already merged to `main` on 2026-08-10 and is historical input only.
+- Baseline branch: `main`
+- Baseline commit: `62ccda967cbcba596aa684dabc171355ff65f1ca`
+- Previous campaign: PR #3 was already merged on 2026-08-10 and was therefore treated as historical input, not reused as the work branch.
 
-## Branch
+## Branch / PR
 
-`remediation/kommunsign-full-product-completion-rerun-2026-08-11`
+- Branch: `remediation/kommunsign-full-product-completion-rerun-2026-08-11`
+- Draft PR: #4 → `main`
+- Merge status: **not merged**. The branch intentionally remains draft while technical or external gates are open.
 
-Draft PR: #4 against `main`.
+## Scope actually verified in this rerun
 
-## Scope actually reviewed in this rerun
+The rerun inspected and/or exercised:
 
-- repository and prior remediation history
-- GitHub Actions and verification commands
-- server-authoritative case detail and tenant portal consumption
-- tenant create/upload/signer/refresh/send browser journey
-- production upload boundary and document worker assumptions
-- Microsoft 365 requirements 2005/2006 against their original requirement wording
-- production case list pagination implementation
-- authentication roundtrip shape
-- existing observability metric vocabulary
-- current Kungälv requirement/readiness documents
-- current availability of connected Supabase live-database verification
+- repository baseline and previous remediation history;
+- current GitHub Actions verification and clean database replay;
+- server-authoritative signature-case detail;
+- tenant portal create/upload/signer/detail/refresh/send behavior;
+- independent browser-context state reconstruction;
+- explicit cross-tenant IDOR reads/lists/mutations;
+- production upload boundary and document-processing assumptions;
+- original Kungälv Microsoft 365 requirements 2005/2006;
+- current requirement generator and stale historical assessments;
+- authentication roundtrip shape and observability vocabulary;
+- current pagination implementation;
+- current ability to reach the connected Kommunsign CONTROL/DATA Supabase projects;
+- historical readiness reports that contradicted the fresh evidence.
 
-The complete master-prompt scope is larger than the items above. Items not independently re-verified on 2026-08-11 are not silently inherited as current PASS from an older report.
+The master prompt is broader than the items independently re-verified on 2026-08-11. No older PASS is silently promoted to fresh runtime evidence merely because it exists in a historical report.
 
-## Skills
+## Skills / competence routing
 
-See `SKILL_ROUTING.md` in this directory. GitHub, CI diagnostics, Supabase, PostgreSQL/RLS/query review, API contract review, browser E2E, document processing, observability, security and procurement evidence review were applied.
+See `SKILL_ROUTING.md` in this directory. GitHub repository/PR/CI diagnostics, Supabase, PostgreSQL/RLS/query review, API contract review, browser E2E, multi-tenancy, document processing, observability, security and procurement evidence review were actively applied.
 
-## Architecture
+## Canonical architecture after this rerun
 
-The existing canonical architecture is retained. No parallel auth, RBAC, tenant, signing, audit or database system was introduced.
+No parallel auth, RBAC, tenant, signing, audit or database system was introduced.
 
-Verified architectural properties:
+Confirmed properties:
 
-- production case detail is fetched server-side inside tenant-scoped DATA transactions;
-- tenant portal reloads selected case detail through the API rather than using the removed browser-only authoritative case map;
-- provider/production paths continue to use fail-closed status semantics where external services are not configured;
-- the existing `packages/observability` module remains the canonical metrics/logging layer and is the target for required auth instrumentation.
+- production case detail is loaded inside tenant-scoped DATA transactions;
+- tenant portal business state is reconstructed from API/server state rather than a browser-only `Map`;
+- development runtime now returns the documents, signers and events the portal requires and preserves creator + selected policy metadata;
+- enabled production provider paths remain fail-closed when mandatory external capabilities are not configured;
+- existing repository observability remains the canonical target for auth timing instrumentation;
+- existing migration-led architecture remains canonical.
 
-## Implemented changes in this rerun
+## Implemented changes
 
-### Browser E2E and CI
+### 1. Real browser E2E instead of a placeholder
 
-The former `test:e2e` placeholder was replaced by a real Playwright browser journey. A dedicated GitHub Actions workflow installs and runs Chromium, Firefox and WebKit and exercises:
+The old `test:e2e` placeholder (`E2E_TEST_ENVIRONMENT_NOT_CONFIGURED`) was replaced by a real Playwright journey and a dedicated PR workflow.
 
-1. tenant portal load,
-2. case creation,
-3. PDF upload grant and quarantine path,
-4. signer creation,
-5. case-detail retrieval,
-6. browser refresh,
-7. server state reconstruction,
-8. send transition.
+The gate runs Chromium, Firefox and WebKit and covers:
 
-The gate remains fail-closed while a browser journey fails. Failures have been debugged from workflow logs rather than skipped.
+1. tenant portal load;
+2. case creation;
+3. PDF upload grant;
+4. upload to private quarantine path;
+5. upload completion;
+6. document attachment to case;
+7. signer creation;
+8. rich case-detail read;
+9. browser refresh;
+10. document + signer reconstruction from API;
+11. a separate browser context reading the same server state;
+12. send transition.
 
-### Production readiness gate
+The first executions failed and exposed real defects. The failures were not skipped: selector handling, upload-preflight support and the shallow development case-detail runtime were corrected. The resulting browser workflow is green.
 
-`docs/readiness/PRODUCTION_GO_LIVE_CHECKLIST.md` now separates code, runtime, credentials, signing crypto, identity, database, security, operations and procurement.
+### 2. Explicit tenant-isolation browser/API gate
 
-## Confirmed technical findings still open
+The E2E suite now creates separate Tenant A and Tenant B identities. It verifies that Tenant B cannot:
 
-### T1 — Microsoft 365 requirements 2005/2006 are not evidenced by Office ingestion
+- fetch Tenant A's case ID;
+- see Tenant A's case in its list;
+- add a signer to Tenant A's case.
 
-Original requirement 2005 requires the offered solution to work together with Microsoft 365 with online and desktop editing on personal computers. Requirement 2006 requires Microsoft 365 online behavior on shared computers.
+The expected result is 404/fail-closed behavior. The gate is green.
 
-Current runtime boundary is PDF-only:
+### 3. Development/runtime case-detail synchronization
 
-- tenant upload UI accepts PDF;
-- tenant client checks `%PDF-` and sends `application/pdf`;
-- `/v1/uploads` allows `application/pdf`;
-- production DATA upload validation rejects other MIME types;
-- worker scan/canonicalization path assumes PDF.
+The development runtime previously returned only the shallow case view even though the portal consumed `documents`, `signers` and `events`. Browser E2E exposed this as a real runtime crash after upload.
 
-`packages/document-processing/src/office-ingestion.ts` is useful package-level code but is not evidence of the requested Microsoft 365 editing integration and is not wired as the current tenant upload runtime.
+The development runtime now builds server detail including policy snapshot identity, creator metadata, documents, signers, events and artifact availability flags. A later self-review also corrected two evidence-semantic defects: `createdBy` no longer becomes the current reader, and policy metadata is no longer inferred only from decision mode.
 
-**Status:** technical gap / requirement status must not remain PASS until the actual requested behavior is implemented and verified. If that integration is outside the selected product architecture, this is a `TECHNICAL NO-GO` for claiming full Kungälv compliance, not a reason to reinterpret the requirement.
+### 4. Modern CI runtime
 
-### T2 — Growing case list still uses pseudo-pagination
+The PR workflows now use SHA-pinned current action generations for checkout/setup-node and a pinned current Playwright runtime. Clean DB, repository verify and browser E2E remain separate gates.
 
-Tenant UI requests `/v1/signature-cases?limit=200`. Production repository translates the cursor to an integer OFFSET. This does not meet the master prompt's stable cursor pagination requirement and can degrade with large data sets or concurrent inserts.
+### 5. Requirement verification no longer emits a false M365 PASS
 
-**Status:** technical gap.
+A dated 2026-08-11 evidence-override layer was added to the existing Kungälv generator. It does **not** alter original requirement text. It only corrects historical assessments that fresh evidence disproves.
 
-### T3 — Required auth timing series are not wired
+Current generator output:
 
-The existing observability module has safe metric/log structures, but the required auth timing series are not currently present/wired:
+- SKA: **87 PASS / 2 GAP / 41 BLOCKED_EXTERNAL**;
+- BÖR: **7 PASS / 0 GAP / 0 PARTIAL / 1 BLOCKED_EXTERNAL**;
+- total: **138/138 assessed**.
+
+The two GAP rows are 2005 and 2006.
+
+### 6. Contradictory old readiness reports are marked historical
+
+The 2026-08-07 final/readiness reports that said no technical gap remained are explicitly labelled `HISTORICAL SNAPSHOT — SUPERSEDED` and point to this report/current checklist.
+
+## Verification evidence
+
+On the rerun branch, GitHub Actions has produced green evidence for the code state preceding only documentation-only status updates:
+
+- `npm ci --ignore-scripts` — green;
+- TypeScript build — green;
+- repository verification — green;
+- deployment configuration verification — green;
+- SQL migration static verification — green;
+- requirement generator — green with 87/2/41 SKA status;
+- provenance — green;
+- SDK sync — green;
+- WCAG static automation — green;
+- repository secret scan — green;
+- Java/Freja boundary self-test — green;
+- **98 unit tests** — green;
+- integration suites — green;
+- security suite — green;
+- public website build — green;
+- SBOM generation — green;
+- clean isolated CONTROL + DATA PostgreSQL migration replay — green;
+- `db-verify.sh` — green;
+- Chromium / Firefox / WebKit E2E — green;
+- cross-tenant IDOR gate — green.
+
+These automated results do not replace external production credentials, live database inspection, manual WCAG acceptance, named-browser procurement acceptance or cryptographic/provider evidence.
+
+## Database
+
+### Repository / clean replay
+
+The current CI creates isolated CONTROL and DATA databases, applies migrations and executes `db-verify.sh`. This is green.
+
+### Connected Kommunsign databases
+
+A fresh 2026-08-11 inspection of the actual connected Kommunsign CONTROL and DATA Supabase projects could **not** be completed. Both known project identifiers return permission denied through the currently connected Supabase account.
+
+Historical 2026-08-10 evidence recorded migration-ledger reconciliation after object verification and 72/72 DATA `app` tables with RLS + FORCE RLS. This remains historical evidence only.
+
+**Fresh live database status: NOT RE-VERIFIED.**
+
+No ad-hoc production schema write was attempted.
+
+## Performance
+
+No latency number is invented in this report.
+
+Confirmed code observations:
+
+- earlier remediation parallelized eligible tenant primary-domain resolution;
+- login still has distinct rate-limit, provider, destination/access, cleanup and session-creation phases;
+- the named auth timing series requested by the master prompt is not yet emitted;
+- case list still uses OFFSET-based cursor semantics and tenant UI still uses a large single-page request;
+- therefore requested login p95 and stable pagination performance gates are not proven.
+
+### Required auth metrics still missing
 
 - `auth.rate_limit_ms`
 - `auth.provider_ms`
@@ -108,130 +179,184 @@ The existing observability module has safe metric/log structures, but the requir
 - `auth.redirect_ms`
 - `auth.total_ms`
 
-No p95 values are claimed without measurement.
-
-**Status:** technical gap.
-
-### T4 — Case-detail type contract is shallower than production response
-
-The production repository returns policy, document, signer, event, evidence and archive detail, but the shared `CaseRepository.get` type remains `SignatureCaseView`. That weakens API/implementation synchronization and lets development runtime return only the shallow case even though the UI expects richer detail.
-
-**Status:** technical gap; browser E2E is being used to expose this class of mismatch.
-
-## Database
-
-### Repository / CI
-
-The existing CI includes a clean PostgreSQL CONTROL/DATA migration/verification job. The 2026-08-10 run was green.
-
-### Live CONTROL/DATA
-
-A fresh 2026-08-11 live verification could not be performed through the connected Supabase tool: both known Kommunsign project identifiers return permission denied for the current connected account.
-
-Historical 2026-08-10 evidence reports migration-ledger reconciliation after object verification and 72/72 DATA `app` tables with RLS + FORCE RLS. This is retained as historical evidence only.
-
-**Current live-database status:** NOT RE-VERIFIED.
-
-**Production impact:** production/staging database readiness remains blocked until fresh schema/migration/RLS/policy verification is available.
-
-## Performance
-
-No before/after latency numbers are reported because no production-like timing sample has been collected in this rerun.
-
-Confirmed code observations:
-
-- prior remediation parallelized eligible tenant primary-domain resolution;
-- auth still has distinct phases for rate limiting, provider authentication, destination/access resolution, rate-limit cleanup and session creation;
-- required auth timing instrumentation is not yet emitted;
-- production case listing uses OFFSET pagination and must be remediated before claiming the requested scale behavior.
+**Status: technical gap.**
 
 ## Product E2E
 
-Current browser gate targets Chromium, Firefox and WebKit. It is intentionally considered **not passed** until the latest workflow run concludes green across all three engines.
+### Proven green in automation
 
-A passing Playwright engine is useful automation evidence, but it does not replace final procurement acceptance on actual Windows 11 Edge, Windows 11 Chrome and a supported Safari platform when those named browsers are required.
+Tenant create/upload/signer/detail/refresh/independent-context/send is green in Chromium, Firefox and WebKit. Server state reconstruction and tenant IDOR are included.
+
+### Not proven by that automation
+
+- server restart persistence against a real persistent staging DATA plane;
+- completed real signer journey using a configured production-equivalent identity/signing provider;
+- final signed PDF download from real signing crypto;
+- real validation report from configured validator;
+- real evidence package + archive export against production-equivalent external services.
+
+Those must remain blocked unless actual runtime dependencies are configured.
+
+## Browser
+
+Engine automation is green for Chromium, Firefox and WebKit.
+
+That is **not** represented as final named-browser procurement acceptance. When the Kungälv requirement requires exact environments, acceptance still needs recorded runs on:
+
+- Windows 11 + Microsoft Edge;
+- Windows 11 + Google Chrome;
+- supported Apple platform + Safari.
 
 ## Security
 
-No new authorization bypass or tenant bypass was introduced by the browser E2E changes. Production provider and artifact operations remain fail closed when dependencies are unavailable.
+Fresh rerun evidence includes:
 
-A complete post-implementation security review must be rerun after the remaining technical changes. Historical security tests are not represented as a final 2026-08-11 result before that rerun.
+- tenant A/B read isolation;
+- tenant A/B list isolation;
+- tenant A/B mutation isolation;
+- current repository security suite green for branding, SSRF, domains, uploads, invitations and OIDC;
+- current repository secret scan green;
+- fail-closed provider behavior retained.
 
-Known stop-ship class items retained from prior evidence include operational rotation of any previously exposed sensitive keys until rotation is actually evidenced. Code support for rotation is not operational rotation.
+Not promoted to final production evidence in this report:
 
-## Kungälv — 138 requirements
+- fresh live RLS/policy inspection;
+- production-auth session-revocation propagation;
+- actual operational rotation of any historically exposed key;
+- real IdP/provider/crypto configuration.
 
-The repository contains the original 138 requirements and a generated requirement matrix, but current status documents are inconsistent:
+Operational rotation support in code is not evidence that a leaked key was actually rotated.
 
-- an older readiness snapshot contains PARTIAL/GAP counts;
-- a later generated matrix reports zero technical GAP/PARTIAL;
-- `assessments.json` is dated 2026-08-07 and states it was assessed against an older remediation branch;
-- requirements 2005/2006 are marked PASS based on Office conversion even though the original wording requires Microsoft 365 online/desktop editing behavior and current product upload is PDF-only.
+## Microsoft 365 — requirements 2005/2006
 
-Therefore the old 96 PASS / 42 BLOCKED summary is **not accepted as the authoritative final 2026-08-11 disposition** until all 138 entries are reconciled against current implementation and the false-PASS risk is removed.
+Original requirement 2005 requires the solution to function together with Microsoft 365 with **online and desktop editing** on personal computers. Requirement 2006 requires Microsoft 365 **online** behavior on shared computers.
+
+The current active tenant flow is PDF-only:
+
+- portal validates `%PDF-`;
+- portal requests `application/pdf` upload;
+- `/v1/uploads` is used as a PDF upload boundary;
+- production upload validation rejects non-PDF MIME types;
+- worker canonicalization assumes the PDF flow.
+
+`packages/document-processing/src/office-ingestion.ts` is useful Office→PDF conversion functionality, but it is not a Microsoft 365 online/desktop editing integration.
+
+Therefore both older PASS rows were corrected to **GAP**. This is a technical gap, not an external blocker that may be hidden behind credentials.
+
+## Shared case-detail contract
+
+Runtime behavior is now synchronized and browser-proven, but the shared `CaseRepository.get` TypeScript return type remains the shallow `SignatureCaseView`. Production JSON aggregate payloads for documents/signers/events are also typed as `unknown` inside the DATA adapter.
+
+The correct remediation is to promote a rich detail type through the shared contract and type/validate the SQL JSON aggregates. A cosmetic cast is intentionally not used.
+
+**Status: technical gap.**
+
+## Pagination
+
+Case/event/template production list queries still include OFFSET-based pagination helpers. The tenant case screen also issues a large single list request.
+
+The master prompt explicitly requires stable cursor pagination for growing collections. That work is not complete.
+
+**Status: technical gap.**
+
+## Kungälv — requirement integrity
+
+The repository still contains all 138 original requirements. Fresh verification corrected the two disproven M365 rows instead of preserving a false green matrix.
+
+Current automated classification is:
+
+```text
+SKA PASS: 87
+SKA GAP: 2
+SKA PARTIAL: 0
+SKA BLOCKED_EXTERNAL: 41
+BÖR PASS: 7
+BÖR GAP: 0
+BÖR PARTIAL: 0
+BÖR BLOCKED_EXTERNAL: 1
+TOTAL: 138
+```
+
+This does **not** satisfy the master prompt's final requirement that technical GAP/PARTIAL be zero. All 138 rows also still require final evidence reconciliation after technical remediation; historical PASS rows are not automatically fresh runtime evidence.
 
 ## External blockers
 
-External/runtime evidence remains required where applicable for:
+Where implementation is complete, real external evidence remains necessary for applicable requirements, including:
 
-- TIC production credentials and production BankID runtime verification;
-- Freja/Freja OrgID RP credentials and mTLS/runtime evidence;
-- Kungälv MobilityGuard/IdP metadata and real federation acceptance;
+### Identity
+
+- TIC production credentials and actual production BankID runtime evidence;
+- Freja/Freja OrgID relying-party credentials and mTLS/runtime evidence;
+- Kungälv MobilityGuard/IdP metadata and actual federation acceptance.
+
+### Signing
+
 - CA/signing certificate chain;
-- HSM/remote QSCD or approved signing-key custody;
+- signing-key custody;
+- HSM/remote QSCD or selected approved equivalent;
 - TSA/RFC3161 where required;
-- supplier/subprocessor/data-region evidence;
-- PUB/DPA/SLA/support/organizational ISMS and personnel controls;
-- restore exercise and named-browser/manual acceptance where required.
+- real final PAdES/validation evidence.
 
-These are `BLOCKED_EXTERNAL` only when the implementation itself is complete. They must not be used to hide a code gap.
+### Supplier / organization / contracts
 
-## Stop ship
+- data-region and subprocessor evidence;
+- PUB/DPA and contractual appendices;
+- SLA/support evidence;
+- ISMS/LIS and personnel/process evidence;
+- restore exercise evidence;
+- reference-customer evidence where required.
 
-Current stop-ship / GO blockers:
+## Stop-ship
 
-1. Microsoft 365 2005/2006 technical scope is not implemented/evidenced as currently claimed.
-2. Fresh live CONTROL/DATA verification is unavailable because the connected Supabase account lacks permission.
-3. Browser E2E must be green on the final branch.
-4. Any previously exposed production-sensitive key must have verified operational rotation before sensitive production use.
-5. Mandatory production signing crypto/identity dependencies must be configured and verified for capabilities advertised as production-ready.
+Current stop-ship / GO blockers include:
 
-## Remaining risks
+1. Microsoft 365 requirements 2005/2006 remain technical GAP.
+2. Stable cursor pagination remains a technical gap.
+3. Required auth stage instrumentation/measurements remain a technical gap.
+4. Shared rich case-detail typing remains incomplete, despite runtime behavior being fixed.
+5. Fresh live CONTROL/DATA schema/RLS/policy comparison is unavailable through the currently connected Supabase account.
+6. Any historically exposed production-sensitive key requires verified operational rotation before sensitive production data.
+7. Mandatory signing crypto and identity dependencies must be configured and proven before the corresponding production capability is advertised as ready.
 
-- stale procurement assessments can create false compliance claims if consumed without the rerun status;
-- OFFSET pagination can become slow/inconsistent under larger and concurrent case populations;
-- shallow shared case-detail typing can hide divergence between dev and production runtimes;
-- missing auth stage metrics prevents evidence-based latency optimization;
-- browser automation uses engine-level coverage and still needs named-browser/platform acceptance where the contract requires it.
+## Remaining risk
 
-## Final status — current rerun state
+- older assessment content can still be read historically, but it is now explicitly superseded and the current generator applies dated evidence corrections;
+- OFFSET pagination can degrade and can produce inconsistent page boundaries during concurrent inserts;
+- missing auth-stage metrics prevents evidence-based p95 optimization;
+- shared shallow case typing can permit future runtime/UI drift unless promoted to a canonical detail contract;
+- browser engine automation does not replace exact named-browser/manual acceptance;
+- live-database state cannot be claimed current without restored Supabase access.
+
+## Final status
 
 ```text
 TECHNICAL STATUS:
 TECHNICAL NO-GO
 ```
 
-Technical blockers: Microsoft 365 requirements 2005/2006 are not implemented/evidenced to their actual wording; stable pagination and required auth instrumentation remain open; browser E2E is not yet green; case-detail contract synchronization remains incomplete.
+Reason: technical GAP ≠ 0. M365 2005/2006, stable cursor pagination, required auth instrumentation and shared rich case-detail typing remain open.
 
 ```text
 PRODUCT STATUS:
 PRODUCT NO-GO
 ```
 
-Product blocker: the required final browser journey is not yet proven green and the Microsoft 365 product requirement is not fulfilled by the current PDF-only runtime.
+Reason: central browser workflow is now green, but the product still does not meet the complete Microsoft 365 requirement scope and real externally backed signing completion cannot be represented as production-proven without its dependencies.
 
 ```text
 PRODUCTION STATUS:
 PRODUCTION NO-GO
 ```
 
-Production blockers: fresh live database verification unavailable; mandatory external credentials/crypto/runtime evidence remains incomplete; operational key rotation must be evidenced where previously exposed keys existed.
+Reason: fresh connected CONTROL/DATA verification is unavailable, external production identity/signing/crypto evidence remains incomplete and operational key-rotation evidence is still required where historical exposure occurred.
 
 ```text
 PROCUREMENT / EXTERNAL STATUS:
 BLOCKED
 ```
 
-Procurement blockers: 138-requirement current evidence reconciliation is incomplete, 2005/2006 false-PASS risk is confirmed, and external identity/signing/organizational/supplier evidence remains outstanding.
+Reason: the current matrix correctly contains two technical GAP rows plus external evidence blockers. The master prompt's final 0 technical GAP/PARTIAL procurement gate is therefore not satisfied.
 
-These statuses are deliberately conservative. They are to be promoted only after the remaining technical gaps are fixed and the corresponding CI/runtime/external evidence exists.
+## Merge decision
+
+**Do not merge PR #4 yet.** CI being green does not override the technical and external NO-GO gates above.
