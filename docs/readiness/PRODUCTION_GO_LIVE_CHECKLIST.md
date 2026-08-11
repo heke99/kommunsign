@@ -10,11 +10,13 @@ This checklist deliberately separates code completeness from runtime, credential
 - [x] Tenant portal reloads case detail from API after mutations/selection.
 - [x] Existing CI `verify` and clean database jobs are active.
 - [x] Browser E2E is no longer a placeholder command and has a dedicated PR gate.
-- [ ] Browser E2E is green for the required central tenant flow in Chromium, Firefox and WebKit.
+- [x] Browser E2E is green for create → upload → signer → detail → refresh → independent browser context → send in Chromium, Firefox and WebKit.
+- [x] Development case-detail runtime now returns server detail with documents, signers and events instead of a shallow case that crashes the portal.
 - [ ] Replace `?limit=200` pseudo-pagination and OFFSET cursor implementation on growing collections with a stable cursor contract.
+- [ ] Promote the rich case-detail response into the shared typed `CaseRepository.get` contract; production JSON aggregate payloads are still typed as `unknown`.
 - [ ] Wire required auth timing metrics into the existing observability system.
 - [ ] Resolve Microsoft 365 requirements 2005/2006 against their actual online/desktop editing scope. Package-level Office conversion alone is not accepted as completion evidence.
-- [ ] Reconcile current 138-requirement evidence after this rerun; stale assessments must not remain authoritative.
+- [ ] Re-assess all 138 requirements against the final current branch. The two disproven Microsoft 365 PASS rows are already overridden to GAP by the 2026-08-11 verification layer.
 
 ## Runtime configured
 
@@ -54,24 +56,25 @@ Missing mandatory signing crypto is **STOP-SHIP** for production advanced electr
 ## Database ready
 
 - [x] Repository migrations have a CI clean-replay gate.
+- [x] Current PR clean CONTROL/DATA migration and `db-verify` jobs are green in GitHub Actions.
 - [x] Historical 2026-08-10 DATA evidence reports RLS + FORCE RLS on all 72 `app` tables; treat this as historical evidence only.
-- [ ] Fresh CONTROL schema/ledger comparison completed.
-- [ ] Fresh DATA schema/ledger comparison completed.
-- [ ] Fresh RLS/policy inspection completed.
+- [ ] Fresh CONTROL schema/ledger comparison completed against connected staging/live database.
+- [ ] Fresh DATA schema/ledger comparison completed against connected staging/live database.
+- [ ] Fresh RLS/policy inspection completed against connected staging/live database.
 - [ ] Critical query plans and index choices verified in the target staging environment.
-- [ ] Staging migration run green from the current branch.
+- [ ] Staging migration run green against the actual connected Kommunsign staging project.
 
 Unverified production/staging migration state is **STOP-SHIP**.
 
 ## Security ready
 
-- [ ] Cross-tenant E2E/IDOR suite green against the final branch.
-- [ ] CSRF negative suite green against the final branch.
-- [ ] SSRF/webhook negative suite green against the final branch.
-- [ ] Session revocation tests green against the final branch.
-- [ ] Secret scan green against the final branch.
+- [x] Cross-tenant browser/API IDOR gate is green: Tenant B cannot read, list or mutate Tenant A's test case.
+- [x] Current repository security suite is green for branding, SSRF, domains, uploads, invitations and OIDC.
+- [x] Current repository secret scan is green.
+- [ ] CSRF negative suite explicitly re-verified against the final production-auth runtime.
+- [ ] Session revocation propagation explicitly re-verified against the final production-auth runtime.
 - [ ] No unrotated known-compromised secrets.
-- [ ] Provider mocks are impossible to activate in production paths.
+- [ ] Provider mocks are impossible to activate in every final production deployment path.
 
 Critical tenant-isolation, RLS or unrotated-secret failures are **STOP-SHIP**.
 
@@ -79,14 +82,15 @@ Critical tenant-isolation, RLS or unrotated-secret failures are **STOP-SHIP**.
 
 - [ ] Required auth timing metrics emitted: `auth.rate_limit_ms`, `auth.provider_ms`, `auth.platform_lookup_ms`, `auth.membership_lookup_ms`, `auth.tenant_resolution_ms`, `auth.authorization_ms`, `auth.session_create_ms`, `auth.session_verify_ms`, `auth.redirect_ms`, `auth.total_ms`.
 - [ ] Real p95 login/session/case measurements collected in a production-like environment; no values are to be invented.
-- [ ] Worker retry/dead-letter visibility verified.
-- [ ] Dependency health/readiness reflects enabled mandatory providers.
+- [ ] Worker retry/dead-letter visibility re-verified against the final runtime.
+- [ ] Dependency health/readiness reflects enabled mandatory providers in the final runtime.
 - [ ] Alerts/incident routes are operationally configured.
 - [ ] Browser acceptance recorded for actual Windows 11 Edge, Windows 11 Chrome and supported Safari platform when procurement evidence requires those named browsers.
 
 ## Contract / procurement ready
 
 - [ ] All 138 requirements re-assessed against current code/runtime/external evidence.
+- [x] Requirement verification no longer reports 2005/2006 as PASS: the current generator applies dated 2026-08-11 evidence corrections and reports them as technical GAP.
 - [ ] Requirements 2005 and 2006 have evidence for the Microsoft 365 behavior actually requested, not merely Office-file ingestion.
 - [ ] Digg advanced electronic signature evidence complete or explicitly `BLOCKED_EXTERNAL`.
 - [ ] TIC/BankID evidence complete or explicitly `BLOCKED_EXTERNAL`.
@@ -95,6 +99,14 @@ Critical tenant-isolation, RLS or unrotated-secret failures are **STOP-SHIP**.
 - [ ] Supplier/subprocessor/data-region evidence complete.
 - [ ] PUB/DPA/SLA/support and organizational ISMS/HR evidence complete where required.
 - [ ] Reference-customer evidence verified internally where required.
+
+## Current verified requirement counts
+
+Current CI generation on 2026-08-11 reports:
+
+- SKA: 87 PASS, 2 GAP, 41 BLOCKED_EXTERNAL.
+- BÖR: 7 PASS, 0 GAP/PARTIAL, 1 BLOCKED_EXTERNAL.
+- Total: 138/138 assessed by the generator, but not all 138 have been independently re-evidenced in this rerun.
 
 ## Current gate
 
