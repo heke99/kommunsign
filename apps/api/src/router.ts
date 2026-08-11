@@ -4,7 +4,7 @@ import type { Permission } from '../../../packages/authorization/src/index.js';
 import type { ApiErrorBody, TenantContext } from '../../../packages/contracts/src/index.js';
 import { canonicalJson, type CanonicalJsonValue } from '../../../packages/crypto/src/canonical-json.js';
 import { sha256Hex } from '../../../packages/crypto/src/hash.js';
-import { validateUploadMetadata } from '../../../packages/uploads/src/index.js';
+import { SIGNING_SOURCE_MAX_BYTES, SIGNING_SOURCE_MIME_TYPES, validateUploadMetadata } from '../../../packages/uploads/src/index.js';
 import { assertSafeWebhookUrl } from '../../../packages/webhooks/src/index.js';
 import { normalizeSwedishPersonalNumber, IDENTIFIER_BINDING_EXCEPTION_CODES } from '../../../packages/personal-number/src/index.js';
 declare const process: { readonly env: Readonly<Record<string, string | undefined>> };
@@ -313,7 +313,7 @@ function parseUploadInput(value: unknown): UploadGrantInput {
       mimeType: requireString(value.mimeType, 'mimeType', 1, 100),
       byteSize: Number(value.byteSize),
       sha256: requireString(value.sha256, 'sha256', 64, 64),
-    }, { allowedMimeTypes: ['application/pdf'], maximumBytes: 100 * 1024 * 1024 });
+    }, { allowedMimeTypes: SIGNING_SOURCE_MIME_TYPES, maximumBytes: SIGNING_SOURCE_MAX_BYTES });
   } catch {
     throw new ApiRequestError('VALIDATION_ERROR', 'Upload metadata is invalid or forbidden by policy', 422);
   }

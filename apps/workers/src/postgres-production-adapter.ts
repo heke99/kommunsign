@@ -5,6 +5,7 @@ import { loadProductionInfrastructure } from '../../api/src/production-adapters/
 import { createProvisioningRepository } from '../../api/src/production-adapters/postgres/provisioning-repository.js';
 import type { DurableJob, DurableJobRepository, DurableJobType } from './jobs.js';
 import { createProductionJobHandlers } from './production-handlers.js';
+import { createOfficeSourceJobHandlers } from './office-document-handlers.js';
 
 const PLATFORM_JOB_TENANT_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
@@ -62,8 +63,18 @@ export async function createProductionWorkerAdapter(
       infrastructure,
       configuration,
     });
+    const officeSourceHandlers = createOfficeSourceJobHandlers({
+      dataDatabase,
+      infrastructure,
+      configuration,
+      fallback: {
+        DOCUMENT_SCAN: bankIdHandlers.DOCUMENT_SCAN,
+        DOCUMENT_CANONICALIZE: bankIdHandlers.DOCUMENT_CANONICALIZE,
+      },
+    });
     const handlers: Readonly<Record<DurableJobType, (job: DurableJob) => Promise<void>>> = {
       ...bankIdHandlers,
+      ...officeSourceHandlers,
       TENANT_PROVISION: async (job) => {
         const requestId = stringPayload(job.payload, 'provisioningRequestId');
         const result = await provisioning.run(requestId, `durable-job:${job.id}`);
@@ -358,4 +369,3 @@ function required(configuration: Readonly<Record<string, string>>, name: string)
   if (!result) throw new Error(`${name}_MISSING`);
   return result;
 }
-
