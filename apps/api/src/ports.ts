@@ -1,3 +1,4 @@
+import type { ScimRepository } from './production-adapters/postgres/scim-repository.js';
 import type { Permission, PlatformPermission } from '../../../packages/authorization/src/index.js';
 import type { ApplicantContext, DomainEvent, PlatformContext, SignatureCaseStatus, TenantContext } from '../../../packages/contracts/src/index.js';
 import type { ApplicationStatus, ProvisioningStatus } from '../../../packages/onboarding/src/index.js';
@@ -560,6 +561,8 @@ export interface ApiDependencies {
   readonly retention?: RetentionRepository;
   /** Optional: a deployment without rights-request handling simply has no routes. */
   readonly privacy?: PrivacyRepository;
+  /** Optional: a deployment with no directory connected simply has no SCIM surface. */
+  readonly scim?: ScimRepository;
   readonly publicSigning?: PublicSigningRepository;
   readonly providerWebhooks?: ProviderWebhookRepository;
   readonly publicVerification?: PublicVerificationRepository;

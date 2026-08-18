@@ -1,5 +1,6 @@
 import { handleOnboardingRequest } from './onboarding-router.js';
 import { handleAuthRequest } from './auth-router.js';
+import { handleScimRequest } from './scim-router.js';
 import type { Permission } from '../../../packages/authorization/src/index.js';
 import type { ApiErrorBody, TenantContext } from '../../../packages/contracts/src/index.js';
 import { canonicalJson, type CanonicalJsonValue } from '../../../packages/crypto/src/canonical-json.js';
@@ -13,6 +14,7 @@ import type {
   AddDocumentInput, AddSignerInput, ApiDependencies, CreateCaseInput, DownloadArtifact,
   PageInput, RecordPrivacyRequestInput, TemplateInput, UploadGrantInput, WebhookEndpointInput,
 } from './ports.js';
+import type { IssueScimClientInput } from './production-adapters/postgres/scim-repository.js';
 
 const MAX_JSON_BODY_BYTES = 128 * 1024;
 const MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
@@ -254,6 +256,30 @@ async function handlePublicRequest(dependencies: ApiDependencies, request: Reque
   return null;
 }
 
+function parseScimClientInput(value: unknown): IssueScimClientInput {
+  assertPlainObject(value);
+  assertAllowedKeys(value, ['displayName', 'assignableRoles', 'groupToRole']);
+  const displayName = requireString(value.displayName, 'displayName', 1, 120);
+  if (!Array.isArray(value.assignableRoles) || value.assignableRoles.length === 0) {
+    throw new ApiRequestError('VALIDATION_ERROR', 'assignableRoles must list at least one role', 422, { field: 'assignableRoles' });
+  }
+  const assignableRoles = value.assignableRoles.map((role, index) => requireString(role, `assignableRoles[${index}]`, 1, 64));
+  const groupToRole: Record<string, string> = {};
+  if (value.groupToRole !== undefined) {
+    assertPlainObject(value.groupToRole);
+    for (const [group, role] of Object.entries(value.groupToRole)) {
+      // Group values are compared verbatim against what the directory sends,
+      // so they are length-checked but never normalised: case-folding a
+      // distinguished name can collide two genuinely distinct groups.
+      if (group.length < 1 || group.length > 512) {
+        throw new ApiRequestError('VALIDATION_ERROR', 'A group value is out of range', 422, { field: 'groupToRole' });
+      }
+      groupToRole[group] = requireString(role, 'groupToRole', 1, 64);
+    }
+  }
+  return { displayName, assignableRoles, groupToRole };
+}
+
 const DATA_SUBJECT_RIGHTS = ['ACCESS', 'RECTIFICATION', 'RESTRICTION', 'ERASURE', 'PORTABILITY'] as const;
 const IDENTITY_ASSURANCE_LEVELS = ['LOW', 'SUBSTANTIAL', 'HIGH'] as const;
 
@@ -461,6 +487,10 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
       if (publicResponse) return publicResponse;
       const authResponse = await handleAuthRequest(dependencies, request, requestId);
       if (authResponse) return authResponse;
+      // Before resolveContext: a directory pushing users has no session, and
+      // SCIM authenticates with its own tenant-scoped provisioning credential.
+      const scimResponse = await handleScimRequest(dependencies, request, requestId);
+      if (scimResponse) return scimResponse;
       const onboardingResponse = await handleOnboardingRequest(dependencies, request, requestId);
       if (onboardingResponse) return onboardingResponse;
       const context = await dependencies.resolveContext(request);
@@ -573,6 +603,15 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
           await dependencies.retention.approve(context, requireUuid(gallringApproveMatch[1] ?? '', 'gallringJobId')),
           202, { 'x-request-id': requestId },
         );
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/scim/clients') {
+        await authorize(dependencies, context, 'integration:manage');
+        if (!dependencies.scim) throw new ApiRequestError('SCIM_NOT_CONFIGURED', 'SCIM provisioning is not configured', 503);
+        const input = parseScimClientInput(await readJson(request));
+        // The token is in this response and nowhere else, ever again. It is
+        // stored only as a hash, so there is nothing to show later — which is
+        // the point: a token we could re-display is one we are still holding.
+        return json(await dependencies.scim.issueClient(context, input), 201, { 'x-request-id': requestId });
       }
       if (request.method === 'POST' && url.pathname === '/v1/privacy/requests') {
         await authorize(dependencies, context, 'privacy:manage');

@@ -102,6 +102,7 @@ import {
   handleApplicationDeadline, handleCertificateMonitor, handleTenantActivation, handleTenantReadiness,
 } from '../dist/apps/workers/src/platform-handlers.js';
 import { handlePrivacyRequestExecute } from '../dist/apps/workers/src/privacy-handlers.js';
+import { handleScimRequest } from '../dist/apps/api/src/scim-router.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -3304,6 +3305,199 @@ test('the rights-request routes are wired and split the handling grant from the 
     assert.equal(hasPermission([role], 'privacy:execute'), false, `${role} must not be able to erase personal data`);
     assert.equal(hasPermission([role], 'privacy:manage'), false);
   }
+});
+
+// --- SCIM 2.0 provisioning surface ------------------------------------------
+
+const SCIM_HTTP_TOKEN = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const SCIM_HTTP_TENANT = '99999999-1111-4999-8999-999999999999';
+
+/**
+ * A SCIM repository double that behaves like the real one on the points the
+ * router depends on: the tenant comes from the credential, and nothing else.
+ */
+function scimRepositoryDouble(overrides = {}) {
+  const saved = [];
+  const users = overrides.users ?? [];
+  return {
+    saved,
+    async authenticate(tokenHash) {
+      // A wrong token is a miss, exactly as the real lookup would be.
+      const expected = await sha256Hex(new TextEncoder().encode(SCIM_HTTP_TOKEN));
+      const presented = [...tokenHash].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      if (presented !== expected) return null;
+      return {
+        tenantId: SCIM_HTTP_TENANT,
+        clientId: '99999999-2222-4999-8999-999999999999',
+        assignableRoles: overrides.assignableRoles ?? ['readonly', 'document_creator'],
+        groupToRole: overrides.groupToRole ?? { 'CN=Kommunsign-Lasare': 'readonly' },
+      };
+    },
+    async listUsers() { return users; },
+    async getUser(_context, id) { return users.find((user) => user.id === id) ?? null; },
+    async createUser(_context, user) { saved.push({ action: 'CREATED', user }); return user; },
+    async saveUser(_context, user, action) { saved.push({ action, user }); return user; },
+    async hasHistory() { return overrides.hasHistory ?? false; },
+    async listGroups() { return [{ displayName: 'CN=Kommunsign-Lasare', role: 'readonly' }]; },
+    async issueClient() { throw new Error('not used here'); },
+  };
+}
+
+const scimHttpUser = (overrides = {}) => ({
+  id: '99999999-3333-4999-8999-999999999999',
+  tenantId: SCIM_HTTP_TENANT,
+  externalId: 'dir-0001',
+  userName: 'anna@kungalv.se',
+  displayName: 'Anna Andersson',
+  email: 'anna@kungalv.se',
+  active: true,
+  roles: [],
+  groups: [],
+  createdAt: '2026-08-01T00:00:00.000Z',
+  updatedAt: '2026-08-01T00:00:00.000Z',
+  ...overrides,
+});
+
+const scimRequest = (path, init = {}) => new Request(`https://api.kommunsign.se${path}`, {
+  headers: { authorization: `Bearer ${SCIM_HTTP_TOKEN}`, 'content-type': 'application/scim+json', ...(init.headers ?? {}) },
+  ...init,
+});
+
+test('SCIM authenticates on its own credential and says nothing about which tokens exist', async () => {
+  const scim = scimRepositoryDouble();
+
+  // A missing, malformed and simply wrong token are all the same failure, so
+  // probing tells an attacker nothing.
+  for (const headers of [{}, { authorization: 'Basic abc' }, { authorization: 'Bearer ' + 'b'.repeat(42) }]) {
+    const response = await handleScimRequest({ scim }, new Request('https://api.kommunsign.se/scim/v2/Users', { headers }), 'r1');
+    assert.equal(response.status, 401);
+    assert.equal(response.headers.get('www-authenticate'), 'Bearer realm="scim"');
+    const body = await response.json();
+    assert.deepEqual(body.schemas, ['urn:ietf:params:scim:api:messages:2.0:Error']);
+    assert.doesNotMatch(JSON.stringify(body), /tenant|client/i, 'a 401 must not describe what would have been reached');
+  }
+
+  // A path outside SCIM is not this router's business at all.
+  assert.equal(await handleScimRequest({ scim }, new Request('https://api.kommunsign.se/v1/signature-cases'), 'r2'), null);
+});
+
+test('SCIM errors come back in the SCIM error schema, not this API’s', async () => {
+  const scim = scimRepositoryDouble();
+  const response = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users?filter=' + encodeURIComponent('displayName co "a"')), 'r3');
+  assert.equal(response.status, 400);
+  assert.equal(response.headers.get('content-type'), 'application/scim+json; charset=utf-8');
+  const body = await response.json();
+  // A provisioning client parses one shape. Giving it another turns a
+  // meaningful 400 into an unclassifiable failure that stalls the sync.
+  assert.deepEqual(body.schemas, ['urn:ietf:params:scim:api:messages:2.0:Error']);
+  assert.equal(body.scimType, 'invalidFilter');
+  assert.equal(body.status, '400');
+});
+
+test('provisioning is idempotent on externalId, so a re-sync is a no-op rather than a conflict', async () => {
+  const existing = scimHttpUser();
+  const scim = scimRepositoryDouble({ users: [existing] });
+  const response = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users', {
+    method: 'POST',
+    body: JSON.stringify({ userName: 'anna@kungalv.se', externalId: 'dir-0001' }),
+  }), 'r4');
+
+  assert.equal(response.status, 200, 'an IdP retry must not 409 and stall the sync');
+  assert.equal(scim.saved.length, 0, 'and must not create a duplicate account');
+  assert.equal((await response.json()).id, existing.id);
+});
+
+test('a directory group grants only what the credential was scoped for', async () => {
+  // The mapping points at a role outside assignableRoles. A directory admin
+  // adding someone to that group must not thereby become able to grant it.
+  const scim = scimRepositoryDouble({
+    assignableRoles: ['readonly'],
+    groupToRole: { 'CN=Kommunsign-Admin': 'tenant_admin' },
+  });
+  const response = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users', {
+    method: 'POST',
+    body: JSON.stringify({ userName: 'ny@kungalv.se', externalId: 'dir-0002', groups: [{ display: 'CN=Kommunsign-Admin' }] }),
+  }), 'r5');
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).scimType, undefined, 'role scope is not one of the RFC scimType values');
+  assert.equal(scim.saved.length, 0, 'nothing is written when the grant would exceed the scope');
+
+  // An unmapped group grants nothing at all, rather than a default role.
+  const scoped = scimRepositoryDouble({ assignableRoles: ['readonly'], groupToRole: { 'CN=Kommunsign-Lasare': 'readonly' } });
+  const created = await handleScimRequest({ scim: scoped }, scimRequest('/scim/v2/Users', {
+    method: 'POST',
+    body: JSON.stringify({ userName: 'ny@kungalv.se', groups: [{ display: 'CN=Nagot-Annat' }, { display: 'CN=Kommunsign-Lasare' }] }),
+  }), 'r6');
+  assert.equal(created.status, 201);
+  assert.deepEqual(scoped.saved[0].user.roles, ['readonly']);
+});
+
+test('deactivation arrives as a patch, keeps the row, and stops the grants', async () => {
+  const scim = scimRepositoryDouble({ users: [scimHttpUser({ roles: ['readonly'] })] });
+  const response = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users/99999999-3333-4999-8999-999999999999', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      schemas: ['urn:ietf:params:scim:api:messages:2.0:PatchOp'],
+      Operations: [{ op: 'replace', path: 'active', value: false }],
+    }),
+  }), 'r7');
+
+  assert.equal(response.status, 200);
+  assert.equal(scim.saved[0].action, 'DEACTIVATED');
+  assert.equal(scim.saved[0].user.active, false);
+  // The user's history — which documents they signed, which cases they handled
+  // — has to survive deprovisioning, or the trail develops holes exactly where
+  // a leaver is involved.
+  assert.equal((await response.json()).id, '99999999-3333-4999-8999-999999999999');
+});
+
+test('DELETE deactivates a user with history and strips their roles either way', async () => {
+  for (const hasHistory of [true, false]) {
+    const scim = scimRepositoryDouble({ users: [scimHttpUser({ roles: ['readonly'] })], hasHistory });
+    const response = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users/99999999-3333-4999-8999-999999999999', { method: 'DELETE' }), 'r8');
+    assert.equal(response.status, 204);
+    assert.equal(scim.saved[0].action, hasHistory ? 'DEACTIVATED' : 'DELETED');
+    assert.equal(scim.saved[0].user.active, false);
+    // A deprovisioned account stops granting immediately, whichever branch ran.
+    assert.deepEqual(scim.saved[0].user.roles, []);
+  }
+});
+
+test('SCIM pagination is 1-based, which is the bug that shows up months later', async () => {
+  const users = Array.from({ length: 5 }, (_value, index) => scimHttpUser({
+    id: `99999999-3333-4999-8999-00000000000${index}`, userName: `user${index}@kungalv.se`, externalId: `dir-${index}`,
+  }));
+  const scim = scimRepositoryDouble({ users });
+
+  const first = await (await handleScimRequest({ scim }, scimRequest('/scim/v2/Users?startIndex=1&count=2'), 'r9')).json();
+  assert.equal(first.startIndex, 1);
+  assert.equal(first.totalResults, 5);
+  assert.deepEqual(first.Resources.map((entry) => entry.userName), ['user0@kungalv.se', 'user1@kungalv.se']);
+
+  // Treating startIndex as 0-based skips or repeats a user on every boundary,
+  // and surfaces as "some staff were never provisioned".
+  const second = await (await handleScimRequest({ scim }, scimRequest('/scim/v2/Users?startIndex=3&count=2'), 'r10')).json();
+  assert.deepEqual(second.Resources.map((entry) => entry.userName), ['user2@kungalv.se', 'user3@kungalv.se']);
+
+  const invalid = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users?startIndex=0'), 'r11');
+  assert.equal(invalid.status, 400, 'a broken client is visible immediately rather than syncing the wrong window');
+});
+
+test('the SCIM surface is reached before the session resolver and never takes a tenant from a request', async () => {
+  const router = await readFile('apps/api/src/router.ts', 'utf8');
+  const scimIndex = router.indexOf('handleScimRequest(dependencies');
+  const contextIndex = router.indexOf('await dependencies.resolveContext(request)');
+  assert.ok(scimIndex > 0 && contextIndex > 0);
+  // A directory pushing users has no session. Running SCIM through the session
+  // resolver would need a bypass that some later route inherits.
+  assert.ok(scimIndex < contextIndex, 'SCIM must be handled before the session resolver');
+
+  const scimRouter = await readFile('apps/api/src/scim-router.ts', 'utf8');
+  // The tenant comes from the credential row. Reading it from a path, body or
+  // header would hand out a cross-tenant write primitive with every token.
+  assert.match(scimRouter, /tenantId: credential\.tenantId/);
+  assert.doesNotMatch(scimRouter, /tenantId:\s*(?:body|url|request|write)\./);
 });
 
 let failed = 0;
