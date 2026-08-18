@@ -2,9 +2,11 @@
 
 <!-- GENERERAD FIL. Redigera inte för hand.
      Kör `node scripts/build-requirement-matrix.mjs` efter ändring i
-     requirements.json eller assessments.json. -->
+     requirements.json, assessments.json eller daterad assessment override. -->
 
-Bedömningsdatum: 2026-08-07
+Bedömningsdatum: 2026-08-11
+
+Den historiska bedömningen kompletteras med daterade overrides endast när en ny verifiering visar att en äldre status inte längre är korrekt. Kravtexten hämtas alltid oförändrad från källutdraget.
 
 ## Källa
 
@@ -262,12 +264,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | Microsoft Office stöd |
-| Nuläge | Office-dokument kan gå in i signeringsflödet utan att användaren konverterar för hand. packages/document-processing/src/office-ingestion.ts tar emot docx, xlsx, pptx, odt, ods och rtf, och konverteringen sker en gång på servern med gotenberg till PDF/A-2b. Makroaktiverade format avvisas, eftersom de är det vanligaste leveranssättet för Office-skadekod och ett dokument som ändå ska planas ut inte har något legitimt behov av makron. Filändelse och MIME-typ måste stämma överens, eftersom en kontroll av bara den ena låter en anropare presentera en makrofil under en godartad typ — och det är konverteringstjänsten som då öppnar den. Endast den konverterade PDF/A-filen signeras: en Office-fil är inte en fast representation av sig själv utan ombryts mellan versioner och löser typsnitt olika på en delad dator än på en personlig, och en signatur över den skulle täcka bytes vars visuella innebörd inte är stabil. |
-| Gap | Ingen. |
-| Lösning | packages/document-processing/src/office-ingestion.ts, gotenberg i dokumentpipelinen. |
-| Kodevidens | packages/document-processing/src/office-ingestion.ts; docker-compose.yml; docs/architecture/document-processing-pipeline.md |
-| Verifiering | tests/run.mjs: test att Office-dokument konverteras före signering och att endast PDF/A signeras, inklusive makroavvisning och MIME-matchning. |
+| Nuläge | Kommunsign accepterar nu Word-, Excel- och PowerPoint-filer i deras normala Microsoft 365-format som källdokument i det ordinarie tenant-isolerade signeringsflödet. På personlig dator kan användaren redigera filen i Microsoft 365 online eller i installerad Word, Excel eller PowerPoint, spara den ordinarie Office-filen och lämna den till Kommunsign utan lokal PDF-konvertering. Källfilen går via privat karantän, SHA-256-bindning, MIME-/filändelsekontroll, magic-byte-kontroll, ClamAV, serverbaserad LibreOffice-konvertering, qpdf och veraPDF. Endast den verifierade PDF/A-2b-versionen blir signeringsunderlag. |
+| Gap | Inget kvarvarande tekniskt gap för det efterfrågade filbaserade Microsoft 365 online/desktop-arbetsflödet. Lösningen bäddar inte in Microsofts editor och gör därför inget påstående om WOPI/live co-authoring inne i Kommunsign. |
+| Lösning | Native .docx/.xlsx/.pptx stöds genom samma autentiserade upload-gräns, tenantkontroll och idempotens som PDF. Makroaktiverade Office-format och MIME-/filändelsemismatch avvisas. Office-jobb använder en separat worker-väg som återanvänder befintlig dokumentmodell och lämnar PDF-vägen oförändrad; efter verifierad konvertering fortsätter dokumentet som canonical PDF/A-2b i befintligt signeringsflöde. |
+| Kodevidens | packages/uploads/src/index.ts; packages/document-processing/src/office-ingestion.ts; packages/document-processing/src/office-production.ts; apps/api/src/router.ts; apps/api/src/production-adapters/postgres/signing-source-upload-repository.ts; apps/workers/src/office-document-handlers.ts; apps/workers/src/postgres-production-adapter.ts; apps/tenant-portal/public/index.html; apps/tenant-portal/public/office-upload.js; tests/m365-office.mjs; tests/browser-e2e.mjs |
+| Verifiering | 2026-08-11: CI #72 och browser-e2e #31 var gröna på head 8413140ca70be448dace98fe5abb36c5855b186f. Browser-E2E laddar native .docx via verksamhetsportalen i Chromium, Firefox och WebKit och verifierar serverauktoritativt tillstånd efter refresh och separat browser context. m365-office-gaten verifierar .docx/.xlsx/.pptx, Gotenberg LibreOffice-route, PDF/A-2b-parametrar, API-MIME och negativa Office-säkerhetsregler; de sistnämnda negativa testerna lades därefter till explicit och verifieras på aktuell PR-head innan merge. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-11: Fresh full-product rerun followed by focused Microsoft 365 remediation. Overrides are used only where current implementation and automated evidence supersede an older assessment. Original requirements remain immutable in requirements.json. |
 
 ### 2006 — PASS
 
@@ -277,12 +280,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | Microsoft Office stöd |
-| Nuläge | Samma väg som krav 2005, och den fungerar likadant på gemensam dator eftersom konverteringen sker på servern och inte i klienten. Det är just därför konverteringen är serverside: en klientkonvertering skulle ge olika resultat beroende på vilka typsnitt och vilken Office-version den delade datorn råkar ha, och den skillnaden skulle följa med in i det som signeras. |
-| Gap | Ingen. |
-| Lösning | packages/document-processing/src/office-ingestion.ts, gotenberg i dokumentpipelinen. |
-| Kodevidens | packages/document-processing/src/office-ingestion.ts; docker-compose.yml |
-| Verifiering | tests/run.mjs: samma ingestionstest. Ingen klientprogramvara krävs, vilket verifieras av att portalerna är statiska. |
+| Nuläge | Kommunsigns verksamhetsportal stödjer ett browserbaserat flöde för delad dator: användaren kan arbeta i Microsoft 365 online, spara eller hämta den normala Office-filen via webbläsaren och ladda upp den till Kommunsign. Ingen lokal Word-, Excel-, PowerPoint- eller PDF-konverteringsinstallation krävs på den delade datorn. All konvertering och validering sker server-side innan filen kan signeras. |
+| Gap | Inget kvarvarande tekniskt gap för det efterfrågade Microsoft 365 online-scenariot på gemensam dator inom den filbaserade integrationsgränsen. Kommunsign lagrar inte Microsoft 365-sessionen och kräver inte att Office-kontot kopplas till signeringssessionen. |
+| Lösning | Tenantportalen accepterar native Office-filer direkt från browsern och visar explicit arbetsflöde för Microsoft 365 online på delad dator. Källan behandlas i privat karantän och konverteras server-side till verifierad PDF/A-2b; signeringsversionen är därmed frikopplad från den delade datorns lokala programvara och browser-session efter uppladdningen. |
+| Kodevidens | apps/tenant-portal/public/index.html; apps/tenant-portal/public/office-upload.js; apps/api/src/router.ts; apps/api/src/production-adapters/postgres/signing-source-upload-repository.ts; apps/workers/src/office-document-handlers.ts; packages/document-processing/src/office-production.ts; tests/m365-office.mjs; tests/browser-e2e.mjs |
+| Verifiering | 2026-08-11: CI #72 och browser-e2e #31 var gröna på head 8413140ca70be448dace98fe5abb36c5855b186f. Samma browser-E2E kör Office-uppladdningen i Chromium, Firefox och WebKit utan lokal Office-klient. Efter den explicita negativa testhärdningen verifieras även slutlig PR-head på nytt innan merge. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-11: Fresh full-product rerun followed by focused Microsoft 365 remediation. Overrides are used only where current implementation and automated evidence supersede an older assessment. Original requirements remain immutable in requirements.json. |
 
 ### 2007 — PASS
 
