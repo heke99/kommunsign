@@ -227,9 +227,19 @@ const webhookRepository: WebhookRepository = {
       const value: WebhookEndpointView = { ...input, id: crypto.randomUUID(), active: true, createdAt: new Date().toISOString() };
       endpoints.set(tenantKey(context.tenantId, value.id), value);
       addEvent(context.tenantId, 'webhook.endpoint_created', { webhookEndpointId: value.id });
-      return value;
+      // The development runtime deliberately returns a marker rather than a
+      // usable secret. It signs nothing, and a value that looked real here would
+      // eventually be pasted into a subscriber's configuration.
+      return { ...value, signingSecret: 'development-runtime-does-not-sign-webhooks' };
     });
   },
+  async rotateSecret(context, endpointId) {
+    const value = endpoints.get(tenantKey(context.tenantId, endpointId));
+    if (!value) throw new Error('WEBHOOK_ENDPOINT_NOT_FOUND');
+    return { ...value, signingSecret: 'development-runtime-does-not-sign-webhooks' };
+  },
+  async listDeliveries() { return { data: [] }; },
+  async replayDelivery() { throw new Error('WEBHOOK_DELIVERY_NOT_FOUND'); },
 };
 const eventRepository: EventRepository = {
   async list(context, page) { return paginate(events.filter((event) => event.tenantId === context.tenantId), page); },

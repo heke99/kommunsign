@@ -446,6 +446,36 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
         const input = parseWebhookInput(await readJson(request));
         return json(await dependencies.webhooks.createEndpoint(context, input, idempotencyKey, await canonicalPayloadHash(input)), 201, { 'x-request-id': requestId });
       }
+      const rotateMatch = /^\/v1\/webhook-endpoints\/([^/]+)\/rotate-secret$/.exec(url.pathname);
+      if (request.method === 'POST' && rotateMatch) {
+        await authorize(dependencies, context, 'webhook:manage');
+        const endpointId = requireUuid(rotateMatch[1] ?? '', 'webhookEndpointId');
+        const body = await readJson(request).catch(() => ({}));
+        // The overlap window keeps the previous secret valid so a rotation does
+        // not reject deliveries already in flight. Default is generous because
+        // the alternative failure — a subscriber silently dropping events — is
+        // much harder for them to notice than a key they rotated on purpose.
+        const overlapSeconds = typeof (body as { overlapSeconds?: unknown }).overlapSeconds === 'number'
+          ? Number((body as { overlapSeconds: number }).overlapSeconds) : 3600;
+        if (!Number.isSafeInteger(overlapSeconds) || overlapSeconds < 0 || overlapSeconds > 86_400) {
+          throw new ApiRequestError('WEBHOOK_ROTATION_OVERLAP_INVALID', 'overlapSeconds must be between 0 and 86400', 400);
+        }
+        return json(await dependencies.webhooks.rotateSecret(context, endpointId, overlapSeconds), 200, { 'x-request-id': requestId });
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/webhook-deliveries') {
+        await authorize(dependencies, context, 'webhook:manage');
+        const status = url.searchParams.get('status') ?? undefined;
+        if (status !== undefined && !['pending','delivering','delivered','failed','dead_letter'].includes(status)) {
+          throw new ApiRequestError('WEBHOOK_DELIVERY_STATUS_INVALID', 'Unknown delivery status', 400);
+        }
+        return json(await dependencies.webhooks.listDeliveries(context, pageInput(url), status), 200, { 'x-request-id': requestId });
+      }
+      const replayMatch = /^\/v1\/webhook-deliveries\/([^/]+)\/replay$/.exec(url.pathname);
+      if (request.method === 'POST' && replayMatch) {
+        await authorize(dependencies, context, 'webhook:manage');
+        const deliveryId = requireUuid(replayMatch[1] ?? '', 'webhookDeliveryId');
+        return json(await dependencies.webhooks.replayDelivery(context, deliveryId), 202, { 'x-request-id': requestId });
+      }
       if (request.method === 'GET' && url.pathname === '/v1/events') {
         await authorize(dependencies, context, 'event:read');
         return json(await dependencies.events.list(context, pageInput(url)), 200, { 'x-request-id': requestId });

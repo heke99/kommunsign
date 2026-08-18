@@ -39,6 +39,8 @@ import {
   buildSigningIntentManifest, signingIntentManifestBytes, signingIntentManifestSha256,
 } from '../dist/packages/signing-engine/src/manifest.js';
 import { SignServiceClient } from '../dist/packages/signservice-client/src/index.js';
+import { signWebhook, verifyWebhook } from '../dist/packages/webhooks/src/index.js';
+import { buildFgsPackage, FGS_CONFORMANCE_STATUS, FGS_SPECIFICATION } from '../dist/packages/archive/src/fgs.js';
 import {
   buildDataSubjectResponse, erasureExemption, isOverdue,
 } from '../dist/packages/privacy/src/index.js';
@@ -2656,6 +2658,149 @@ test('a signing service that is not configured never resolves into a signature',
     JSON.stringify({ status: 'SIGNED' }), { status: 200, headers: { 'content-type': 'application/json' } },
   ));
   await assert.rejects(() => malformed.sign({}), /SIGNSERVICE_PROTOCOL_INVALID/);
+});
+
+test('a webhook signature covers the event, so a subscriber can tell our POST from anyone else\'s', async () => {
+  const secret = 'shared-secret-value';
+  const envelope = {
+    id: '11111111-1111-4111-8111-111111111111',
+    type: 'signer.signed',
+    occurredAt: '2026-08-18T10:00:00.000Z',
+    aggregate: { type: 'signer', id: '22222222-2222-4222-8222-222222222222' },
+    payloadSha256: 'a'.repeat(64),
+    data: { signatureCaseId: '33333333-3333-4333-8333-333333333333' },
+  };
+  const signed = await signWebhook(envelope, secret, '1800000000');
+  assert.equal(await verifyWebhook(signed, secret, 1800000000), true);
+
+  // Changing the body without re-signing must fail, or the signature says
+  // nothing about what was actually delivered.
+  const tampered = { ...signed, body: signed.body.replace('signer.signed', 'case.completed') };
+  assert.equal(await verifyWebhook(tampered, secret, 1800000000), false);
+
+  // The timestamp is inside the signed material, so replaying an old delivery
+  // with a fresh timestamp does not verify.
+  assert.equal(await verifyWebhook({ ...signed, timestamp: '1800000060' }, secret, 1800000060), false);
+
+  // And a delivery signed with someone else's secret is not ours.
+  assert.equal(await verifyWebhook(signed, 'a-different-secret', 1800000000), false);
+
+  // Freshness is enforced independently of the signature.
+  assert.equal(await verifyWebhook(signed, secret, 1800000000 + 3600), false);
+});
+
+const fgsAgents = {
+  archivist: 'Kungälvs kommunarkiv',
+  creator: 'Kungälvs kommun',
+  submitter: 'Kungälvs kommun',
+  producingSoftware: 'Kommunsign',
+  producingSoftwareVersion: '0.2.0',
+};
+const fgsCase = (overrides = {}) => ({
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  signatureCaseId: '22222222-2222-4222-8222-222222222222',
+  reference: 'KS2026/1005',
+  title: 'Beslut om bygglov',
+  decisionMode: 'ELECTRONIC_SIGNATURE',
+  status: 'archiving',
+  createdAt: '2026-08-01T09:00:00.000Z',
+  closedAt: '2026-08-05T15:30:00.000Z',
+  documents: [{
+    documentId: '33333333-3333-4333-8333-333333333333',
+    documentVersionId: '44444444-4444-4444-8444-444444444444',
+    displayName: 'beslut.pdf',
+    sha256: 'a'.repeat(64),
+    byteSize: 2048,
+    verifiedProfile: 'PDF/A-2b',
+    isSignedArtifact: true,
+  }],
+  signatures: [{
+    signerId: '55555555-5555-4555-8555-555555555555',
+    signedAt: '2026-08-05T12:00:00.000Z',
+    padesLevel: 'PAdES-B',
+    signatureArtifactSha256: 'b'.repeat(64),
+    validationReportSha256: 'c'.repeat(64),
+    timestampTokenSha256: null,
+  }],
+  identities: [{
+    signerId: '55555555-5555-4555-8555-555555555555',
+    provider: 'TIC_BANKID',
+    assuranceLevel: 'HIGH',
+    maskedIdentifier: '19640823-****',
+    verifiedAt: '2026-08-05T11:59:00.000Z',
+    evidenceSha256: 'd'.repeat(64),
+  }],
+  auditTrailSha256: 'e'.repeat(64),
+  ...overrides,
+});
+const fgsFiles = () => [
+  { path: 'content/beslut.pdf', bytes: new TextEncoder().encode('%PDF-1.7 beslut'), mediaType: 'application/pdf' },
+  { path: 'evidence/validation-report.json', bytes: new TextEncoder().encode('{"indication":"TOTAL_PASSED"}'), mediaType: 'application/json' },
+];
+
+test('an FGS descriptor is byte-identical when the same closed case is exported twice', async () => {
+  const first = await buildFgsPackage(await buildArchivePackage(fgsCase(), fgsFiles()), fgsAgents);
+  const second = await buildFgsPackage(await buildArchivePackage(fgsCase(), fgsFiles()), fgsAgents);
+
+  // The archived copy has to be provably the delivered copy. A generated UUID
+  // or a wall-clock timestamp anywhere in here would quietly break that.
+  assert.equal(first.descriptorSha256, second.descriptorSha256);
+  assert.deepEqual(first.descriptor.bytes, second.descriptor.bytes);
+  assert.equal(first.specification, FGS_SPECIFICATION);
+});
+
+test('the FGS descriptor is METS following the published Riksarkivet profile', async () => {
+  const fgs = await buildFgsPackage(await buildArchivePackage(fgsCase(), fgsFiles()), fgsAgents);
+  const xml = new TextDecoder().decode(fgs.descriptor.bytes);
+
+  assert.equal(fgs.descriptor.path, 'sip.xml');
+  assert.match(xml, /xmlns:mets="http:\/\/www\.loc\.gov\/METS\/"/);
+  assert.match(xml, /xmlns:ext="ExtensionMETS"/);
+  assert.match(xml, /PROFILE="http:\/\/xml\.ra\.se\/e-arkiv\/METS\/CommonSpecificationSwedenPackageProfile\.xml"/);
+  assert.match(xml, /ext:OAISSTATUS="SIP"/);
+  assert.match(xml, /<mets:metsDocumentID>sip\.xml<\/mets:metsDocumentID>/);
+  assert.match(xml, /CHECKSUMTYPE="SHA-256"/);
+  assert.match(xml, /<mets:structMap LABEL="Profilestructmap">/);
+  // Every file the manifest describes must be referenced exactly once.
+  assert.equal((xml.match(/<mets:file /g) ?? []).length, (xml.match(/<mets:fptr /g) ?? []).length);
+  assert.match(xml, /xlink:href="file:\/\/\/content\/beslut\.pdf"/);
+});
+
+test('operator text in a case title cannot break out of the FGS descriptor', async () => {
+  const hostile = 'Beslut" TYPE="ERMS" x="<script>alert(1)</script>&';
+  const fgs = await buildFgsPackage(await buildArchivePackage(fgsCase({ title: hostile }), fgsFiles()), fgsAgents);
+  const xml = new TextDecoder().decode(fgs.descriptor.bytes);
+
+  // A raw quote would end the LABEL attribute and let the rest be read as
+  // markup by an archive that ingests this file unattended.
+  assert.match(xml, /LABEL="Beslut&quot; TYPE=&quot;ERMS&quot; x=&quot;&lt;script&gt;/);
+  assert.equal(xml.includes('<script>'), false);
+  assert.match(xml, / TYPE="Archival information"/);
+  assert.equal((xml.match(/ TYPE="ERMS"/g) ?? []).length, 0);
+});
+
+test('the FGS adapter never claims schema conformance it has not verified', async () => {
+  // Structure following the published profile and validating against the
+  // receiving archive's XSD set are different claims. Conflating them is the
+  // exact overclaim this adapter exists to remove.
+  assert.equal(FGS_CONFORMANCE_STATUS.structureFollowsProfile, true);
+  assert.equal(FGS_CONFORMANCE_STATUS.schemaValidated, false);
+  assert.ok(FGS_CONFORMANCE_STATUS.schemaValidationBlocker.length > 0);
+});
+
+test('an FGS descriptor refuses to name an agent the profile requires and nobody supplied', async () => {
+  // The archive-package refusals (unclosed case, unverified PDF/A profile,
+  // missing validation report, missing audit trail) are covered by the archive
+  // tests above. What is new here is the profile's own requirement: a METS
+  // header without its required agents names no responsible organisation, and a
+  // preservation record nobody is accountable for is not a record.
+  const archive = await buildArchivePackage(fgsCase(), fgsFiles());
+  const code = async (fn) => { try { await fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+  assert.equal(await code(() => buildFgsPackage(archive, { ...fgsAgents, archivist: '  ' })), 'ARCHIVE_PROFILE_NOT_VERIFIED');
+  assert.equal(await code(() => buildFgsPackage(archive, { ...fgsAgents, creator: '' })), 'ARCHIVE_PROFILE_NOT_VERIFIED');
+  assert.equal(await code(() => buildFgsPackage(archive, { ...fgsAgents, submitter: '' })), 'ARCHIVE_PROFILE_NOT_VERIFIED');
+  assert.equal(await code(() => buildFgsPackage(archive, fgsAgents)), 'NO_ERROR');
 });
 
 test('an Office document is converted before signing, and only the PDF/A is signed', () => {

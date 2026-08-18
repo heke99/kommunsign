@@ -194,6 +194,39 @@ paths:
       parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateWebhookEndpoint'}}}}
       responses: {'201': {description: Endpoint created, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookEndpoint'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /webhook-endpoints/{webhookEndpointId}/rotate-secret:
+    post:
+      operationId: rotateWebhookSecret
+      x-kommunsign-implementation-status: runtime
+      security: [{oauth2: [webhooks:manage]}]
+      description: >-
+        Issues a new signing secret and returns it once. The superseded secret
+        stays valid for overlapSeconds so deliveries already in flight are not
+        rejected by a routine key change.
+      parameters: [{name: webhookEndpointId, in: path, required: true, schema: {type: string, format: uuid}}]
+      requestBody: {required: false, content: {application/json: {schema: {type: object, additionalProperties: false, properties: {overlapSeconds: {type: integer, minimum: 0, maximum: 86400, default: 3600}}}}}}
+      responses: {'200': {description: Secret rotated, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookEndpoint'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /webhook-deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      x-kommunsign-implementation-status: runtime
+      security: [{oauth2: [webhooks:manage]}]
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: status, in: query, required: false, schema: {type: string, enum: [pending, delivering, delivered, failed, dead_letter]}}
+      responses: {'200': {description: Delivery attempts, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookDeliveryPage'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /webhook-deliveries/{webhookDeliveryId}/replay:
+    post:
+      operationId: replayWebhookDelivery
+      x-kommunsign-implementation-status: runtime
+      security: [{oauth2: [webhooks:manage]}]
+      description: >-
+        Re-queues a failed or dead-lettered delivery. A delivery that already
+        succeeded cannot be replayed: the subscriber was promised each event
+        exactly once, and a duplicate would break that promise.
+      parameters: [{name: webhookDeliveryId, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {'202': {description: Replay queued, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookDelivery'}}}}, default: {$ref: '#/components/responses/Error'}}
   /events:
     get:
       operationId: listEvents
@@ -926,7 +959,24 @@ components:
       required: [url, subscribedEvents]
       properties: {url: {type: string, format: uri, pattern: '^https://'}, subscribedEvents: {type: array, minItems: 1, maxItems: 50, uniqueItems: true, items: {type: string}}}
     WebhookEndpoint:
-      allOf: [{$ref: '#/components/schemas/CreateWebhookEndpoint'}, {type: object, required: [id, active, createdAt], properties: {id: {type: string, format: uuid}, active: {type: boolean}, createdAt: {type: string, format: date-time}}}]
+      allOf: [{$ref: '#/components/schemas/CreateWebhookEndpoint'}, {type: object, required: [id, active, createdAt], properties: {id: {type: string, format: uuid}, active: {type: boolean}, createdAt: {type: string, format: date-time}, signingSecret: {type: string, description: 'Returned only by the call that created or rotated it, and never readable again.'}}}]
+    WebhookDelivery:
+      type: object
+      required: [id, webhookEndpointId, outboxEventId, eventType, status, attempt, nextAttemptAt]
+      properties:
+        id: {type: string, format: uuid}
+        webhookEndpointId: {type: string, format: uuid}
+        outboxEventId: {type: string, format: uuid}
+        eventType: {type: string}
+        status: {type: string, enum: [pending, delivering, delivered, failed, dead_letter]}
+        attempt: {type: integer}
+        responseStatus: {type: integer, nullable: true}
+        nextAttemptAt: {type: string, format: date-time}
+        deliveredAt: {type: string, format: date-time, nullable: true}
+    WebhookDeliveryPage:
+      type: object
+      required: [data]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/WebhookDelivery'}}, nextCursor: {type: string}}
     CreateTemplate:
       type: object
       additionalProperties: false

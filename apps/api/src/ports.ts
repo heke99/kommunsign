@@ -79,6 +79,25 @@ export interface WebhookEndpointView extends WebhookEndpointInput {
   readonly id: string;
   readonly active: boolean;
   readonly createdAt: string;
+  /**
+   * The signing secret, returned only by the call that created or rotated it.
+   *
+   * A subscriber cannot verify our HMAC without it, and it is never readable
+   * again afterwards: it exists encrypted in the database and nowhere else, so
+   * a lost secret is rotated rather than recovered.
+   */
+  readonly signingSecret?: string;
+}
+export interface WebhookDeliveryView {
+  readonly id: string;
+  readonly webhookEndpointId: string;
+  readonly outboxEventId: string;
+  readonly eventType: string;
+  readonly status: 'pending' | 'delivering' | 'delivered' | 'failed' | 'dead_letter';
+  readonly attempt: number;
+  readonly responseStatus: number | null;
+  readonly nextAttemptAt: string;
+  readonly deliveredAt: string | null;
 }
 export interface TemplateInput {
   readonly templateKey: string;
@@ -135,6 +154,9 @@ export interface UploadRepository {
 }
 export interface WebhookRepository {
   createEndpoint(context: TenantContext, input: WebhookEndpointInput, idempotencyKey: string, payloadHash: string): Promise<WebhookEndpointView>;
+  rotateSecret(context: TenantContext, endpointId: string, overlapSeconds: number): Promise<WebhookEndpointView>;
+  listDeliveries(context: TenantContext, page: PageInput, status?: string): Promise<Page<WebhookDeliveryView>>;
+  replayDelivery(context: TenantContext, deliveryId: string): Promise<WebhookDeliveryView>;
 }
 export interface EventRepository {
   list(context: TenantContext, page: PageInput): Promise<Page<DomainEvent>>;

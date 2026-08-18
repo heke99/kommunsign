@@ -17,6 +17,8 @@ import { createEvidenceZip } from '../../../packages/evidence/src/zip.js';
 import { normalizeSwedishPersonalNumber } from '../../../packages/personal-number/src/index.js';
 import { activateNextSigningGroup } from './signing-groups.js';
 import { createPadesJobHandlers, type PadesServices } from './pades-handlers.js';
+import { createWebhookJobHandlers, createWebhookServices } from './webhook-handlers.js';
+import { createArchiveJobHandlers, createArchiveServices } from './archive-handlers.js';
 import { SignServiceClient } from '../../../packages/signservice-client/src/index.js';
 
 const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
@@ -62,10 +64,10 @@ export function createProductionJobHandlers(input: {
     ...createPadesJobHandlers({ dataDatabase: input.dataDatabase, infrastructure: input.infrastructure, services: padesServices(input.configuration, services.validation) }),
     EVIDENCE_PACKAGE_BUILD: (job) => handleEvidencePackageBuild(input.dataDatabase, input.infrastructure, job),
     EMAIL_SEND: (job) => handleEmailSend(input.dataDatabase, input.infrastructure, services, job),
-    WEBHOOK_DELIVER: phaseUnsupported,
+    ...createWebhookJobHandlers({ dataDatabase: input.dataDatabase, infrastructure: input.infrastructure, services: createWebhookServices(input.configuration) }),
     REMINDER_SEND: (job) => handleReminder(input.dataDatabase, input.infrastructure, job),
     CASE_EXPIRE: (job) => handleCaseExpire(input.dataDatabase, job),
-    ARCHIVE_EXPORT: phaseUnsupported,
+    ...createArchiveJobHandlers({ dataDatabase: input.dataDatabase, infrastructure: input.infrastructure, services: createArchiveServices(input.configuration) }),
     RETENTION_EXECUTE: phaseUnsupported,
   };
 }
