@@ -20,6 +20,7 @@ import { createPadesJobHandlers, type PadesServices } from './pades-handlers.js'
 import { createWebhookJobHandlers, createWebhookServices } from './webhook-handlers.js';
 import { createArchiveJobHandlers, createArchiveServices } from './archive-handlers.js';
 import { createRetentionJobHandlers } from './retention-handlers.js';
+import { appendControlAudit, createPlatformJobHandlers } from './platform-handlers.js';
 import { SignServiceClient } from '../../../packages/signservice-client/src/index.js';
 
 const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
@@ -51,11 +52,10 @@ export function createProductionJobHandlers(input: {
   const phaseUnsupported = async (job: DurableJob): Promise<void> => { throw permanent(`WORKER_JOB_TYPE_OUTSIDE_BANKID_PHASE_${job.type}`); };
   return {
     APPLICATION_NOTIFICATION: (job) => handleApplicationNotification(input.controlDatabase, input.infrastructure, services, job),
-    APPLICATION_DEADLINE: phaseUnsupported,
+    ...createPlatformJobHandlers({ controlDatabase: input.controlDatabase }),
+    // TENANT_PROVISION stays here: postgres-production-adapter.ts overrides it
+    // with a real handler that needs infrastructure this module does not hold.
     TENANT_PROVISION: phaseUnsupported,
-    TENANT_READINESS: phaseUnsupported,
-    TENANT_ACTIVATION: phaseUnsupported,
-    CERTIFICATE_MONITOR: phaseUnsupported,
     DOCUMENT_SCAN: (job) => handleDocumentScan(input.dataDatabase, input.infrastructure, services, job),
     DOCUMENT_CANONICALIZE: (job) => handleDocumentCanonicalize(input.dataDatabase, input.infrastructure, services, job),
     IDENTITY_STATUS_POLL: (job) => handleIdentityPoll(input.dataDatabase, services, job),
@@ -466,14 +466,7 @@ async function handleApplicationNotification(controlDatabase: SqlDatabase, infra
   const applicationId = requiredString(payload.applicationId, 'APPLICATION_NOTIFICATION_APPLICATION_MISSING');
   const url = `${services.onboardingUrl}/verify-email?applicationId=${encodeURIComponent(applicationId)}&token=${encodeURIComponent(token)}`;
   await services.email.send({ from: services.defaultFrom, to: [{ email }], replyTo: services.defaultReplyTo, subject: 'Verifiera din e-postadress för Kommunsign', text: `Verifiera din e-postadress genom att öppna länken:\n${url}\n\nLänken är tidsbegränsad.`, html: `<p>Verifiera din e-postadress för Kommunsign.</p><p><a href="${escapeHtml(url)}">Verifiera e-postadress</a></p><p>Länken är tidsbegränsad.</p>`, idempotencyKey: job.idempotencyKey, tags: { application: applicationId, template } });
-  await controlDatabase.transaction(async (tx) => {
-    await tx.query(`select pg_advisory_xact_lock(hashtextextended('control-audit-chain',0))`);
-    const previous = await tx.query<{ readonly event_hash: string }>(`select event_hash from control.control_audit_events order by occurred_at desc,id desc limit 1`);
-    const previousHash = previous.rows[0]?.event_hash ?? '0'.repeat(64);
-    const auditPayload = { applicationId, template, jobId: job.id };
-    const eventHash = await sha256Hex(JSON.stringify({ tenantId: null, actorId: null, eventType: 'onboarding.notification.accepted', payload: auditPayload, previousHash }));
-    await tx.query(`insert into control.control_audit_events(tenant_id,actor_id,event_type,payload,previous_event_hash,event_hash) values(null,null,'onboarding.notification.accepted',$1::jsonb,$2,$3)`, [auditPayload, previousHash, eventHash]);
-  });
+  await appendControlAudit(controlDatabase, 'onboarding.notification.accepted', { applicationId, template, jobId: job.id });
 }
 
 async function loadEvidenceFiles(database: SqlDatabase, infrastructure: ProductionInfrastructure, context: TenantContext, signatureCaseId: string, signerId?: string): Promise<{readonly files:EvidenceFile[];readonly metadata:Readonly<Record<string,CanonicalJsonValue>>;readonly createdAt:string}> {

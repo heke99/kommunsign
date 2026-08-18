@@ -7,6 +7,7 @@ psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "select count(*) >= 0 from 
 psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/onboarding-control.sql
 psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/control/verify_accounts.sql
 psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/control/verify_organization_creation.sql
+psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/control/verify_platform_jobs.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/data/verify.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/data/verify_organization_creation.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/tenant-isolation.sql

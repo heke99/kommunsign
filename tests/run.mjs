@@ -98,6 +98,9 @@ import {
   formatSwedishDate, formatSwedishDateTime, formatSwedishTime,
   formatSwedishTimestampWithOffset, messageFor, swedishUtcOffsetHours,
 } from '../dist/packages/locale/src/index.js';
+import {
+  handleApplicationDeadline, handleCertificateMonitor, handleTenantActivation, handleTenantReadiness,
+} from '../dist/apps/workers/src/platform-handlers.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -2883,6 +2886,218 @@ test('dates and times render in the Swedish standard regardless of host locale',
   const unknown = messageFor('SOME_INTERNAL_CODE_42');
   assert.doesNotMatch(unknown, /SOME_INTERNAL_CODE_42/);
   assert.match(unknown, /Något gick fel/);
+});
+
+// --- Control-plane platform jobs -------------------------------------------
+
+/**
+ * A control database standing in for Postgres.
+ *
+ * Every statement the handler issues is recorded, and anything the test did not
+ * anticipate raises rather than returning an empty result — a silent `{rows:[]}`
+ * would let a handler that queried the wrong table still look correct.
+ */
+function controlDatabaseDouble(responder) {
+  const statements = [];
+  return {
+    statements,
+    transaction: async (work) => work({
+      query: async (sql, parameters = []) => {
+        statements.push({ sql, parameters });
+        if (sql.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 0 };
+        if (sql.includes('from control.control_audit_events')) return { rows: [], rowCount: 0 };
+        if (sql.includes('insert into control.control_audit_events')) return { rows: [], rowCount: 0 };
+        const response = responder(sql, parameters);
+        if (response === undefined) throw new Error(`unexpected control query: ${sql}`);
+        return response;
+      },
+    }),
+  };
+}
+
+const auditEvents = (database) => database.statements
+  .filter((entry) => entry.sql.includes('insert into control.control_audit_events'))
+  .map((entry) => ({ eventType: entry.parameters[0], payload: entry.parameters[1] }));
+
+const platformJob = (payload) => ({ id: '11111111-1111-4111-8111-111111111111', type: 'X', tenantId: null, payload, attempt: 1, idempotencyKey: 'k' });
+
+test('an unverified application expires rather than being recorded as withdrawn', async () => {
+  const database = controlDatabaseDouble((sql) => {
+    if (sql.includes('update control.onboarding_applications')) {
+      return { rows: [{ id: 'a1', created_at: '2026-01-01T00:00:00.000Z' }], rowCount: 1 };
+    }
+    return undefined;
+  });
+  await handleApplicationDeadline(database, platformJob({}));
+
+  const update = database.statements.find((entry) => entry.sql.includes('update control.onboarding_applications'));
+  // Withdrawal is an act by the applicant. Writing it for an unattended timeout
+  // would put a decision in the record that no human made.
+  assert.match(update.sql, /set status='expired'/);
+  assert.doesNotMatch(update.sql, /withdrawn/);
+  // Only the two pre-submission states. An application under review is someone's
+  // active work and must never be closed out from underneath them by a timer.
+  assert.match(update.sql, /status in \('draft','email_verification_pending'\)/);
+  // The trigger owns status_version and updated_at; setting them in the
+  // statement would be silently overwritten and read as if it had taken effect.
+  assert.doesNotMatch(update.sql, /status_version/);
+
+  const events = auditEvents(database);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, 'onboarding.application.expired');
+  assert.equal(events[0].payload.applicationId, 'a1');
+});
+
+test('readiness is evaluated through the shared model and recorded, never inferred at activation', async () => {
+  const checkedAt = '2026-08-01T00:00:00.000Z';
+  const database = controlDatabaseDouble((sql) => (
+    sql.includes('insert into control.tenant_readiness_results') ? { rows: [], rowCount: 1 } : undefined
+  ));
+  await handleTenantReadiness(database, platformJob({
+    tenantId: '22222222-2222-4222-8222-222222222222',
+    environment: 'production',
+    checks: [
+      { code: 'BANKID_CREDENTIALS', passed: false, severity: 'blocking', checkedAt },
+      { code: 'BRANDING', passed: false, severity: 'warning', checkedAt },
+      { code: 'DOMAIN_VERIFIED', passed: true, severity: 'blocking', checkedAt },
+    ],
+  }));
+
+  const insert = database.statements.find((entry) => entry.sql.includes('insert into control.tenant_readiness_results'));
+  assert.equal(insert.parameters[3], false, 'one failed blocking check makes the tenant not ready');
+  assert.deepEqual(insert.parameters[4].map((check) => check.code), ['BANKID_CREDENTIALS']);
+  assert.deepEqual(insert.parameters[5].map((check) => check.code), ['BRANDING']);
+  assert.deepEqual(insert.parameters[6].map((check) => check.code), ['DOMAIN_VERIFIED']);
+
+  const [event] = auditEvents(database);
+  assert.equal(event.eventType, 'tenant.readiness.evaluated');
+  assert.deepEqual(event.payload.blockingCodes, ['BANKID_CREDENTIALS']);
+});
+
+test('a malformed readiness check is refused, never dropped', async () => {
+  const tenantId = '22222222-2222-4222-8222-222222222222';
+  const valid = { code: 'DOMAIN_VERIFIED', passed: true, severity: 'blocking', checkedAt: '2026-08-01T00:00:00.000Z' };
+  // Dropping the malformed entry would make the tenant look readier than it is,
+  // which is the one direction this must never fail in.
+  for (const broken of [
+    { ...valid, severity: 'advisory' },
+    { ...valid, passed: 'true' },
+    { ...valid, checkedAt: 'yesterday' },
+    { ...valid, code: '' },
+    'DOMAIN_VERIFIED',
+  ]) {
+    const database = controlDatabaseDouble(() => ({ rows: [], rowCount: 1 }));
+    await assert.rejects(
+      () => handleTenantReadiness(database, platformJob({ tenantId, environment: 'production', checks: [valid, broken] })),
+      /WORKER_PAYLOAD_CHECKS_INVALID/,
+    );
+    assert.equal(database.statements.length, 0, 'nothing is written when the payload cannot be trusted');
+  }
+
+  // An empty check list is not evidence of readiness either.
+  const empty = controlDatabaseDouble(() => ({ rows: [], rowCount: 1 }));
+  await assert.rejects(
+    () => handleTenantReadiness(empty, platformJob({ tenantId, environment: 'production', checks: [] })),
+    /WORKER_PAYLOAD_CHECKS_INVALID/,
+  );
+});
+
+test('activation rests on a recorded production readiness result, not on the absence of a bad one', async () => {
+  const tenantId = '22222222-2222-4222-8222-222222222222';
+  const activationRequestId = '33333333-3333-4333-8333-333333333333';
+  const payload = { tenantId, activationRequestId };
+
+  const scenario = (requestStatus, readinessRows) => controlDatabaseDouble((sql) => {
+    if (sql.includes('from control.tenant_activation_requests')) return { rows: [{ status: requestStatus }], rowCount: 1 };
+    if (sql.includes('from control.tenant_readiness_results')) return { rows: readinessRows, rowCount: readinessRows.length };
+    if (sql.includes('update control.tenant_activation_requests')) return { rows: [], rowCount: 1 };
+    if (sql.includes('update control.platform_tenants')) return { rows: [], rowCount: 1 };
+    return undefined;
+  });
+
+  // No readiness result is not the same as a passing one, and is just as
+  // disqualifying: activation must rest on evidence.
+  const missing = scenario('approved', []);
+  await assert.rejects(() => handleTenantActivation(missing, platformJob(payload)), /NO_PRODUCTION_READINESS_RESULT/);
+  assert.ok(!missing.statements.some((entry) => entry.sql.includes('update control.platform_tenants')));
+  assert.equal(auditEvents(missing)[0].eventType, 'tenant.activation.refused');
+
+  const blocked = scenario('approved', [{ ready: false, blocking_checks: [{ code: 'BANKID_CREDENTIALS' }] }]);
+  await assert.rejects(() => handleTenantActivation(blocked, platformJob(payload)), /READINESS_BLOCKED/);
+  assert.ok(!blocked.statements.some((entry) => entry.sql.includes('update control.platform_tenants')));
+
+  // An unapproved request never reaches the readiness check at all: two-person
+  // approval is a separate gate, not something readiness can substitute for.
+  const unapproved = scenario('pending_approval', [{ ready: true, blocking_checks: [] }]);
+  await assert.rejects(() => handleTenantActivation(unapproved, platformJob(payload)), /TENANT_ACTIVATION_NOT_APPROVED/);
+  assert.ok(!unapproved.statements.some((entry) => entry.sql.includes('from control.tenant_readiness_results')));
+
+  const ready = scenario('approved', [{ ready: true, blocking_checks: [] }]);
+  await handleTenantActivation(ready, platformJob(payload));
+  const activation = ready.statements.find((entry) => entry.sql.includes('update control.platform_tenants'));
+  assert.match(activation.sql, /status='active'/);
+  // Only a tenant that is still coming up may be activated, so this cannot
+  // silently un-suspend a tenant that was deliberately stopped.
+  assert.match(activation.sql, /status in \('provisioning','onboarding'\)/);
+  assert.equal(auditEvents(ready)[0].eventType, 'tenant.activated');
+
+  // Re-running the job after activation is a no-op, not a second activation.
+  const again = scenario('activated', [{ ready: true, blocking_checks: [] }]);
+  await handleTenantActivation(again, platformJob(payload));
+  assert.ok(!again.statements.some((entry) => entry.sql.includes('update control.platform_tenants')));
+
+  // The readiness row is re-read here rather than trusted from the payload, so
+  // a payload claiming readiness cannot activate a tenant on its own.
+  const lying = scenario('approved', []);
+  await assert.rejects(
+    () => handleTenantActivation(lying, platformJob({ ...payload, ready: true })),
+    /NO_PRODUCTION_READINESS_RESULT/,
+  );
+});
+
+test('the certificate monitor reports having run, and uses the window the alert watches', async () => {
+  const alerts = await readFile('infrastructure/monitoring/prometheus-alerts.yaml', 'utf8');
+  const expiry = /kommunsign_certificate_not_after_seconds - time\(\) < (\d+)/.exec(alerts);
+  assert.ok(expiry, 'the CertificateExpiringSoon alert must still express a window');
+
+  const flagged = controlDatabaseDouble((sql) => (
+    sql.includes('update control.domain_certificate_snapshots')
+      ? { rows: [{ id: 'c1', tenant_id: 't1', not_after: '2026-08-20T00:00:00.000Z' }], rowCount: 1 }
+      : undefined
+  ));
+  await handleCertificateMonitor(flagged, platformJob({}));
+
+  const update = flagged.statements.find((entry) => entry.sql.includes('update control.domain_certificate_snapshots'));
+  // The job and the alert must agree on what "expiring soon" means. If they
+  // drifted, the alert would fire on certificates the system never flagged.
+  assert.equal(update.parameters[0] * 24 * 60 * 60, Number(expiry[1]));
+  assert.match(update.sql, /set status='renewal_required'/);
+  assert.match(update.sql, /status='issued'/, 'a failed or revoked certificate is not a renewal candidate');
+
+  const event = auditEvents(flagged)[0];
+  assert.equal(event.eventType, 'certificate.monitor.completed');
+  assert.equal(event.payload.flaggedCount, 1);
+
+  // Reported even when nothing was flagged: "no certificates near expiry" and
+  // "the monitor did not run" are different statements, and only one of them
+  // is reassuring.
+  const quiet = controlDatabaseDouble((sql) => (
+    sql.includes('update control.domain_certificate_snapshots') ? { rows: [], rowCount: 0 } : undefined
+  ));
+  await handleCertificateMonitor(quiet, platformJob({}));
+  assert.equal(auditEvents(quiet)[0].payload.flaggedCount, 0);
+});
+
+test('every control-plane platform job is wired to a handler rather than dead-lettered', async () => {
+  const source = await readFile('apps/workers/src/production-handlers.ts', 'utf8');
+  assert.match(source, /\.\.\.createPlatformJobHandlers\(/);
+  for (const type of ['APPLICATION_DEADLINE', 'TENANT_READINESS', 'TENANT_ACTIVATION', 'CERTIFICATE_MONITOR']) {
+    assert.doesNotMatch(source, new RegExp(`${type}: phaseUnsupported`), `${type} still dead-letters`);
+  }
+  // TENANT_PROVISION is the deliberate exception: postgres-production-adapter
+  // overrides it with a handler that needs infrastructure this module lacks.
+  const adapter = await readFile('apps/workers/src/postgres-production-adapter.ts', 'utf8');
+  assert.match(adapter, /TENANT_PROVISION/);
 });
 
 let failed = 0;
