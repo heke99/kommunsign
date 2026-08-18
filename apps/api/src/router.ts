@@ -11,7 +11,7 @@ declare const process: { readonly env: Readonly<Record<string, string | undefine
 
 import type {
   AddDocumentInput, AddSignerInput, ApiDependencies, CreateCaseInput, DownloadArtifact,
-  PageInput, TemplateInput, UploadGrantInput, WebhookEndpointInput,
+  PageInput, RecordPrivacyRequestInput, TemplateInput, UploadGrantInput, WebhookEndpointInput,
 } from './ports.js';
 
 const MAX_JSON_BODY_BYTES = 128 * 1024;
@@ -254,6 +254,33 @@ async function handlePublicRequest(dependencies: ApiDependencies, request: Reque
   return null;
 }
 
+const DATA_SUBJECT_RIGHTS = ['ACCESS', 'RECTIFICATION', 'RESTRICTION', 'ERASURE', 'PORTABILITY'] as const;
+const IDENTITY_ASSURANCE_LEVELS = ['LOW', 'SUBSTANTIAL', 'HIGH'] as const;
+
+function parsePrivacyRequestInput(value: unknown): RecordPrivacyRequestInput {
+  assertPlainObject(value);
+  assertAllowedKeys(value, ['right', 'subjectIdentifier', 'identityMethod', 'identityAssurance']);
+  if (typeof value.right !== 'string' || !DATA_SUBJECT_RIGHTS.includes(value.right as never)) {
+    throw new ApiRequestError('VALIDATION_ERROR', 'right is invalid', 422, { field: 'right' });
+  }
+  if (typeof value.identityAssurance !== 'string' || !IDENTITY_ASSURANCE_LEVELS.includes(value.identityAssurance as never)) {
+    throw new ApiRequestError('VALIDATION_ERROR', 'identityAssurance is invalid', 422, { field: 'identityAssurance' });
+  }
+  // The strong-identity rights are rejected here as well as in the database.
+  // Releasing a register extract to an address someone happens to control is a
+  // personal data breach in itself, so the caller learns it at the edge rather
+  // than after the request is already on file.
+  if (['ACCESS', 'ERASURE', 'PORTABILITY', 'RECTIFICATION'].includes(value.right) && value.identityAssurance !== 'HIGH') {
+    throw new ApiRequestError('PRIVACY_IDENTITY_ASSURANCE_TOO_LOW', 'This right requires a strongly verified identity', 422);
+  }
+  return {
+    right: value.right as RecordPrivacyRequestInput['right'],
+    subjectIdentifier: requireString(value.subjectIdentifier, 'subjectIdentifier', 1, 320),
+    identityMethod: requireString(value.identityMethod, 'identityMethod', 1, 120),
+    identityAssurance: value.identityAssurance as RecordPrivacyRequestInput['identityAssurance'],
+  };
+}
+
 function parseCreateCaseInput(value: unknown): CreateCaseInput {
   assertPlainObject(value);
   assertAllowedKeys(value, ['externalReference', 'title', 'decisionMode', 'signaturePolicyId']);
@@ -418,6 +445,9 @@ function mapKnownError(cause: unknown): ApiRequestError | null {
     HOST_NOT_ALLOWED: [421, 'HOST_NOT_ALLOWED'],
     SIGNATURE_POLICY_NOT_FOUND: [404, 'SIGNATURE_POLICY_NOT_FOUND'],
     SIGNATURE_POLICY_DECISION_MODE_MISMATCH: [422, 'SIGNATURE_POLICY_DECISION_MODE_MISMATCH'],
+    PRIVACY_REQUEST_NOT_FOUND: [404, 'PRIVACY_REQUEST_NOT_FOUND'],
+    PRIVACY_REQUEST_CLOSED: [409, 'PRIVACY_REQUEST_CLOSED'],
+    PRIVACY_REQUEST_CONFLICT: [409, 'PRIVACY_REQUEST_CONFLICT'],
   };
   const mapped = mappings[cause.message];
   return mapped ? new ApiRequestError(mapped[1], mapped[1].replace(/_/g, ' '), mapped[0]) : null;
@@ -541,6 +571,42 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
         if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
         return json(
           await dependencies.retention.approve(context, requireUuid(gallringApproveMatch[1] ?? '', 'gallringJobId')),
+          202, { 'x-request-id': requestId },
+        );
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/privacy/requests') {
+        await authorize(dependencies, context, 'privacy:manage');
+        if (!dependencies.privacy) throw new ApiRequestError('PRIVACY_NOT_CONFIGURED', 'Rights requests are not configured', 503);
+        const idempotencyKey = requireIdempotencyKey(request);
+        const input = parsePrivacyRequestInput(await readJson(request));
+        return json(
+          await dependencies.privacy.record(context, input, idempotencyKey, await canonicalPayloadHash(input)),
+          201, { 'x-request-id': requestId },
+        );
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/privacy/requests') {
+        await authorize(dependencies, context, 'privacy:manage');
+        if (!dependencies.privacy) throw new ApiRequestError('PRIVACY_NOT_CONFIGURED', 'Rights requests are not configured', 503);
+        return json(await dependencies.privacy.list(context, pageInput(url)), 200, { 'x-request-id': requestId });
+      }
+      const privacyGetMatch = /^\/v1\/privacy\/requests\/([^/]+)$/.exec(url.pathname);
+      if (request.method === 'GET' && privacyGetMatch) {
+        await authorize(dependencies, context, 'privacy:manage');
+        if (!dependencies.privacy) throw new ApiRequestError('PRIVACY_NOT_CONFIGURED', 'Rights requests are not configured', 503);
+        return json(
+          await dependencies.privacy.get(context, requireUuid(privacyGetMatch[1] ?? '', 'privacyRequestId')),
+          200, { 'x-request-id': requestId },
+        );
+      }
+      const privacyExecuteMatch = /^\/v1\/privacy\/requests\/([^/]+)\/execute$/.exec(url.pathname);
+      if (request.method === 'POST' && privacyExecuteMatch) {
+        // A separate grant from recording. Searching and erasing someone's data
+        // is a different act from noting that they asked for it, and the person
+        // who logs a request should not thereby be able to destroy the record.
+        await authorize(dependencies, context, 'privacy:execute');
+        if (!dependencies.privacy) throw new ApiRequestError('PRIVACY_NOT_CONFIGURED', 'Rights requests are not configured', 503);
+        return json(
+          await dependencies.privacy.execute(context, requireUuid(privacyExecuteMatch[1] ?? '', 'privacyRequestId')),
           202, { 'x-request-id': requestId },
         );
       }

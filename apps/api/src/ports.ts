@@ -207,6 +207,47 @@ export interface RetentionRepository {
   get(context: TenantContext, gallringJobId: string): Promise<GallringJobView>;
   list(context: TenantContext, page: PageInput): Promise<Page<GallringJobView>>;
 }
+/** What the customer sees of a rights request, with nothing about the subject in it. */
+export interface PrivacyRequestView {
+  readonly privacyRequestId: string;
+  readonly state: 'RECEIVED' | 'IDENTITY_VERIFIED' | 'IN_PROGRESS' | 'FULFILLED' | 'DELIVERED' | 'REFUSED';
+  readonly right: 'ACCESS' | 'RECTIFICATION' | 'RESTRICTION' | 'ERASURE' | 'PORTABILITY';
+  readonly receivedAt: string;
+  readonly dueAt: string;
+  /** True once the deadline has passed with the request still open. */
+  readonly overdue: boolean;
+  readonly identityAssurance: 'LOW' | 'SUBSTANTIAL' | 'HIGH' | null;
+  readonly deliveredAt: string | null;
+  readonly refusalGround: string | null;
+  /** One entry per store, present only once the request has been answered. */
+  readonly coverage: readonly {
+    readonly store: 'CONTROL' | 'DATA' | 'OBJECT_STORAGE' | 'AUDIT_LOG' | 'BACKUP';
+    readonly recordCount: number;
+    readonly searched: boolean;
+    readonly exemptionReason: string | null;
+    readonly actionTaken: string;
+  }[];
+}
+export interface RecordPrivacyRequestInput {
+  readonly right: 'ACCESS' | 'RECTIFICATION' | 'RESTRICTION' | 'ERASURE' | 'PORTABILITY';
+  /** The subject's identifier, in the clear on the wire and never stored as such. */
+  readonly subjectIdentifier: string;
+  readonly identityMethod: string;
+  readonly identityAssurance: 'LOW' | 'SUBSTANTIAL' | 'HIGH';
+}
+export interface PrivacyRepository {
+  /**
+   * Records a request and starts the thirty-day clock. Identity is supplied at
+   * this point rather than later because everything after it — searching,
+   * exporting, erasing — is disclosure or destruction, and neither may happen
+   * on an unproven claim to be someone.
+   */
+  record(context: TenantContext, input: RecordPrivacyRequestInput, idempotencyKey: string, payloadHash: string): Promise<PrivacyRequestView>;
+  /** Queues execution. Separate from recording so the erasing act needs its own grant. */
+  execute(context: TenantContext, privacyRequestId: string): Promise<PrivacyRequestView>;
+  get(context: TenantContext, privacyRequestId: string): Promise<PrivacyRequestView>;
+  list(context: TenantContext, page: PageInput): Promise<Page<PrivacyRequestView>>;
+}
 export interface EventRepository {
   list(context: TenantContext, page: PageInput): Promise<Page<DomainEvent>>;
 }
@@ -517,6 +558,8 @@ export interface ApiDependencies {
   readonly templates: TemplateRepository;
   /** Optional: a deployment without gallring configured simply has no routes. */
   readonly retention?: RetentionRepository;
+  /** Optional: a deployment without rights-request handling simply has no routes. */
+  readonly privacy?: PrivacyRepository;
   readonly publicSigning?: PublicSigningRepository;
   readonly providerWebhooks?: ProviderWebhookRepository;
   readonly publicVerification?: PublicVerificationRepository;

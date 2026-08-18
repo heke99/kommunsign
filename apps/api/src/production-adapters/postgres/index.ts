@@ -5,6 +5,7 @@ import type { ApiDependencies } from '../../ports.js';
 import type { ProductionRuntimeConfiguration } from '../../production-runtime.js';
 import { createDataRepositories } from './data-database.js';
 import { createRetentionRepository } from './retention-repository.js';
+import { createPrivacyRepository } from './privacy-repository.js';
 import { withKeysetListRepositories } from './keyset-repositories.js';
 import { createDomainRepository } from './domain-repository.js';
 import { loadProductionInfrastructure } from './infrastructure.js';
@@ -59,6 +60,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
     return {
       ...data,
       retention: createRetentionRepository(dataDatabase),
+      privacy: createPrivacyRepository(dataDatabase, infrastructure.sensitiveData),
       uploads: signingSourceUploads,
       ...publicRepositories,
       onboarding: createOnboardingRepository(controlDatabase, infrastructure),

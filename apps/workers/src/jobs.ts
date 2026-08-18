@@ -23,7 +23,8 @@ export type DurableJobType =
   | 'REMINDER_SEND'
   | 'CASE_EXPIRE'
   | 'ARCHIVE_EXPORT'
-  | 'RETENTION_EXECUTE';
+  | 'RETENTION_EXECUTE'
+  | 'PRIVACY_REQUEST_EXECUTE';
 
 export interface DurableJob<T = Readonly<Record<string, unknown>>> {
   readonly id: string;

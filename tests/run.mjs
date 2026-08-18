@@ -101,6 +101,7 @@ import {
 import {
   handleApplicationDeadline, handleCertificateMonitor, handleTenantActivation, handleTenantReadiness,
 } from '../dist/apps/workers/src/platform-handlers.js';
+import { handlePrivacyRequestExecute } from '../dist/apps/workers/src/privacy-handlers.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -3098,6 +3099,211 @@ test('every control-plane platform job is wired to a handler rather than dead-le
   // overrides it with a handler that needs infrastructure this module lacks.
   const adapter = await readFile('apps/workers/src/postgres-production-adapter.ts', 'utf8');
   assert.match(adapter, /TENANT_PROVISION/);
+});
+
+// --- Data subject rights requests -------------------------------------------
+
+/**
+ * Drives the privacy handler against doubles for both databases.
+ *
+ * The doubles answer the specific queries the handler issues and raise on
+ * anything else, so a handler that searched the wrong table would fail loudly
+ * rather than quietly returning nothing and calling it a clean result.
+ */
+function privacyDoubles(overrides = {}) {
+  const statements = [];
+  const deleted = [];
+  const dataRow = {
+    id: '44444444-4444-4444-8444-444444444444',
+    state: 'RECEIVED',
+    right_requested: overrides.right ?? 'ACCESS',
+    subject_identifier_blind_index: new Uint8Array([1, 2, 3]),
+    subject_user_id: '55555555-5555-4555-8555-555555555555',
+    received_at: '2026-08-01T00:00:00.000Z',
+    identity_verified_at: '2026-08-01T00:05:00.000Z',
+    identity_method: 'bankid',
+    identity_assurance: overrides.assurance ?? 'HIGH',
+    handled_by: '66666666-6666-4666-8666-666666666666',
+    ...(overrides.row ?? {}),
+  };
+  const counts = { control: 1, data: 2, objectKeys: ['tenant/a.xml', 'tenant/b.xml'], audit: 4, holds: 0, restrictions: 0, ...(overrides.counts ?? {}) };
+
+  const run = (sql) => {
+    // set_config is the tenant-context preamble withTenantTransaction issues.
+    // It is not a business statement, so it is answered but not counted.
+    if (sql.includes('set_config')) return { rows: [], rowCount: 1 };
+    statements.push(sql);
+    if (sql.includes('from app.privacy_requests') && sql.includes('for update')) return { rows: [dataRow], rowCount: 1 };
+    if (sql.includes('from control.onboarding_applications')) return { rows: [{ total: String(counts.control) }], rowCount: 1 };
+    if (sql.includes('from app.signers where tenant_id=$1')) return { rows: [{ total: String(counts.data) }], rowCount: 1 };
+    if (sql.includes('update app.signers')) return { rows: [], rowCount: counts.data };
+    if (sql.includes('artifacts.collect_response_object_key')) {
+      return { rows: counts.objectKeys.map((object_key) => ({ object_key })), rowCount: counts.objectKeys.length };
+    }
+    if (sql.includes('from audit.audit_events')) return { rows: [{ total: String(counts.audit) }], rowCount: 1 };
+    if (sql.includes('from app.legal_holds')) return { rows: [{ held: String(counts.holds) }], rowCount: 1 };
+    if (sql.includes("right_requested='RESTRICTION'")) return { rows: [{ active: String(counts.restrictions) }], rowCount: 1 };
+    if (sql.includes('insert into app.privacy_request_coverage')) return { rows: [], rowCount: 1 };
+    if (sql.includes('insert into app.privacy_responses')) return { rows: [], rowCount: 1 };
+    if (sql.includes('update app.privacy_requests')) return { rows: [], rowCount: 1 };
+    if (sql.includes('audit.append_event')) return { rows: [], rowCount: 1 };
+    if (sql.includes('insert into app.outbox_events')) return { rows: [], rowCount: 1 };
+    return undefined;
+  };
+
+  const database = {
+    statements,
+    transaction: async (work) => work({
+      query: async (sql, parameters = []) => {
+        const response = run(sql);
+        if (response === undefined) throw new Error(`unexpected query: ${sql}`);
+        if (sql.includes('insert into app.privacy_request_coverage')) {
+          statements.coverage = statements.coverage ?? [];
+          statements.coverage.push({
+            store: parameters[2], recordCount: parameters[3], searched: parameters[4],
+            exemptionReason: parameters[5], actionTaken: parameters[6],
+          });
+        }
+        if (sql.includes('insert into app.privacy_responses')) statements.response = parameters[3];
+        return response;
+      },
+    }),
+  };
+
+  const infrastructure = {
+    objectStorage: overrides.noDelete ? {} : { deleteObject: async (_context, key) => { deleted.push(key); } },
+  };
+  return { database, infrastructure, deleted, statements };
+}
+
+const privacyExecuteJob = () => ({
+  id: '77777777-7777-4777-8777-777777777777', type: 'PRIVACY_REQUEST_EXECUTE',
+  tenantId: '88888888-8888-4888-8888-888888888888',
+  payload: { privacyRequestId: '44444444-4444-4444-8444-444444444444' },
+  idempotencyKey: 'k', attempt: 1,
+});
+
+test('every store is accounted for, and one that cannot be searched says so instead of reporting nothing', async () => {
+  const { database, infrastructure, statements } = privacyDoubles();
+  await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+
+  const coverage = statements.coverage ?? [];
+  assert.deepEqual(
+    coverage.map((entry) => entry.store).sort(),
+    ['AUDIT_LOG', 'BACKUP', 'CONTROL', 'DATA', 'OBJECT_STORAGE'],
+    'a register extract that quietly omits a store is worse than no extract, because it looks complete',
+  );
+
+  // The claim that matters. A handler returning "searched, zero records"
+  // without querying satisfies every type in the system and is a lie.
+  const backup = coverage.find((entry) => entry.store === 'BACKUP');
+  assert.equal(backup.searched, false, 'a backup set cannot be point-searched online');
+  assert.ok(backup.exemptionReason && backup.exemptionReason.trim().length > 0, 'and an unsearched store must state why');
+  assert.equal(backup.recordCount, 0);
+  assert.equal(backup.actionTaken, 'EXEMPTED');
+
+  // The searched stores report what the queries actually returned, not a
+  // constant. Change the underlying counts and the answer changes with them.
+  assert.equal(coverage.find((entry) => entry.store === 'CONTROL').recordCount, 1);
+  assert.equal(coverage.find((entry) => entry.store === 'DATA').recordCount, 2);
+  assert.equal(coverage.find((entry) => entry.store === 'OBJECT_STORAGE').recordCount, 2);
+  assert.equal(coverage.find((entry) => entry.store === 'AUDIT_LOG').recordCount, 4);
+
+  const response = statements.response;
+  assert.equal(response.totalRecords, 1 + 2 + 2 + 4, 'the total is the sum of what was found, not a guess');
+  assert.equal(response.complete, true);
+  assert.deepEqual(response.exemptedStores, ['BACKUP']);
+});
+
+test('an erasure destroys object payloads and clears identifiers, but never the audit chain', async () => {
+  const { database, infrastructure, deleted, statements } = privacyDoubles({ right: 'ERASURE' });
+  await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+
+  assert.deepEqual(deleted, ['tenant/a.xml', 'tenant/b.xml'], 'the evidence payloads are actually destroyed');
+  assert.ok(
+    database.statements.some((sql) => sql.includes('update app.signers') && sql.includes('verified_identifier_blind_index=null')),
+    'and the identifiers on the rows that stay are cleared',
+  );
+  // The signer row itself survives: signature evidence has to remain
+  // verifiable, and dropping the row would break the chain proving who signed.
+  assert.ok(!database.statements.some((sql) => sql.includes('delete from app.signers')));
+
+  const coverage = statements.coverage ?? [];
+  const auditLog = coverage.find((entry) => entry.store === 'AUDIT_LOG');
+  assert.equal(auditLog.searched, true, 'the log is searched, and reported');
+  assert.equal(auditLog.actionTaken, 'EXEMPTED', 'but never deleted -- the chain is what makes every other record verifiable');
+  assert.match(auditLog.exemptionReason, /PUB-avtalet 7\.5/);
+  assert.equal(coverage.find((entry) => entry.store === 'OBJECT_STORAGE').actionTaken, 'CRYPTO_ERASED');
+});
+
+test('an erasure with no way to delete objects reports the store as unaddressed, not as empty', async () => {
+  const { database, infrastructure, statements } = privacyDoubles({ right: 'ERASURE', noDelete: true });
+  await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+
+  const objectStorage = (statements.coverage ?? []).find((entry) => entry.store === 'OBJECT_STORAGE');
+  // Reporting zero here would be the comfortable lie: the answer would look
+  // complete while two files still held the person's evidence.
+  assert.equal(objectStorage.searched, false);
+  assert.ok(objectStorage.exemptionReason.length > 0);
+  assert.equal(objectStorage.actionTaken, 'EXEMPTED');
+});
+
+test('an erasure stops at a legal hold and is refused with the ground, not silently skipped', async () => {
+  const { database, infrastructure, deleted } = privacyDoubles({ right: 'ERASURE', counts: { holds: 1 } });
+  await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+
+  const refusal = database.statements.find((sql) => sql.includes("state='REFUSED'"));
+  assert.ok(refusal, 'a request that cannot be carried out is refused, not left open');
+  assert.ok(!database.statements.some((sql) => sql.includes('insert into app.privacy_responses')), 'and no answer is issued');
+  assert.deepEqual(deleted, [], 'nothing under hold was destroyed');
+});
+
+test('an unproven identity refuses the request rather than disclosing anything', async () => {
+  for (const row of [
+    { identity_verified_at: null },
+    { identity_method: null },
+    { identity_assurance: null },
+  ]) {
+    const { database, infrastructure, deleted } = privacyDoubles({ row });
+    await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+    assert.ok(database.statements.some((sql) => sql.includes("state='REFUSED'")));
+    assert.ok(!database.statements.some((sql) => sql.includes('from control.onboarding_applications')),
+      'nothing is even searched before identity is proven');
+    assert.deepEqual(deleted, []);
+  }
+
+  // A verified identity that is not strong enough for the right being
+  // exercised is refused for the same reason: an address someone happens to
+  // control is not proof for a register extract.
+  const weak = privacyDoubles({ assurance: 'SUBSTANTIAL' });
+  await handlePrivacyRequestExecute(weak.database, weak.database, weak.infrastructure, privacyExecuteJob());
+  assert.ok(weak.database.statements.some((sql) => sql.includes("state='REFUSED'")));
+});
+
+test('a delivered or refused request is not re-run', async () => {
+  for (const state of ['DELIVERED', 'REFUSED']) {
+    const { database, infrastructure, deleted } = privacyDoubles({ right: 'ERASURE', row: { state } });
+    await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+    assert.deepEqual(deleted, [], 're-running must not re-delete');
+    assert.equal(database.statements.length, 1, 'and must not re-disclose');
+  }
+});
+
+test('the rights-request routes are wired and split the handling grant from the erasing one', async () => {
+  const router = await readFile('apps/api/src/router.ts', 'utf8');
+  assert.match(router, /'\/v1\/privacy\/requests'/);
+  assert.match(router, /privacy\\\/requests\\\/\(\[\^\/\]\+\)\\\/execute/);
+  // Recording that someone asked and destroying the record behind it are
+  // different acts, and must not share a grant.
+  assert.match(router, /authorize\(dependencies, context, 'privacy:execute'\)/);
+  assert.match(router, /authorize\(dependencies, context, 'privacy:manage'\)/);
+
+  assert.equal(hasPermission(['tenant_admin'], 'privacy:execute'), true);
+  assert.equal(hasPermission(['tenant_security_admin'], 'privacy:manage'), true);
+  for (const role of ['document_creator', 'document_sender', 'approver', 'readonly', 'auditor']) {
+    assert.equal(hasPermission([role], 'privacy:execute'), false, `${role} must not be able to erase personal data`);
+    assert.equal(hasPermission([role], 'privacy:manage'), false);
+  }
 });
 
 let failed = 0;

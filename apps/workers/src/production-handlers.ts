@@ -20,6 +20,7 @@ import { createPadesJobHandlers, type PadesServices } from './pades-handlers.js'
 import { createWebhookJobHandlers, createWebhookServices } from './webhook-handlers.js';
 import { createArchiveJobHandlers, createArchiveServices } from './archive-handlers.js';
 import { createRetentionJobHandlers } from './retention-handlers.js';
+import { createPrivacyJobHandlers } from './privacy-handlers.js';
 import { appendControlAudit, createPlatformJobHandlers } from './platform-handlers.js';
 import { SignServiceClient } from '../../../packages/signservice-client/src/index.js';
 
@@ -70,6 +71,7 @@ export function createProductionJobHandlers(input: {
     CASE_EXPIRE: (job) => handleCaseExpire(input.dataDatabase, job),
     ...createArchiveJobHandlers({ dataDatabase: input.dataDatabase, infrastructure: input.infrastructure, services: createArchiveServices(input.configuration) }),
     ...createRetentionJobHandlers({ dataDatabase: input.dataDatabase, infrastructure: input.infrastructure }),
+    ...createPrivacyJobHandlers({ controlDatabase: input.controlDatabase, dataDatabase: input.dataDatabase, infrastructure: input.infrastructure }),
   };
 }
 

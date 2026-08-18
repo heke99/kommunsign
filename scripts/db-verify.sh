@@ -15,3 +15,4 @@ psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/pades-signature-chain.
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/webhook-delivery.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/archive-export.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/gallring.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/privacy-requests.sql
