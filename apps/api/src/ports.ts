@@ -1,3 +1,4 @@
+import type { FederationRepository } from './production-adapters/postgres/federation-repository.js';
 import type { ScimRepository } from './production-adapters/postgres/scim-repository.js';
 import type { Permission, PlatformPermission } from '../../../packages/authorization/src/index.js';
 import type { ApplicantContext, DomainEvent, PlatformContext, SignatureCaseStatus, TenantContext } from '../../../packages/contracts/src/index.js';
@@ -563,6 +564,8 @@ export interface ApiDependencies {
   readonly privacy?: PrivacyRepository;
   /** Optional: a deployment with no directory connected simply has no SCIM surface. */
   readonly scim?: ScimRepository;
+  /** Optional: a tenant with no IdP configured simply cannot federate. */
+  readonly federation?: FederationRepository;
   readonly publicSigning?: PublicSigningRepository;
   readonly providerWebhooks?: ProviderWebhookRepository;
   readonly publicVerification?: PublicVerificationRepository;

@@ -1502,52 +1502,52 @@ const fedAssertion = (overrides = {}) => ({
   attributes: { uid: ['anna.andersson'], memberOf: ['CN=Kommunsign-Handlaggare', 'CN=Ovrig'] }, ...overrides,
 });
 const fedBinding = (overrides = {}) => ({ requestId: 'request-1', tenantId: FED_TENANT, redirectUri: 'https://kungalv.kommunsign.se/saml/acs', ...overrides });
-const fedCode = (assertion = {}, config = {}, binding = {}, ledger = new InMemoryAssertionLedger()) => {
-  try { verifyWorkforceAssertion(fedAssertion(assertion), fedConfig(config), fedBinding(binding), ledger, NOW); return 'NO_ERROR'; }
+const fedCode = async (assertion = {}, config = {}, binding = {}, ledger = new InMemoryAssertionLedger()) => {
+  try { await verifyWorkforceAssertion(fedAssertion(assertion), fedConfig(config), fedBinding(binding), ledger, NOW); return 'NO_ERROR'; }
   catch (error) { return error.code; }
 };
 
-test('a federated assertion is admitted only when it answers our own login request', () => {
-  assert.equal(fedCode(), 'NO_ERROR');
+test('a federated assertion is admitted only when it answers our own login request', async () => {
+  assert.equal(await fedCode(), 'NO_ERROR');
 
   // Nothing below the signature means anything on an unsigned assertion.
-  assert.equal(fedCode({ signatureVerified: false }), 'FEDERATION_SIGNATURE_NOT_VERIFIED');
+  assert.equal(await fedCode({ signatureVerified: false }), 'FEDERATION_SIGNATURE_NOT_VERIFIED');
   // A disabled provider must not authenticate anyone, even with a valid
   // assertion left over from when it was enabled.
-  assert.equal(fedCode({}, { enabled: false }), 'FEDERATION_PROVIDER_DISABLED');
-  assert.equal(fedCode({ issuer: 'https://evil.example' }), 'FEDERATION_ISSUER_MISMATCH');
+  assert.equal(await fedCode({}, { enabled: false }), 'FEDERATION_PROVIDER_DISABLED');
+  assert.equal(await fedCode({ issuer: 'https://evil.example' }), 'FEDERATION_ISSUER_MISMATCH');
   // An assertion minted for a different service provider by the same IdP.
-  assert.equal(fedCode({ audience: 'https://other.example/sp' }), 'FEDERATION_AUDIENCE_MISMATCH');
+  assert.equal(await fedCode({ audience: 'https://other.example/sp' }), 'FEDERATION_AUDIENCE_MISMATCH');
   // One captured at a different endpoint and posted to ours.
-  assert.equal(fedCode({ destination: 'https://other.example/acs' }), 'FEDERATION_DESTINATION_MISMATCH');
+  assert.equal(await fedCode({ destination: 'https://other.example/acs' }), 'FEDERATION_DESTINATION_MISMATCH');
   // IdP-initiated flows are refused: a stolen assertion could be posted at any
   // time if it did not have to answer a request we started.
-  assert.equal(fedCode({ inResponseTo: null }), 'FEDERATION_REQUEST_MISMATCH');
-  assert.equal(fedCode({ inResponseTo: 'request-2' }), 'FEDERATION_REQUEST_MISMATCH');
+  assert.equal(await fedCode({ inResponseTo: null }), 'FEDERATION_REQUEST_MISMATCH');
+  assert.equal(await fedCode({ inResponseTo: 'request-2' }), 'FEDERATION_REQUEST_MISMATCH');
   // AGENTS.md rule 1: tenant comes from the bound configuration, never the message.
-  assert.equal(fedCode({}, {}, { tenantId: '00000000-0000-4000-8000-0000000000b2' }), 'FEDERATION_TENANT_MISMATCH');
-  assert.equal(fedCode({ subject: '   ' }, {}, {}), 'FEDERATION_SUBJECT_MISSING');
+  assert.equal(await fedCode({}, {}, { tenantId: '00000000-0000-4000-8000-0000000000b2' }), 'FEDERATION_TENANT_MISMATCH');
+  assert.equal(await fedCode({ subject: '   ' }, {}, {}), 'FEDERATION_SUBJECT_MISSING');
 });
 
-test('a federated assertion expires, cannot be replayed, and carries a fresh enough session', () => {
-  assert.equal(fedCode({ notOnOrAfter: '2026-08-07T11:00:00.000Z' }), 'FEDERATION_ASSERTION_EXPIRED');
-  assert.equal(fedCode({ notBefore: '2026-08-07T12:30:00.000Z' }), 'FEDERATION_ASSERTION_NOT_YET_VALID');
+test('a federated assertion expires, cannot be replayed, and carries a fresh enough session', async () => {
+  assert.equal(await fedCode({ notOnOrAfter: '2026-08-07T11:00:00.000Z' }), 'FEDERATION_ASSERTION_EXPIRED');
+  assert.equal(await fedCode({ notBefore: '2026-08-07T12:30:00.000Z' }), 'FEDERATION_ASSERTION_NOT_YET_VALID');
 
   // Within its validity window the same assertion is accepted every time it is
   // presented, unless it is consumed exactly once.
   const ledger = new InMemoryAssertionLedger();
-  assert.equal(fedCode({}, {}, {}, ledger), 'NO_ERROR');
-  assert.equal(fedCode({}, {}, {}, ledger), 'FEDERATION_ASSERTION_REPLAYED');
+  assert.equal(await fedCode({}, {}, {}, ledger), 'NO_ERROR');
+  assert.equal(await fedCode({}, {}, {}, ledger), 'FEDERATION_ASSERTION_REPLAYED');
 
   // A fresh assertion can still describe a very old IdP session.
-  assert.equal(fedCode({ authenticatedAt: '2026-08-07T06:00:00.000Z' }), 'FEDERATION_SESSION_TOO_OLD');
-  assert.equal(fedCode({ authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:Password' }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
-  assert.equal(fedCode({ authnContext: null }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
+  assert.equal(await fedCode({ authenticatedAt: '2026-08-07T06:00:00.000Z' }), 'FEDERATION_SESSION_TOO_OLD');
+  assert.equal(await fedCode({ authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:Password' }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
+  assert.equal(await fedCode({ authnContext: null }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
   // A tenant that demands no particular context accepts what the IdP sent.
-  assert.equal(fedCode({ authnContext: null }, { requiredAuthnContexts: [] }), 'NO_ERROR');
+  assert.equal(await fedCode({ authnContext: null }, { requiredAuthnContexts: [] }), 'NO_ERROR');
 
   // The same rules apply to OIDC: one decision, not two that can drift.
-  assert.equal(fedCode({ protocol: 'OIDC' }, { protocol: 'OIDC' }), 'NO_ERROR');
+  assert.equal(await fedCode({ protocol: 'OIDC' }, { protocol: 'OIDC' }), 'NO_ERROR');
 });
 
 test('group to role mapping denies by default rather than granting a fallback', () => {
@@ -3498,6 +3498,42 @@ test('the SCIM surface is reached before the session resolver and never takes a 
   // header would hand out a cross-tenant write primitive with every token.
   assert.match(scimRouter, /tenantId: credential\.tenantId/);
   assert.doesNotMatch(scimRouter, /tenantId:\s*(?:body|url|request|write)\./);
+});
+
+test('replay protection is only real if it survives a restart', async () => {
+  const federation = await readFile('apps/api/src/production-adapters/postgres/federation-repository.ts', 'utf8');
+
+  // The single-use guarantee is the primary key, not a read followed by a
+  // write. A check-then-insert has a race, and a race in replay protection is
+  // what a replay attack looks like when it is done properly.
+  assert.match(federation, /on conflict \(tenant_id,assertion_id\) do nothing/);
+  assert.match(federation, /rowCount === 1/);
+  assert.doesNotMatch(federation, /select .* from control\.federation_assertion_ledger[\s\S]{0,200}insert into/);
+
+  // The tenant is bound per call. Two ACS requests for different tenants are
+  // served concurrently by one process, and shared mutable tenant state would
+  // let one consume the other's assertion ID.
+  assert.match(federation, /ledgerFor\(tenantId\)/);
+  assert.doesNotMatch(federation, /let boundTenant/);
+
+  // Pruning is strictly past the window: removing an entry whose assertion is
+  // still valid would reopen the replay it exists to close.
+  assert.match(federation, /not_on_or_after < \$1/);
+
+  // No vendor is named in the federation *code*. Connecting a different IdP is
+  // a configuration row, which is the whole point of the generic provider
+  // keys. Comments may discuss a vendor -- explaining why it is not hardcoded
+  // is the opposite of hardcoding it -- so they are stripped before the check.
+  const library = await readFile('packages/federation/src/index.ts', 'utf8');
+  const withoutComments = (source) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  for (const source of [federation, library]) {
+    assert.doesNotMatch(withoutComments(source), /MobilityGuard|Entra|Okta|PingFederate/i);
+  }
+
+  // And the in-memory ledger is documented as what it is, so nobody reaches
+  // for it in production by accident.
+  assert.match(library, /export class InMemoryAssertionLedger/);
+  assert.match(library, /loses every consumed ID on restart/);
 });
 
 let failed = 0;

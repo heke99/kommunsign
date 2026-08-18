@@ -113,14 +113,31 @@ export interface FederationRequestBinding {
   readonly redirectUri: string;
 }
 
-/** Records consumed assertion IDs so a replay is refused. */
+/**
+ * Records consumed assertion IDs so a replay is refused.
+ *
+ * Asynchronous because the only implementation that actually protects anything
+ * is a durable one. An in-process set forgets every assertion on restart, and a
+ * deployment running more than one instance never shared the set to begin with
+ * — so a replay lands wherever the first attempt did not.
+ *
+ * `notOnOrAfter` travels with the entry so the ledger can be pruned once every
+ * assertion in a window has expired. Pruning earlier than that would reopen the
+ * replay window it exists to close.
+ */
 export interface AssertionLedger {
-  consume(assertionId: string): boolean;
+  consume(assertionId: string, notOnOrAfter: string): Promise<boolean>;
 }
 
+/**
+ * For tests and single-process development only.
+ *
+ * Deliberately not the production path: it loses every consumed ID on restart,
+ * and two instances of it agree about nothing.
+ */
 export class InMemoryAssertionLedger implements AssertionLedger {
   private readonly seen = new Set<string>();
-  consume(assertionId: string): boolean {
+  async consume(assertionId: string): Promise<boolean> {
     if (this.seen.has(assertionId)) return false;
     this.seen.add(assertionId);
     return true;
@@ -137,13 +154,13 @@ function instant(value: string, code: FederationRejectionCode): number {
  * Assertion admission
  * ------------------------------------------------------------------ */
 
-export function verifyWorkforceAssertion(
+export async function verifyWorkforceAssertion(
   assertion: WorkforceAssertion,
   config: FederationConfig,
   binding: FederationRequestBinding,
   ledger: AssertionLedger,
   now: Date,
-): void {
+): Promise<void> {
   // A disabled provider must not authenticate anyone, even with a perfectly
   // valid assertion left over from when it was enabled.
   if (!config.enabled) {
@@ -193,7 +210,7 @@ export function verifyWorkforceAssertion(
 
   // Within its validity window the same assertion is accepted every time it is
   // presented unless it is consumed exactly once.
-  if (!ledger.consume(assertion.assertionId)) {
+  if (!await ledger.consume(assertion.assertionId, assertion.notOnOrAfter)) {
     throw new FederationError('FEDERATION_ASSERTION_REPLAYED', 'Assertion has already been used');
   }
 

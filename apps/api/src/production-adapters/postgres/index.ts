@@ -7,6 +7,7 @@ import { createDataRepositories } from './data-database.js';
 import { createRetentionRepository } from './retention-repository.js';
 import { createPrivacyRepository } from './privacy-repository.js';
 import { createScimRepository } from './scim-repository.js';
+import { createFederationRepository } from './federation-repository.js';
 import { withKeysetListRepositories } from './keyset-repositories.js';
 import { createDomainRepository } from './domain-repository.js';
 import { loadProductionInfrastructure } from './infrastructure.js';
@@ -63,6 +64,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
       retention: createRetentionRepository(dataDatabase),
       privacy: createPrivacyRepository(dataDatabase, infrastructure.sensitiveData),
       scim: createScimRepository(dataDatabase, infrastructure.sensitiveData),
+      federation: createFederationRepository(controlDatabase),
       uploads: signingSourceUploads,
       ...publicRepositories,
       onboarding: createOnboardingRepository(controlDatabase, infrastructure),
