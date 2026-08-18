@@ -318,6 +318,30 @@ function parseUploadInput(value: unknown): UploadGrantInput {
     throw new ApiRequestError('VALIDATION_ERROR', 'Upload metadata is invalid or forbidden by policy', 422);
   }
 }
+
+/**
+ * Validates a gallring request.
+ *
+ * The case list is bounded because gallring is irreversible and a single
+ * request that named tens of thousands of cases would be impossible for the
+ * approver to meaningfully review before authorising it.
+ */
+function parseGallringInput(body: unknown): { readonly policyKey: string; readonly caseIds: readonly string[] } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ApiRequestError('RETENTION_REQUEST_INVALID', 'A gallring request object is required', 400);
+  const record = body as Record<string, unknown>;
+  const policyKey = record.policyKey;
+  if (typeof policyKey !== 'string' || !/^[a-z][a-z0-9_.-]{1,63}$/.test(policyKey)) {
+    throw new ApiRequestError('RETENTION_POLICY_KEY_INVALID', 'A policyKey is required', 400);
+  }
+  const caseIds = record.caseIds;
+  if (!Array.isArray(caseIds) || caseIds.length === 0 || caseIds.length > 500) {
+    throw new ApiRequestError('RETENTION_CASE_LIST_INVALID', 'Between 1 and 500 caseIds are required', 400);
+  }
+  const parsed = caseIds.map((value, index) => requireUuid(typeof value === 'string' ? value : '', `caseIds[${index}]`));
+  if (new Set(parsed).size !== parsed.length) throw new ApiRequestError('RETENTION_CASE_LIST_INVALID', 'caseIds must be unique', 400);
+  return { policyKey, caseIds: parsed };
+}
+
 function parseWebhookInput(value: unknown): WebhookEndpointInput {
   assertPlainObject(value);
   assertAllowedKeys(value, ['url', 'subscribedEvents']);
@@ -475,6 +499,50 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
         await authorize(dependencies, context, 'webhook:manage');
         const deliveryId = requireUuid(replayMatch[1] ?? '', 'webhookDeliveryId');
         return json(await dependencies.webhooks.replayDelivery(context, deliveryId), 202, { 'x-request-id': requestId });
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/retention/preview') {
+        await authorize(dependencies, context, 'retention:manage');
+        if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
+        const policyKey = url.searchParams.get('policyKey');
+        if (!policyKey || !/^[a-z][a-z0-9_.-]{1,63}$/.test(policyKey)) {
+          throw new ApiRequestError('RETENTION_POLICY_KEY_INVALID', 'A policyKey is required', 400);
+        }
+        // Preview is deliberately a read. Gallring is irreversible, so the step
+        // that shows what would be destroyed must never destroy anything itself.
+        return json(await dependencies.retention.preview(context, policyKey), 200, { 'x-request-id': requestId });
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/retention/jobs') {
+        await authorize(dependencies, context, 'retention:manage');
+        if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
+        return json(await dependencies.retention.list(context, pageInput(url)), 200, { 'x-request-id': requestId });
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/retention/jobs') {
+        await authorize(dependencies, context, 'retention:manage');
+        if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
+        const idempotencyKey = requireIdempotencyKey(request);
+        const input = parseGallringInput(await readJson(request));
+        return json(
+          await dependencies.retention.queue(context, input.policyKey, input.caseIds, idempotencyKey, await canonicalPayloadHash(input)),
+          201, { 'x-request-id': requestId },
+        );
+      }
+      const gallringGetMatch = /^\/v1\/retention\/jobs\/([^/]+)$/.exec(url.pathname);
+      if (request.method === 'GET' && gallringGetMatch) {
+        await authorize(dependencies, context, 'retention:manage');
+        if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
+        return json(await dependencies.retention.get(context, requireUuid(gallringGetMatch[1] ?? '', 'gallringJobId')), 200, { 'x-request-id': requestId });
+      }
+      const gallringApproveMatch = /^\/v1\/retention\/jobs\/([^/]+)\/approve$/.exec(url.pathname);
+      if (request.method === 'POST' && gallringApproveMatch) {
+        // A separate permission from retention:manage, so the person who plans a
+        // gallring and the person who authorises it can be different by role and
+        // not only by intent.
+        await authorize(dependencies, context, 'retention:execute');
+        if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
+        return json(
+          await dependencies.retention.approve(context, requireUuid(gallringApproveMatch[1] ?? '', 'gallringJobId')),
+          202, { 'x-request-id': requestId },
+        );
       }
       if (request.method === 'GET' && url.pathname === '/v1/events') {
         await authorize(dependencies, context, 'event:read');

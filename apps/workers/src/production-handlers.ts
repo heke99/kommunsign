@@ -19,6 +19,7 @@ import { activateNextSigningGroup } from './signing-groups.js';
 import { createPadesJobHandlers, type PadesServices } from './pades-handlers.js';
 import { createWebhookJobHandlers, createWebhookServices } from './webhook-handlers.js';
 import { createArchiveJobHandlers, createArchiveServices } from './archive-handlers.js';
+import { createRetentionJobHandlers } from './retention-handlers.js';
 import { SignServiceClient } from '../../../packages/signservice-client/src/index.js';
 
 const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
@@ -68,7 +69,7 @@ export function createProductionJobHandlers(input: {
     REMINDER_SEND: (job) => handleReminder(input.dataDatabase, input.infrastructure, job),
     CASE_EXPIRE: (job) => handleCaseExpire(input.dataDatabase, job),
     ...createArchiveJobHandlers({ dataDatabase: input.dataDatabase, infrastructure: input.infrastructure, services: createArchiveServices(input.configuration) }),
-    RETENTION_EXECUTE: phaseUnsupported,
+    ...createRetentionJobHandlers({ dataDatabase: input.dataDatabase, infrastructure: input.infrastructure }),
   };
 }
 

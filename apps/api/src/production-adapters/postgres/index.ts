@@ -4,6 +4,7 @@ import { TenantHostnameResolver } from '../../../../../packages/tenant-gateway/s
 import type { ApiDependencies } from '../../ports.js';
 import type { ProductionRuntimeConfiguration } from '../../production-runtime.js';
 import { createDataRepositories } from './data-database.js';
+import { createRetentionRepository } from './retention-repository.js';
 import { withKeysetListRepositories } from './keyset-repositories.js';
 import { createDomainRepository } from './domain-repository.js';
 import { loadProductionInfrastructure } from './infrastructure.js';
@@ -57,6 +58,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
     ), authTiming);
     return {
       ...data,
+      retention: createRetentionRepository(dataDatabase),
       uploads: signingSourceUploads,
       ...publicRepositories,
       onboarding: createOnboardingRepository(controlDatabase, infrastructure),

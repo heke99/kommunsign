@@ -158,6 +158,55 @@ export interface WebhookRepository {
   listDeliveries(context: TenantContext, page: PageInput, status?: string): Promise<Page<WebhookDeliveryView>>;
   replayDelivery(context: TenantContext, deliveryId: string): Promise<WebhookDeliveryView>;
 }
+export interface GallringPreviewCase {
+  readonly signatureCaseId: string;
+  readonly title: string;
+  readonly closedAt: string | null;
+  readonly action: 'DELETE' | 'ARCHIVE_THEN_DELETE';
+  readonly reason: string;
+  /** True when a legal hold blocks this case; such cases are never queued. */
+  readonly underLegalHold: boolean;
+  readonly archived: boolean;
+}
+export interface GallringPreview {
+  readonly policyKey: string;
+  readonly policyVersion: number;
+  readonly retentionClass: 'business_data' | 'security_log' | 'access_log';
+  readonly evaluatedAt: string;
+  readonly eligible: readonly GallringPreviewCase[];
+  readonly blocked: readonly GallringPreviewCase[];
+}
+export interface GallringJobView {
+  readonly id: string;
+  readonly state: 'QUEUED' | 'PLANNED' | 'APPROVED' | 'EXECUTING' | 'VERIFIED' | 'REPORTED' | 'ABANDONED';
+  readonly policyKey: string;
+  readonly policyVersion: number;
+  readonly retentionClass: string;
+  readonly caseIds: readonly string[];
+  readonly plannedTargets: readonly string[];
+  readonly requestedBy: string;
+  readonly requestedAt: string;
+  readonly approvedBy: string | null;
+  readonly approvedAt: string | null;
+  readonly report?: {
+    readonly complete: boolean;
+    readonly deletedTotal: number;
+    readonly unverifiedTargets: readonly string[];
+    readonly reportSha256: string;
+  };
+}
+export interface RetentionRepository {
+  /**
+   * Shows what a gallring would remove before anything is removed. Gallring is
+   * irreversible, so the preview is not a convenience — it is how the customer
+   * sees what they are about to approve.
+   */
+  preview(context: TenantContext, policyKey: string): Promise<GallringPreview>;
+  queue(context: TenantContext, policyKey: string, caseIds: readonly string[], idempotencyKey: string, payloadHash: string): Promise<GallringJobView>;
+  approve(context: TenantContext, gallringJobId: string): Promise<GallringJobView>;
+  get(context: TenantContext, gallringJobId: string): Promise<GallringJobView>;
+  list(context: TenantContext, page: PageInput): Promise<Page<GallringJobView>>;
+}
 export interface EventRepository {
   list(context: TenantContext, page: PageInput): Promise<Page<DomainEvent>>;
 }
@@ -466,6 +515,8 @@ export interface ApiDependencies {
   readonly webhooks: WebhookRepository;
   readonly events: EventRepository;
   readonly templates: TemplateRepository;
+  /** Optional: a deployment without gallring configured simply has no routes. */
+  readonly retention?: RetentionRepository;
   readonly publicSigning?: PublicSigningRepository;
   readonly providerWebhooks?: ProviderWebhookRepository;
   readonly publicVerification?: PublicVerificationRepository;

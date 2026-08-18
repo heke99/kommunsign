@@ -227,6 +227,52 @@ paths:
         exactly once, and a duplicate would break that promise.
       parameters: [{name: webhookDeliveryId, in: path, required: true, schema: {type: string, format: uuid}}]
       responses: {'202': {description: Replay queued, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookDelivery'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /retention/preview:
+    get:
+      operationId: previewRetention
+      x-kommunsign-implementation-status: runtime
+      security: [{oauth2: [retention:manage]}]
+      description: >-
+        Shows which closed cases a gallring would destroy and which the policy
+        holds back, without destroying anything. Gallring is irreversible, so the
+        preview is how the customer sees what they are about to approve.
+      parameters: [{name: policyKey, in: query, required: true, schema: {type: string, pattern: '^[a-z][a-z0-9_.-]{1,63}$'}}]
+      responses: {'200': {description: Gallring preview, content: {application/json: {schema: {$ref: '#/components/schemas/GallringPreview'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /retention/jobs:
+    get:
+      operationId: listRetentionJobs
+      x-kommunsign-implementation-status: runtime
+      security: [{oauth2: [retention:manage]}]
+      parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}]
+      responses: {'200': {description: Gallring jobs, content: {application/json: {schema: {$ref: '#/components/schemas/GallringJobPage'}}}}, default: {$ref: '#/components/responses/Error'}}
+    post:
+      operationId: queueRetentionJob
+      x-kommunsign-implementation-status: runtime
+      security: [{oauth2: [retention:manage]}]
+      description: >-
+        Queues a gallring. Every case is re-evaluated against the policy here
+        rather than trusting the list the caller sends, because a legal hold can
+        be placed between preview and queue.
+      parameters: [{$ref: '#/components/parameters/IdempotencyKey'}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/QueueGallring'}}}}
+      responses: {'201': {description: Gallring queued, content: {application/json: {schema: {$ref: '#/components/schemas/GallringJob'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /retention/jobs/{gallringJobId}:
+    get:
+      operationId: getRetentionJob
+      x-kommunsign-implementation-status: runtime
+      security: [{oauth2: [retention:manage]}]
+      parameters: [{name: gallringJobId, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {'200': {description: Gallring job, content: {application/json: {schema: {$ref: '#/components/schemas/GallringJob'}}}}, default: {$ref: '#/components/responses/Error'}}
+  /retention/jobs/{gallringJobId}/approve:
+    post:
+      operationId: approveRetentionJob
+      x-kommunsign-implementation-status: runtime
+      security: [{oauth2: [retention:execute]}]
+      description: >-
+        Authorises an irreversible deletion. The approver must not be the person
+        who requested it; the database enforces this as well as the API.
+      parameters: [{name: gallringJobId, in: path, required: true, schema: {type: string, format: uuid}}]
+      responses: {'202': {description: Gallring approved and queued for execution, content: {application/json: {schema: {$ref: '#/components/schemas/GallringJob'}}}}, default: {$ref: '#/components/responses/Error'}}
   /events:
     get:
       operationId: listEvents
@@ -953,6 +999,62 @@ components:
       additionalProperties: false
       required: [verified, packageSha256, failures]
       properties: {verified: {type: boolean}, packageSha256: {type: string, pattern: '^[0-9a-f]{64}$'}, failures: {type: array, items: {type: string}}, manifest: {type: object}}
+    QueueGallring:
+      type: object
+      additionalProperties: false
+      required: [policyKey, caseIds]
+      properties:
+        policyKey: {type: string, pattern: '^[a-z][a-z0-9_.-]{1,63}$'}
+        caseIds: {type: array, minItems: 1, maxItems: 500, uniqueItems: true, items: {type: string, format: uuid}}
+    GallringPreviewCase:
+      type: object
+      required: [signatureCaseId, title, action, reason, underLegalHold, archived]
+      properties:
+        signatureCaseId: {type: string, format: uuid}
+        title: {type: string}
+        closedAt: {type: string, format: date-time, nullable: true}
+        action: {type: string, enum: [DELETE, ARCHIVE_THEN_DELETE]}
+        reason: {type: string}
+        underLegalHold: {type: boolean}
+        archived: {type: boolean}
+    GallringPreview:
+      type: object
+      required: [policyKey, policyVersion, retentionClass, evaluatedAt, eligible, blocked]
+      properties:
+        policyKey: {type: string}
+        policyVersion: {type: integer}
+        retentionClass: {type: string, enum: [business_data, security_log, access_log]}
+        evaluatedAt: {type: string, format: date-time}
+        eligible: {type: array, items: {$ref: '#/components/schemas/GallringPreviewCase'}}
+        blocked: {type: array, items: {$ref: '#/components/schemas/GallringPreviewCase'}}
+    GallringJob:
+      type: object
+      required: [id, state, policyKey, policyVersion, retentionClass, caseIds, plannedTargets, requestedBy, requestedAt]
+      properties:
+        id: {type: string, format: uuid}
+        state: {type: string, enum: [QUEUED, PLANNED, APPROVED, EXECUTING, VERIFIED, REPORTED, ABANDONED]}
+        policyKey: {type: string}
+        policyVersion: {type: integer}
+        retentionClass: {type: string}
+        caseIds: {type: array, items: {type: string, format: uuid}}
+        plannedTargets: {type: array, items: {type: string}}
+        requestedBy: {type: string, format: uuid}
+        requestedAt: {type: string, format: date-time}
+        approvedBy: {type: string, format: uuid, nullable: true}
+        approvedAt: {type: string, format: date-time, nullable: true}
+        report:
+          type: object
+          description: Present once the run has been executed and reported.
+          required: [complete, deletedTotal, unverifiedTargets, reportSha256]
+          properties:
+            complete: {type: boolean}
+            deletedTotal: {type: integer}
+            unverifiedTargets: {type: array, items: {type: string}}
+            reportSha256: {type: string}
+    GallringJobPage:
+      type: object
+      required: [data]
+      properties: {data: {type: array, items: {$ref: '#/components/schemas/GallringJob'}}, nextCursor: {type: string}}
     CreateWebhookEndpoint:
       type: object
       additionalProperties: false
