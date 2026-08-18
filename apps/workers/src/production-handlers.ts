@@ -15,6 +15,9 @@ import { randomToken } from '../../../packages/crypto/src/tokens.js';
 import { createEvidenceManifest, type EvidenceFile } from '../../../packages/evidence/src/index.js';
 import { createEvidenceZip } from '../../../packages/evidence/src/zip.js';
 import { normalizeSwedishPersonalNumber } from '../../../packages/personal-number/src/index.js';
+import { activateNextSigningGroup } from './signing-groups.js';
+import { createPadesJobHandlers, type PadesServices } from './pades-handlers.js';
+import { SignServiceClient } from '../../../packages/signservice-client/src/index.js';
 
 const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
 const UTF8 = new TextEncoder();
@@ -56,6 +59,7 @@ export function createProductionJobHandlers(input: {
     SIGNATURE_CREATE: (job) => handleSignatureCreateGuard(input.dataDatabase, job),
     TIC_EVIDENCE_COLLECT: (job) => handleTicCollect(input.dataDatabase, input.infrastructure, services, job),
     SIGNATURE_VALIDATE: (job) => handleSignatureValidate(input.dataDatabase, input.infrastructure, services, job),
+    ...createPadesJobHandlers({ dataDatabase: input.dataDatabase, infrastructure: input.infrastructure, services: padesServices(input.configuration, services.validation) }),
     EVIDENCE_PACKAGE_BUILD: (job) => handleEvidencePackageBuild(input.dataDatabase, input.infrastructure, job),
     EMAIL_SEND: (job) => handleEmailSend(input.dataDatabase, input.infrastructure, services, job),
     WEBHOOK_DELIVER: phaseUnsupported,
@@ -193,8 +197,12 @@ async function handleIdentityPoll(database: SqlDatabase, services: Services, job
   const status = await services.tic.getStatus(row.provider_reference);
   await tenant(database, job.tenantId, async (tx) => {
     if (status === 'COMPLETED') await enqueue(tx, job.tenantId, 'TIC_EVIDENCE_COLLECT', `tic-collect:${transactionId}`, { identityTransactionId: transactionId });
-    else if (status === 'CANCELLED' || status === 'EXPIRED' || status === 'FAILED') await tx.query(`update app.identity_transactions set status=$3,failure_code=$4 where tenant_id=$1 and id=$2 and status in ('created','pending')`, [job.tenantId, transactionId, status.toLowerCase(), `TIC_${status}`]);
-    else await tx.query(`update app.identity_transactions set status='pending',last_polled_at=now() where tenant_id=$1 and id=$2`, [job.tenantId, transactionId]);
+    else if (status === 'CANCELLED' || status === 'EXPIRED' || status === 'FAILED') await tx.query(`update app.identity_transactions set status=$3,failure_code=$4 where tenant_id=$1 and id=$2 and status in ('pending','user_action_required')`, [job.tenantId, transactionId, status.toLowerCase(), `TIC_${status}`]);
+    // USER_ACTION_REQUIRED is not the same as PENDING: it is what tells the
+    // signer's browser to prompt them to open the BankID app. Collapsing both
+    // into 'pending' loses the only signal that distinguishes "waiting on the
+    // provider" from "waiting on the person".
+    else await tx.query(`update app.identity_transactions set status=$3,last_polled_at=now() where tenant_id=$1 and id=$2 and status in ('pending','user_action_required')`, [job.tenantId, transactionId, status === 'USER_ACTION_REQUIRED' ? 'user_action_required' : 'pending']);
   });
 }
 
@@ -239,7 +247,7 @@ async function handleTicCollect(database: SqlDatabase, infrastructure: Productio
   await infrastructure.objectStorage.putObject(context, xmlKey, xml, 'application/xml', true);
   await infrastructure.objectStorage.putObject(context, ocspKey, ocsp, 'application/ocsp-response', true);
   await tenant(database, job.tenantId, async (tx) => {
-    await tx.query(`update app.identity_transactions set status='complete_collected',collected_at=now(),completed_at=coalesce(completed_at,now()),raw_evidence_object_key=$3,evidence_sha256=$4 where tenant_id=$1 and id=$2 and status in ('created','pending')`, [job.tenantId, identityTransactionId, collectKey, await sha256Hex(collectBytes)]);
+    await tx.query(`update app.identity_transactions set status='complete_collected',collected_at=now(),completed_at=coalesce(completed_at,now()),raw_evidence_object_key=$3,evidence_sha256=$4 where tenant_id=$1 and id=$2 and status in ('pending','user_action_required')`, [job.tenantId, identityTransactionId, collectKey, await sha256Hex(collectBytes)]);
     await tx.query(`update app.signing_intents set status='evidence_collected',evidence_collected_at=now() where tenant_id=$1 and id=$2 and status='provider_started'`, [job.tenantId, row.signing_intent_id]);
     await enqueue(tx, job.tenantId, 'SIGNATURE_VALIDATE', `signature-validate:${identityTransactionId}`, { identityTransactionId, collectKey, xmlKey, ocspKey });
     await audit(tx, job.tenantId, 'BUSINESS', 'bankid.evidence_collected', 'identity_transaction', identityTransactionId, { identityTransactionId, signingIntentId: row.signing_intent_id, collectSha256: await sha256Hex(collectBytes), signatureXmlSha256: await sha256Hex(xml), ocspSha256: await sha256Hex(ocsp) });
@@ -316,15 +324,18 @@ async function handleSignatureValidate(database: SqlDatabase, infrastructure: Pr
     const verifiedIndex = await infrastructure.sensitiveData.blindIndex(verifiedPersonalNumber, 'signer.verified_personal_number');
     await tx.query(`update app.identity_transactions set status='verified',verified_at=$3 where tenant_id=$1 and id=$2 and status='complete_collected'`, [job.tenantId, identityTransactionId, report.verifiedAt]);
     await tx.query(`update app.signing_intents set status='verified',completed_at=$3 where tenant_id=$1 and id=$2 and status='evidence_collected'`, [job.tenantId, row.signing_intent_id, report.verifiedAt]);
-    await tx.query(`update app.signers set status='signed',status_version=status_version+1,verified_identifier_ciphertext=$3,verified_identifier_blind_index=$4 where tenant_id=$1 and id=$2 and status in ('identity_started','identity_verified','signing','opened','invited')`, [job.tenantId, row.signer_id, verifiedCipher, verifiedIndex]);
-    await tx.query(`update app.signer_invitations set used_at=coalesce(used_at,now()) where tenant_id=$1 and signer_id=$2 and used_at is null`, [job.tenantId, row.signer_id]);
-    await enqueue(tx, job.tenantId, 'EVIDENCE_PACKAGE_BUILD', `signer-package:${row.signer_id}`, { signatureCaseId: row.signature_case_id, signerId: row.signer_id });
-    await activateNextSigningGroup(tx, infrastructure, job.tenantId, row.signature_case_id);
-    const pending = await tx.query(`select 1 from app.signers where tenant_id=$1 and signature_case_id=$2 and required and status<>'signed' limit 1`, [job.tenantId, row.signature_case_id]);
-    if (pending.rowCount === 0) await enqueue(tx, job.tenantId, 'EVIDENCE_PACKAGE_BUILD', `case-package:${row.signature_case_id}`, { signatureCaseId: row.signature_case_id });
+
+    // A TIC PASS means the person was identified and consented to these exact
+    // document hashes. It is not a signature: no PDF has been signed at this
+    // point, and nothing here may claim otherwise. The signer therefore reaches
+    // 'identity_verified' and no further; PADES_CREATE takes it from here, and
+    // only an admitted PAdES signature over every document can reach 'signed'.
+    await tx.query(`update app.signers set status='identity_verified',status_version=status_version+1,verified_identifier_ciphertext=$3,verified_identifier_blind_index=$4 where tenant_id=$1 and id=$2 and status='identity_started'`, [job.tenantId, row.signer_id, verifiedCipher, verifiedIndex]);
+
+    await enqueue(tx, job.tenantId, 'PADES_CREATE', `pades-create:${row.signing_intent_id}`, { signingIntentId: row.signing_intent_id });
     await audit(tx, job.tenantId, 'BUSINESS', 'bankid.evidence_verified', 'identity_transaction', identityTransactionId, { identityTransactionId, signingIntentId: row.signing_intent_id, reportSha256: hashes.report, signatureXmlSha256: hashes.xml, ocspSha256: hashes.ocsp });
-    await audit(tx, job.tenantId, 'BUSINESS', 'signer.signed', 'signer', row.signer_id, { signerId: row.signer_id, signatureCaseId: row.signature_case_id, signingIntentId: row.signing_intent_id });
-    await outbox(tx, job.tenantId, 'signer', row.signer_id, 'signer.signed', { signatureCaseId: row.signature_case_id, signingIntentId: row.signing_intent_id });
+    await audit(tx, job.tenantId, 'BUSINESS', 'signer.identity_verified', 'signer', row.signer_id, { signerId: row.signer_id, signatureCaseId: row.signature_case_id, signingIntentId: row.signing_intent_id });
+    await outbox(tx, job.tenantId, 'signer', row.signer_id, 'signer.identity_verified', { signatureCaseId: row.signature_case_id, signingIntentId: row.signing_intent_id });
   });
 }
 
@@ -462,28 +473,6 @@ async function handleApplicationNotification(controlDatabase: SqlDatabase, infra
   });
 }
 
-async function activateNextSigningGroup(tx: SqlTransaction, infrastructure: ProductionInfrastructure, tenantId: string, signatureCaseId: string): Promise<void> {
-  const next = await tx.query<{readonly signing_order:number}>(
-    `select min(s.signing_order) signing_order from app.signers s where s.tenant_id=$1 and s.signature_case_id=$2 and s.status='pending'
-      and not exists(select 1 from app.signers lower where lower.tenant_id=s.tenant_id and lower.signature_case_id=s.signature_case_id and lower.signing_order<s.signing_order and lower.required and lower.status<>'signed')`, [tenantId, signatureCaseId]);
-  const group = next.rows[0]?.signing_order;
-  if (!group) return;
-  const signers = await tx.query<{readonly id:string;readonly email_ciphertext:Uint8Array;readonly expires_at:string|Date}>(
-    `select s.id,s.email_ciphertext,si.expires_at from app.signers s join app.signing_intents si on si.tenant_id=s.tenant_id and si.signer_id=s.id
-      where s.tenant_id=$1 and s.signature_case_id=$2 and s.signing_order=$3 and s.status='pending'`, [tenantId, signatureCaseId, group]);
-  for (const signer of signers.rows) {
-    const invitationId = crypto.randomUUID(); const token = randomToken(32); const tokenHash = await infrastructure.sensitiveData.blindIndex(token, 'signer.invitation_token');
-    const expiresAt = new Date(signer.expires_at).toISOString();
-    await tx.query(`insert into app.signer_invitations(tenant_id,id,signer_id,token_hash,expires_at) values($1,$2,$3,$4,$5)`, [tenantId, invitationId, signer.id, tokenHash, expiresAt]);
-    const messageId = crypto.randomUUID(); const payload = JSON.stringify({ invitationToken: token, signerId: signer.id, signatureCaseId, tenantId, expiresAt });
-    const encryptedPayload = await infrastructure.sensitiveData.encryptText(payload, 'email.signature_invitation');
-    await tx.query(`insert into app.email_messages(tenant_id,id,signer_id,signature_case_id,template_key,template_version,locale,recipient_ciphertext,message_payload_ciphertext,payload_sha256,idempotency_key) values($1,$2,$3,$4,'signature_invitation',1,'sv-SE',$5,$6,$7,$8)`, [tenantId, messageId, signer.id, signatureCaseId, signer.email_ciphertext, encryptedPayload, await sha256Hex(payload), `signature-invitation:${invitationId}`]);
-    await enqueue(tx, tenantId, 'EMAIL_SEND', `email:${messageId}`, { emailMessageId: messageId });
-    await tx.query(`update app.signers set status='invited',status_version=status_version+1 where tenant_id=$1 and id=$2 and status='pending'`, [tenantId, signer.id]);
-    await audit(tx, tenantId, 'BUSINESS', 'invitation.created', 'signer', signer.id, { signatureCaseId, signerId: signer.id, signingOrder: group });
-  }
-}
-
 async function loadEvidenceFiles(database: SqlDatabase, infrastructure: ProductionInfrastructure, context: TenantContext, signatureCaseId: string, signerId?: string): Promise<{readonly files:EvidenceFile[];readonly metadata:Readonly<Record<string,CanonicalJsonValue>>;readonly createdAt:string}> {
   const caseInfo = await tenant(database, context.tenantId, async (tx) => {
     const caseResult = await tx.query<{readonly title:string;readonly external_reference:string|null;readonly legal_name:string|null}>(`select c.title,c.external_reference,o.legal_name from app.signature_cases c left join app.organizations o on o.tenant_id=c.tenant_id where c.tenant_id=$1 and c.id=$2`, [context.tenantId, signatureCaseId]);
@@ -563,6 +552,38 @@ function createServices(configuration: Readonly<Record<string,string>>): Service
     defaultFrom: parseAddress(required(configuration, 'EMAIL_DEFAULT_FROM')),
     defaultReplyTo: parseAddress(required(configuration, 'EMAIL_DEFAULT_REPLY_TO')),
   };
+}
+
+
+/**
+ * Wires the PAdES stages.
+ *
+ * Both the SignService URL and the trust anchors are optional at construction
+ * and fatal at use. That is deliberate: a deployment doing digital approval only
+ * has no signing service, and refusing to boot the whole worker for that would
+ * take out document scanning and email as well. A deployment doing electronic
+ * signatures without them fails on the first PADES_CREATE, loudly and in one
+ * place, rather than silently producing cases that look signed.
+ */
+function padesServices(configuration: Readonly<Record<string,string>>, validation: ValidationServiceClient): PadesServices {
+  const signserviceUrl = configuration.SIGNSERVICE_URL?.trim();
+  const signserviceToken = configuration.SIGNSERVICE_TOKEN?.trim();
+  const signservice = signserviceUrl && signserviceToken ? new SignServiceClient(signserviceUrl, signserviceToken) : null;
+  return { signservice, validation, trustAnchorsBase64: trustAnchors(configuration) };
+}
+
+/**
+ * The certificate authorities whose signatures this deployment will accept.
+ *
+ * There is no default and no fallback to the host JDK's trust store. A validator
+ * that trusts whatever the base image happens to ship would answer a question
+ * nobody asked: what matters is whether the signer chains to the CA this
+ * deployment was configured to trust.
+ */
+function trustAnchors(configuration: Readonly<Record<string,string>>): readonly string[] {
+  const configured = configuration.SIGNING_TRUST_ANCHORS_BASE64?.trim();
+  if (!configured) return [];
+  return configured.split(',').map((entry) => entry.trim()).filter((entry) => entry.length > 0);
 }
 
 function renderEmail(templateKey: string, payload: Record<string,unknown>, organization: string, services: Services): {readonly subject:string;readonly text:string;readonly html:string} {

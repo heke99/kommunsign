@@ -10,3 +10,4 @@ psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/control/verify_org
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/data/verify.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/data/verify_organization_creation.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/tenant-isolation.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/pades-signature-chain.sql

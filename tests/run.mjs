@@ -36,6 +36,10 @@ import {
   admitPadesSignature, attainedPadesLevel, describePadesLevel,
 } from '../dist/packages/pades/src/index.js';
 import {
+  buildSigningIntentManifest, signingIntentManifestBytes, signingIntentManifestSha256,
+} from '../dist/packages/signing-engine/src/manifest.js';
+import { SignServiceClient } from '../dist/packages/signservice-client/src/index.js';
+import {
   buildDataSubjectResponse, erasureExemption, isOverdue,
 } from '../dist/packages/privacy/src/index.js';
 import {
@@ -2542,6 +2546,117 @@ const conversion = (overrides = {}) => ({
   verifiedProfile: 'PDF/A-2b', inspectionAccepted: true, ...overrides,
 });
 const officeCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+const manifestDocument = (ordinal, suffix) => ({
+  ordinal,
+  documentVersionId: `00000000-0000-4000-8000-00000000000${ordinal}`,
+  documentSha256: String(suffix).repeat(64).slice(0, 64),
+  displayName: `document-${ordinal}.pdf`,
+  mimeType: 'application/pdf',
+  profile: 'PDF/A-2b',
+  byteSize: 1024 * ordinal,
+});
+const manifestInput = (documents) => ({
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  signatureCaseId: '22222222-2222-4222-8222-222222222222',
+  signingIntentId: '33333333-3333-4333-8333-333333333333',
+  signerId: '44444444-4444-4444-8444-444444444444',
+  documents,
+});
+const manifestCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('a signing intent manifest hashes the same however the documents arrive', async () => {
+  const ordered = [manifestDocument(1, 'a'), manifestDocument(2, 'b'), manifestDocument(3, 'c')];
+  const shuffled = [ordered[2], ordered[0], ordered[1]];
+
+  const first = await signingIntentManifestSha256(buildSigningIntentManifest(manifestInput(ordered)));
+  const second = await signingIntentManifestSha256(buildSigningIntentManifest(manifestInput(shuffled)));
+
+  // Retrieval order is an implementation detail of whatever query produced the
+  // rows. If it leaked into the hash, the same consent would produce different
+  // evidence on different days and the manifest would prove nothing.
+  assert.equal(first, second);
+  assert.match(first, /^[0-9a-f]{64}$/);
+});
+
+test('a signing intent manifest changes when any document in the set changes', async () => {
+  const base = [manifestDocument(1, 'a'), manifestDocument(2, 'b')];
+  const original = await signingIntentManifestSha256(buildSigningIntentManifest(manifestInput(base)));
+
+  const swappedHash = await signingIntentManifestSha256(buildSigningIntentManifest(manifestInput(
+    [base[0], { ...base[1], documentSha256: 'd'.repeat(64) }],
+  )));
+  assert.notEqual(original, swappedHash);
+
+  const droppedDocument = await signingIntentManifestSha256(buildSigningIntentManifest(manifestInput([base[0]])));
+  assert.notEqual(original, droppedDocument);
+
+  const otherSigner = await signingIntentManifestSha256(buildSigningIntentManifest({
+    ...manifestInput(base), signerId: '55555555-5555-4555-8555-555555555555',
+  }));
+  assert.notEqual(original, otherSigner);
+});
+
+test('a signing intent manifest refuses a document set it cannot describe honestly', () => {
+  assert.equal(manifestCode(() => buildSigningIntentManifest(manifestInput([]))), 'MANIFEST_EMPTY');
+
+  // A gap means a document went missing between reading the intent and building
+  // the manifest. Renumbering around it would record a set nobody agreed to.
+  assert.equal(
+    manifestCode(() => buildSigningIntentManifest(manifestInput([manifestDocument(1, 'a'), manifestDocument(3, 'c')]))),
+    'MANIFEST_ORDINALS_NOT_CONTIGUOUS',
+  );
+  assert.equal(
+    manifestCode(() => buildSigningIntentManifest(manifestInput([{ ...manifestDocument(1, 'a'), documentSha256: 'not-a-hash' }]))),
+    'MANIFEST_DOCUMENT_HASH_INVALID',
+  );
+  assert.equal(
+    manifestCode(() => buildSigningIntentManifest(manifestInput([{ ...manifestDocument(1, 'a'), byteSize: 0 }]))),
+    'MANIFEST_DOCUMENT_SIZE_INVALID',
+  );
+  const duplicated = manifestDocument(1, 'a');
+  assert.equal(
+    manifestCode(() => buildSigningIntentManifest(manifestInput([duplicated, { ...duplicated, ordinal: 2 }]))),
+    'MANIFEST_DOCUMENT_DUPLICATED',
+  );
+});
+
+test('the manifest is stored as canonical JSON, so its bytes are reproducible', () => {
+  const manifest = buildSigningIntentManifest(manifestInput([manifestDocument(1, 'a'), manifestDocument(2, 'b')]));
+  const bytes = signingIntentManifestBytes(manifest);
+  const text = new TextDecoder().decode(bytes);
+  assert.equal(JSON.parse(text).schema, 'kommunsign.signing-intent-manifest.v1');
+  assert.deepEqual(signingIntentManifestBytes(manifest), bytes);
+});
+
+test('the signing service client refuses to carry a signing request over an open network', () => {
+  // The request body contains the document about to be signed and the identity
+  // evidence authorising it. Plain HTTP is tolerated only inside the private
+  // network the signing service actually lives on.
+  assert.throws(() => new SignServiceClient('http://signservice.example.com', 'token'), /SIGNSERVICE_URL_INVALID/);
+  assert.throws(() => new SignServiceClient('https://signservice.example.com', '   '), /SIGNSERVICE_TOKEN_MISSING/);
+  assert.ok(new SignServiceClient('http://signservice.railway.internal:8081', 'token'));
+  assert.ok(new SignServiceClient('http://127.0.0.1:8081', 'token'));
+  assert.ok(new SignServiceClient('https://signservice.example.com', 'token'));
+});
+
+test('a signing service that is not configured never resolves into a signature', async () => {
+  const notConfigured = new SignServiceClient('http://127.0.0.1:8081', 'token', async () => new Response(
+    JSON.stringify({ status: 'NOT_CONFIGURED', reason: 'no backend' }), { status: 503, headers: { 'content-type': 'application/json' } },
+  ));
+  await assert.rejects(() => notConfigured.sign({}), (error) => error.name === 'SignServiceNotConfiguredError');
+
+  const refused = new SignServiceClient('http://127.0.0.1:8081', 'token', async () => new Response(
+    JSON.stringify({ status: 'REFUSED', reason: 'IDENTITY_BINDING_SIGNER_MISMATCH' }), { status: 422, headers: { 'content-type': 'application/json' } },
+  ));
+  await assert.rejects(() => refused.sign({}), (error) => error.name === 'SignServiceRefusedError' && error.reason === 'IDENTITY_BINDING_SIGNER_MISMATCH');
+
+  // A 200 that is not actually a signed artifact must not be read as one.
+  const malformed = new SignServiceClient('http://127.0.0.1:8081', 'token', async () => new Response(
+    JSON.stringify({ status: 'SIGNED' }), { status: 200, headers: { 'content-type': 'application/json' } },
+  ));
+  await assert.rejects(() => malformed.sign({}), /SIGNSERVICE_PROTOCOL_INVALID/);
+});
 
 test('an Office document is converted before signing, and only the PDF/A is signed', () => {
   const plan = planOfficeIngestion(office());
