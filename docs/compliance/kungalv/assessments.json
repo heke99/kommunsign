@@ -5,6 +5,7 @@
     "PASS": "Implementation finns, verifieras av automatiserat test eller migrationsgranskning, och evidens är angiven.",
     "PARTIAL": "Delar finns implementerade men kravet är inte helt uppfyllt eller inte verifierat.",
     "GAP": "Ingen implementation finns ännu. Tekniskt genomförbart utan externt beroende.",
+    "PENDING_ADOPTION": "Styrdokumentet eller rutinen är utkastad och ligger i repot, men inte antagen. Räknas som ouppfyllt: ett utkast leverantören själv skrivit är inte ett beslut. Flyttas till PASS när antagandet är registrerat med datum, beslutsfattare och nästa översyn.",
     "BLOCKED_EXTERNAL": "Kräver avtal, credential, certifiering, leverantörsevidens eller organisatorisk åtgärd utanför kodbasen."
   },
   "assessments": {

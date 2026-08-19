@@ -5,7 +5,7 @@
 
 Bedömningsdatum: 2026-08-19
 
-44 av 138 krav kan inte avgöras i kodbasen.
+36 av 138 krav kan inte avgöras i kodbasen.
 De kräver avtal, credentials, certifiering, leverantörsevidens eller
 organisatoriska åtgärder. Kraven markeras medvetet inte som uppfyllda.
 
@@ -17,10 +17,9 @@ organisatoriska åtgärder. Kraven markeras medvetet inte som uppfyllda.
 | F004 | SKA | Kungälvs IdP-metadata (EntityID, SSO-endpoint, signeringscertifikat) samt registrering av Kommunsign som service provider hos MobilityGuard. Ren konfigurationsleverans från kommunen; koden är på plats och verifieras med samma tester när metadatan finns. | packages/federation implementerar en protokollneutral workforce-federation för både SAML 2.0 och OIDC. Ingen kod namnger MobilityGuard, Entra eller någon annan IdP: kravet är förmågan, och att ansluta en annan IdP är en konfigurationsrad. verifyWorkforceAssertion normaliserar båda protokollen till en assertion och avgör sedan i ett enda beslut om den får logga in någon: signaturverifiering, aktiverad provider, issuer, audience, destination, InResponseTo/state mot en inloggning vi själva startat (IdP-initierade flöden avvisas), notBefore/notOnOrAfter, egen maxålder på IdP-sessionen, engångsförbrukad assertion-ID mot replay, samt krävd authentication context. Tenant hämtas alltid ur den bundna konfigurationen och aldrig ur meddelandet (AGENTS.md regel 1). mapWorkforceIdentity mappar IdP-grupper till roller deny-by-default: omappad grupp ger inget, användare utan mappad grupp avvisas i stället för att få en defaultroll, och en mappning mot en roll utanför tenantens assignableRoles är ett fel i stället för en tyst tilldelning. resolveLogoutTargets avslutar exakt de sessioner IdP:n namngivit. Migration control/0017 ersätter den leverantörsspecifika provider_key-listan med generiska GENERIC_OIDC/GENERIC_SAML, och lägger till rollmappningstabell och assertion-ledger. |
 | F013 | SKA | Samma som F001: CA-utfärdat signeringscertifikat, HSM eller fjärr-QSCD, och TSA-avtal. Utan dem skapas ingen signatur och därmed levereras inget signerat dokument. Verifieras med befintliga tester mot skarp evidens när backend aktiveras. | Hela kedjan fram till leverans är implementerad. Dokument kanoniseras till PDF/A-2b och profilen verifieras av validator i stället för att påstås av konverteraren; Office-dokument konverteras serverside till samma profil; arkivexporten vägrar ta emot ett dokument utan verifierad PDF/A-profil; och ADOBE_READER_COMPATIBILITY kräver att signaturen läggs till som inkrementell uppdatering så att PDF/A-strukturen och tidigare signaturer bevaras. |
 | 2026 | SKA | Organisatorisk rutin och kontoregister hos leverantören. | control.platform_subjects och platform_role_assignments ger personliga plattformskonton med roller. |
-| 2027 | SKA | Utpekad roll hos Kungälv och avtalad samrådsrutin. | Ingen dokumenterad incidenthanteringsprocess finns i repot utöver THREAT_MODEL.md. |
-| 2029 | SKA | Leverantörsevidens för databehandlingsregion per underbiträde. | Hosting sker hos Supabase, Railway och Vercel. Ingen verifierad förteckning över regioner finns i repot. |
-| 2030 | SKA | Kommunens godkännande av varje underbiträde. | Ingen underbiträdesförteckning finns i repot. |
-| 2031 | SKA | Avtalad process med kommunen. | Ingen process för byte av underleverantör finns. |
+| 2027 | SKA | Kungälvs kommun måste peka ut sin kontaktperson för incidenter. Rutinen, tiderna och rollerna är utkastade; en rutin utan namngiven mottagare misslyckas första gången den används. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| 2029 | SKA | Leverantörsevidens per underbiträde för behandlingsregion. Förteckningen är utkastad men medvetet ofylld — en förteckning som ser komplett ut men innehåller antaganden inbjuder inte längre till kontroll. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| 2030 | SKA | Kommunens skriftliga godkännande av varje underbiträde. Godkännandeordningen är utkastad. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
 | 2032 | SKA | Två referenskunder i drift. Kundnamn ska inte läggas i repot. | Kan inte uppfyllas med kod. |
 | 2037 | SKA | Driftplattformens backupjobb måste anropa POST /metrics/backup-completions efter varje lyckad körning, och kommunen måste bekräfta backupfönster och retention. Mottagarsidan finns nu: tabell, endpoint med egen credential, och serien renderas ur det som rapporterats. Det som återstår är ett anrop från den som faktiskt tar backuperna — inte en integrationsdesign. | Applikationen kan nu ta emot en rapporterad backup och exponera den. Migration control/0020 lägger control.backup_completions, POST /metrics/backup-completions tar emot rapporten bakom ett eget BACKUP_SIGNAL_TOKEN, och metrics-repositoryt renderar kommunsign_last_successful_backup_timestamp_seconds ur den. PROMETHEUS_UNFED_SERIES är tom: serien är inte längre strukturellt omatbar, den saknar bara värde i en installation där ingen rapporterar — och det är precis vad BackupFailed larmar på. Ingest-credentialen är avsiktligt inte skrape-token: att läsa driftstatus och att tysta larmet om uteblivna backuper är olika befogenheter. Databasen vägrar en tidsstämpel i framtiden (skulle tysta larmet så länge den ligger före klockan) och en som flyttas bakåt (skulle låta en replay ta bort en färsk backup). |
 | 2039 | SKA | Avtalsvillkor. | Avtalsfråga. |
@@ -32,27 +31,20 @@ organisatoriska åtgärder. Kraven markeras medvetet inte som uppfyllda.
 | 2054 | SKA | Utbildningstillfälle genomförs av leverantören. | Ingen utbildning planerad. |
 | 2064 | SKA | Mottagande e-arkiv måste namnge sin FGS-version och lämna eventuella lokala profilutökningar. Valideringen mot den publicerade uppsättningen är på plats och körs i CI; det som återstår är arkivets egen uppsättning, vilket bara arkivet kan tillhandahålla. | Paketets METS sip.xml valideras nu mot Riksarkivets publicerade schemauppsättning, av en schemaprocessor i stället för av koden som skriver strukturen. Uppsättningen är buntad i validation-service med hashar i PROVENANCE.txt — en konformitetskontroll som hämtar scheman över nätet är inte reproducerbar. Att slå på valideringen hittade två verkliga profilbrott som "följer profilen vid inspektion" hade missat: altRecordID är obligatoriskt i profilen och saknades helt, och ID på amdSec krävs där METS-kärnan gör det valfritt. Båda är rättade. FGS_CONFORMANCE_STATUS håller nu två skilda påståenden isär: publishedSchemaValidated=true och receivingArchiveSchemaValidated=false. |
 | 2065 | SKA | Samma som 2064: bekräftad föreskriftsversion och schemauppsättning från kommunens e-arkiv. Skillnaden mot tidigare är att avståndet nu är arkivets lokala utökningar i stället för all schemavalidering. | Paketets METS sip.xml valideras nu mot Riksarkivets publicerade schemauppsättning, av en schemaprocessor i stället för av koden som skriver strukturen. Uppsättningen är buntad i validation-service med hashar i PROVENANCE.txt — en konformitetskontroll som hämtar scheman över nätet är inte reproducerbar. Att slå på valideringen hittade två verkliga profilbrott som "följer profilen vid inspektion" hade missat: altRecordID är obligatoriskt i profilen och saknades helt, och ID på amdSec krävs där METS-kärnan gör det valfritt. Båda är rättade. FGS_CONFORMANCE_STATUS håller nu två skilda påståenden isär: publishedSchemaValidated=true och receivingArchiveSchemaValidated=false. |
-| 3501 | SKA | Etablerat och tillämpat LIS hos leverantören. | Inget LIS finns dokumenterat. |
-| 3503 | SKA | Upprättade myndighetskontakter. | Organisatoriskt krav. |
-| 3504 | SKA | Antagen och tillämpad policy. | Ingen distansarbetspolicy finns. |
-| 3505 | SKA | Genomförda bakgrundskontroller. | Organisatoriskt krav. |
-| 3506 | SKA | Tecknade avtal med anställda och underleverantörer. | Organisatoriskt krav. |
-| 3507 | SKA | Genomförd utbildning. | Organisatoriskt krav. |
-| 3508 | SKA | Fastställd process. | Organisatoriskt krav. |
-| 3509 | SKA | Undertecknade ansvarsförbindelser. | Organisatoriskt krav. |
-| 3510 | SKA | Antagen policy och kontrollrutin. | AGENTS.md innehåller icke förhandlingsbara regler för utveckling. |
-| 3512 | SKA | Genomförd riskbedömning. | THREAT_MODEL.md finns men ingen återkommande riskbedömningsprocess. |
-| 3520 | SKA | Fastställda regler. | Organisatoriskt krav. |
+| 3505 | SKA | Genomförda bakgrundskontroller med dokumenterat datum och utförare. Rutinen och omfattningen är utkastade. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| 3506 | SKA | Undertecknade avtal med anställda och underleverantörer. Innehållet är utkastat. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| 3507 | SKA | Genomförd utbildning med registrerade deltagare och datum. Upplägg och takt är utkastade. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| 3509 | SKA | Undertecknade ansvarsförbindelser. Innehållet är utkastat. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| 3512 | SKA | Genomförd riskbedömning enligt den nu utkastade processen. THREAT_MODEL.md finns; det som saknas är att den görs om återkommande och att registret förs. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
 | 3522 | BÖR | Kommunens IdP-konfiguration. | Inloggning sker via kommunens IdP där MFA hanteras. Kravet är BÖR. |
 | 3525 | SKA | Escrow-avtal med tredje part. | Källkoden ligger i git med FILE_MANIFEST.sha256 och PROVENANCE_REPORT.txt. Branch protection och deposition är inte verifierade. |
 | 3527 | SKA | Leverantörsevidens för datahallens fysiska skyddsnivå. | Drift sker hos molnleverantörer. |
 | 3528 | SKA | Leverantörsevidens för fysisk tillträdeskontroll. | Fysisk åtkomst hanteras av hostingleverantören. |
 | 3533 | SKA | Leverantörsevidens för backuprutinen och en genomförd restore-övning med dokumenterat utfall. Rapporteringsvägen finns, men att en backup går att återläsa kan bara visas genom att någon återläser den. | Samma mottagarsida som 2037: en lyckad backup kan rapporteras, lagras och skrapas. Vad som inte kan produceras här är evidensen för att backuperna faktiskt tas och går att återläsa. |
 | 3536 | SKA | Leverantörsevidens för tidssynkroniseringskälla. | Systemet använder UTC internt. |
-| 3548 | SKA | Underbiträdesförteckning och kommunens godkännande. | Samma som 2030. |
-| 3550 | SKA | Utpekad roll hos Kungälv. | Samma som 2027. |
+| 3548 | SKA | Skyldigheterna måste åläggas underbiträdena i avtal, och leverantören ska kunna visa att det gjorts. Kravlistan är utkastad. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| 3550 | SKA | Samma som 2027: utpekad roll hos Kungälv. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
 | 3554 | SKA | Avtalad förvaltningsprocess. | Avtals- och förvaltningsfråga. |
 | 3555 | SKA | Tecknat personuppgiftsbiträdesavtal och sekretessförbindelse. | Bilaga 4 är personuppgiftsbiträdesavtalet. DATA_PROCESSING.md beskriver behandlingen. |
-| 3556 | SKA | Avtalad revisionsrätt och genomförd revision. | Ingen revisionsprocess avtalad. |
-| 3557 | SKA | Antagen policy. | Organisatoriskt krav. |
+| 3556 | SKA | Avtalad revisionsrätt och genomförd revision. Formerna, varseltiderna och vad som alltid kan lämnas ut är utkastade. | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
 

@@ -1,6 +1,6 @@
 {
   "assessedAt": "2026-08-19",
-  "reason": "Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående).",
+  "reason": "Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt.",
   "assessments": {
     "2068": {
       "state": "Gallring är nu en operation kunden kan köra, inte bara ett bibliotek. Den tidigare bedömningen beskrev packages/retention korrekt men utelämnade att ingen runtime-kod importerade det: RETENTION_EXECUTE var phaseUnsupported och dead-letterade direkt, och app.retention_policies fanns inte som tabell. Migration 0024 lägger policytabellen, app.gallring_jobs och app.gallring_reports, och apps/workers/src/retention-handlers.ts driver körningen.",
@@ -181,6 +181,169 @@
       "verification": "bash scripts/db-verify.sh mot riktig Postgres: tests/sql/backup-signal.sql; npm run verify:e2e:application.",
       "status": "BLOCKED_EXTERNAL",
       "blocker": "Leverantörsevidens för backuprutinen och en genomförd restore-övning med dokumenterat utfall. Rapporteringsvägen finns, men att en backup går att återläsa kan bara visas genom att någon återläser den."
+    },
+    "3501": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override.",
+      "implementation": "docs/governance/INFORMATIONSSAKERHETSPOLICY.md",
+      "evidence": "docs/governance/INFORMATIONSSAKERHETSPOLICY.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "PENDING_ADOPTION"
+    },
+    "3510": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override.",
+      "implementation": "docs/governance/INFORMATIONSSAKERHETSPOLICY.md",
+      "evidence": "docs/governance/INFORMATIONSSAKERHETSPOLICY.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "PENDING_ADOPTION"
+    },
+    "3520": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override.",
+      "implementation": "docs/governance/INFORMATIONSSAKERHETSPOLICY.md",
+      "evidence": "docs/governance/INFORMATIONSSAKERHETSPOLICY.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "PENDING_ADOPTION"
+    },
+    "3557": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override.",
+      "implementation": "docs/governance/INFORMATIONSSAKERHETSPOLICY.md",
+      "evidence": "docs/governance/INFORMATIONSSAKERHETSPOLICY.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "PENDING_ADOPTION"
+    },
+    "3503": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override.",
+      "implementation": "docs/governance/INCIDENTHANTERING.md",
+      "evidence": "docs/governance/INCIDENTHANTERING.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "PENDING_ADOPTION"
+    },
+    "3504": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override.",
+      "implementation": "docs/governance/PERSONALSAKERHET.md",
+      "evidence": "docs/governance/PERSONALSAKERHET.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "PENDING_ADOPTION"
+    },
+    "3508": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override.",
+      "implementation": "docs/governance/PERSONALSAKERHET.md",
+      "evidence": "docs/governance/PERSONALSAKERHET.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "PENDING_ADOPTION"
+    },
+    "2031": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override.",
+      "implementation": "docs/governance/UNDERBITRADEN.md",
+      "evidence": "docs/governance/UNDERBITRADEN.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "PENDING_ADOPTION"
+    },
+    "2027": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/INCIDENTHANTERING.md",
+      "evidence": "docs/governance/INCIDENTHANTERING.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Kungälvs kommun måste peka ut sin kontaktperson för incidenter. Rutinen, tiderna och rollerna är utkastade; en rutin utan namngiven mottagare misslyckas första gången den används."
+    },
+    "3550": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/INCIDENTHANTERING.md",
+      "evidence": "docs/governance/INCIDENTHANTERING.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Samma som 2027: utpekad roll hos Kungälv."
+    },
+    "2029": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/UNDERBITRADEN.md",
+      "evidence": "docs/governance/UNDERBITRADEN.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Leverantörsevidens per underbiträde för behandlingsregion. Förteckningen är utkastad men medvetet ofylld — en förteckning som ser komplett ut men innehåller antaganden inbjuder inte längre till kontroll."
+    },
+    "2030": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/UNDERBITRADEN.md",
+      "evidence": "docs/governance/UNDERBITRADEN.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Kommunens skriftliga godkännande av varje underbiträde. Godkännandeordningen är utkastad."
+    },
+    "3548": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/UNDERBITRADEN.md",
+      "evidence": "docs/governance/UNDERBITRADEN.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Skyldigheterna måste åläggas underbiträdena i avtal, och leverantören ska kunna visa att det gjorts. Kravlistan är utkastad."
+    },
+    "3505": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/PERSONALSAKERHET.md",
+      "evidence": "docs/governance/PERSONALSAKERHET.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Genomförda bakgrundskontroller med dokumenterat datum och utförare. Rutinen och omfattningen är utkastade."
+    },
+    "3506": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/PERSONALSAKERHET.md",
+      "evidence": "docs/governance/PERSONALSAKERHET.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Undertecknade avtal med anställda och underleverantörer. Innehållet är utkastat."
+    },
+    "3509": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/PERSONALSAKERHET.md",
+      "evidence": "docs/governance/PERSONALSAKERHET.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Undertecknade ansvarsförbindelser. Innehållet är utkastat."
+    },
+    "3507": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/PERSONALSAKERHET.md",
+      "evidence": "docs/governance/PERSONALSAKERHET.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Genomförd utbildning med registrerade deltagare och datum. Upplägg och takt är utkastade."
+    },
+    "3512": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/RISKHANTERING.md",
+      "evidence": "docs/governance/RISKHANTERING.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Genomförd riskbedömning enligt den nu utkastade processen. THREAT_MODEL.md finns; det som saknas är att den görs om återkommande och att registret förs."
+    },
+    "3556": {
+      "state": "Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock.",
+      "gap": "Utkast finns; det som återstår står i blockeraren.",
+      "implementation": "docs/governance/REVISION.md",
+      "evidence": "docs/governance/REVISION.md; docs/governance/README.md",
+      "verification": "Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Avtalad revisionsrätt och genomförd revision. Formerna, varseltiderna och vad som alltid kan lämnas ut är utkastade."
     }
   }
 }

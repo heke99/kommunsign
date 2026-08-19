@@ -40,7 +40,10 @@ for (const override of overrides) {
   if (overrideOrphans.length > 0) throw new Error(`Overrides without a historical assessment: ${overrideOrphans.join(', ')}`);
 }
 
-const allowedStatuses = new Set(['PASS', 'PARTIAL', 'GAP', 'BLOCKED_EXTERNAL']);
+// PENDING_ADOPTION sits between GAP and PASS: the artefact exists, the decision
+// does not. It is deliberately counted as unresolved, because a policy the
+// supplier wrote and nobody adopted is not a control.
+const allowedStatuses = new Set(['PASS', 'PARTIAL', 'GAP', 'PENDING_ADOPTION', 'BLOCKED_EXTERNAL']);
 for (const requirement of requirements.requirements) {
   const status = assessments[requirement.id]?.status;
   if (!allowedStatuses.has(status)) throw new Error(`Requirement ${requirement.id} has invalid status: ${status}`);
@@ -82,10 +85,10 @@ for (const [status, definition] of Object.entries(assessmentFile.statusDefinitio
 lines.push('');
 lines.push('## Sammanställning');
 lines.push('');
-lines.push('| Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |');
-lines.push('| --- | ---: | ---: | ---: | ---: | ---: |');
+lines.push('| Typ | PASS | PARTIAL | GAP | PENDING_ADOPTION | BLOCKED_EXTERNAL | Summa |');
+lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
 for (const type of ['SKA', 'BÖR']) {
-  const row = ['PASS', 'PARTIAL', 'GAP', 'BLOCKED_EXTERNAL'].map((status) => counts.get(`${type}/${status}`) ?? 0);
+  const row = ['PASS', 'PARTIAL', 'GAP', 'PENDING_ADOPTION', 'BLOCKED_EXTERNAL'].map((status) => counts.get(`${type}/${status}`) ?? 0);
   lines.push(`| ${type} | ${row.join(' | ')} | ${row.reduce((a, b) => a + b, 0)} |`);
 }
 lines.push('');

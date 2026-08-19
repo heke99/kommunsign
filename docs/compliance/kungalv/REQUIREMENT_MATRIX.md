@@ -22,14 +22,15 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 - **PASS** — Implementation finns, verifieras av automatiserat test eller migrationsgranskning, och evidens är angiven.
 - **PARTIAL** — Delar finns implementerade men kravet är inte helt uppfyllt eller inte verifierat.
 - **GAP** — Ingen implementation finns ännu. Tekniskt genomförbart utan externt beroende.
+- **PENDING_ADOPTION** — Styrdokumentet eller rutinen är utkastad och ligger i repot, men inte antagen. Räknas som ouppfyllt: ett utkast leverantören själv skrivit är inte ett beslut. Flyttas till PASS när antagandet är registrerat med datum, beslutsfattare och nästa översyn.
 - **BLOCKED_EXTERNAL** — Kräver avtal, credential, certifiering, leverantörsevidens eller organisatorisk åtgärd utanför kodbasen.
 
 ## Sammanställning
 
-| Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 87 | 0 | 0 | 43 | 130 |
-| BÖR | 7 | 0 | 0 | 1 | 8 |
+| Typ | PASS | PARTIAL | GAP | PENDING_ADOPTION | BLOCKED_EXTERNAL | Summa |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| SKA | 87 | 0 | 0 | 8 | 35 | 130 |
+| BÖR | 7 | 0 | 0 | 0 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 
@@ -110,7 +111,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0027_signed_document_delivery.sql; apps/api/src/production-adapters/postgres/delivery-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/document-delivery.sql med sju scenarier samt enhetstest för avkortning och att okänd, utgången, återkallad och förbrukad länk ger samma svar. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### F006 — PASS
 
@@ -466,7 +467,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/observability/src/prometheus.ts; apps/api/src/production-adapters/postgres/metrics-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som läser larmreglerna och failar om den larmade och den sända mängden glider isär, samt test för etikettkontroll och escaping. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2023 — PASS
 
@@ -482,7 +483,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0025_privacy_request_runtime.sql; apps/workers/src/privacy-handlers.ts; apps/api/src/production-adapters/postgres/privacy-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: sex enhetstester och tests/sql/privacy-requests.sql med nio scenarier. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2024 — PASS
 
@@ -513,7 +514,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/workers/src/privacy-handlers.ts; packages/privacy/src/index.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: raderingstest som bevisar att objekt förstörs, identifierare nollställs och loggraderna inte tas bort. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2026 — BLOCKED_EXTERNAL
 
@@ -539,13 +540,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | Säkerhetsincidenter |
-| Nuläge | Ingen dokumenterad incidenthanteringsprocess finns i repot utöver THREAT_MODEL.md. |
-| Gap | Samrådsrutin med utpekad roll hos beställaren saknas. |
-| Lösning | Incident response plan med roller, eskalering och notifiering, samt namngiven kontaktpunkt hos Kungälv. |
-| Kodevidens | SECURITY.md |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/INCIDENTHANTERING.md |
+| Kodevidens | docs/governance/INCIDENTHANTERING.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Utpekad roll hos Kungälv och avtalad samrådsrutin. |
+| Blockerare | Kungälvs kommun måste peka ut sin kontaktperson för incidenter. Rutinen, tiderna och rollerna är utkastade; en rutin utan namngiven mottagare misslyckas första gången den används. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2028 — PASS
 
@@ -570,13 +572,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 03 - Tillgänglighet och Support |
 | Område | Dataplacering |
-| Nuläge | Hosting sker hos Supabase, Railway och Vercel. Ingen verifierad förteckning över regioner finns i repot. |
-| Gap | Regionval per tjänst är inte styrkt med leverantörsevidens. |
-| Lösning | Upprätta underbiträdesförteckning med region, DPA-status och överföringsmekanism per tjänst. |
-| Kodevidens | infrastructure/ |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/UNDERBITRADEN.md |
+| Kodevidens | docs/governance/UNDERBITRADEN.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Leverantörsevidens för databehandlingsregion per underbiträde. |
+| Blockerare | Leverantörsevidens per underbiträde för behandlingsregion. Förteckningen är utkastad men medvetet ofylld — en förteckning som ser komplett ut men innehåller antaganden inbjuder inte längre till kontroll. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2030 — BLOCKED_EXTERNAL
 
@@ -586,15 +589,16 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 03 - Tillgänglighet och Support |
 | Område | Underleveranrör |
-| Nuläge | Ingen underbiträdesförteckning finns i repot. |
-| Gap | Underleverantörer är inte förtecknade och därmed inte godkända av kommunen. |
-| Lösning | docs/compliance/SUBPROCESSORS.md med juridisk entitet, tjänst, data, region, DPA och godkännandestatus. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/UNDERBITRADEN.md |
+| Kodevidens | docs/governance/UNDERBITRADEN.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Kommunens godkännande av varje underbiträde. |
+| Blockerare | Kommunens skriftliga godkännande av varje underbiträde. Godkännandeordningen är utkastad. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
-### 2031 — BLOCKED_EXTERNAL
+### 2031 — PENDING_ADOPTION
 
 | Fält | Innehåll |
 | --- | --- |
@@ -602,13 +606,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 03 - Tillgänglighet och Support |
 | Område | Underleveranrör |
-| Nuläge | Ingen process för byte av underleverantör finns. |
-| Gap | Godkännandeprocess saknas. |
-| Lösning | Dokumenterad ändringsprocess kopplad till underbiträdesförteckningen. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | BLOCKED_EXTERNAL |
-| Blockerare | Avtalad process med kommunen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override. |
+| Lösning | docs/governance/UNDERBITRADEN.md |
+| Kodevidens | docs/governance/UNDERBITRADEN.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
+| Status | PENDING_ADOPTION |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2032 — BLOCKED_EXTERNAL
 
@@ -701,7 +705,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run verify (159 tester, inklusive att skrape-token avvisas för ingest och tvärtom), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/backup-signal.sql, samt npm run verify:e2e:application som rapporterar en backup mot körande API, skrapar /metrics och ser serien — och får en framtida tidsstämpel avvisad. |
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Driftplattformens backupjobb måste anropa POST /metrics/backup-completions efter varje lyckad körning, och kommunen måste bekräfta backupfönster och retention. Mottagarsidan finns nu: tabell, endpoint med egen credential, och serien renderas ur det som rapporterats. Det som återstår är ett anrop från den som faktiskt tar backuperna — inte en integrationsdesign. |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2038 — PASS
 
@@ -1025,7 +1029,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run verify (159 tester), samt npm run verify:e2e:application som kör scripts/verify-fgs-package.mjs mot körande validation-service: descriptorn valideras, och fyra medvetet brutna varianter avvisas — saknat amdSec-ID, saknat altRecordID, ett element profilen inte tillåter, och något som inte är XML alls. |
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Mottagande e-arkiv måste namnge sin FGS-version och lämna eventuella lokala profilutökningar. Valideringen mot den publicerade uppsättningen är på plats och körs i CI; det som återstår är arkivets egen uppsättning, vilket bara arkivet kan tillhandahålla. |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2065 — BLOCKED_EXTERNAL
 
@@ -1042,7 +1046,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run verify (159 tester), samt npm run verify:e2e:application som kör scripts/verify-fgs-package.mjs mot körande validation-service: descriptorn valideras, och fyra medvetet brutna varianter avvisas — saknat amdSec-ID, saknat altRecordID, ett element profilen inte tillåter, och något som inte är XML alls. |
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Samma som 2064: bekräftad föreskriftsversion och schemauppsättning från kommunens e-arkiv. Skillnaden mot tidigare är att avståndet nu är arkivets lokala utökningar i stället för all schemavalidering. |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2066 — PASS
 
@@ -1088,7 +1092,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0024_gallring_runtime.sql; apps/workers/src/retention-handlers.ts; apps/api/src/production-adapters/postgres/retention-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/gallring.sql, nio scenarier som var för sig kontrollerar att rätt guard utlöstes. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2069 — PASS
 
@@ -1104,7 +1108,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/router.ts; apps/api/src/production-adapters/postgres/retention-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstester samt behörighetstester för retention:manage och retention:execute. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2070 — PASS
 
@@ -1120,7 +1124,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/workers/src/retention-handlers.ts; packages/retention/src/executor.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstest som avvisar en rapport som påstår fullständighet samtidigt som den räknar upp oadresserade mål. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2071 — PASS
 
@@ -1136,7 +1140,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/authorization/src/index.ts; migrations/data/0024_gallring_runtime.sql |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/gallring.sql bevisar att självgodkännande avvisas med rätt guard. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2072 — PASS
 
@@ -1152,7 +1156,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/retention/src/index.ts; migrations/data/0024_gallring_runtime.sql |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstester inklusive fullständighetsvillkoret. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2073 — PASS
 
@@ -1228,7 +1232,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/federation-router.ts; services/validation-service/src/main/java/se/kommunsign/validation/SamlAssertionValidator.java; migrations/control/0019_federation_login_requests.sql; services/validation-service/src/main/java/se/kommunsign/validation/OidcTokenValidator.java; services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java |
 | Verifiering | npm run verify (147 tester), mvn -B test (17 Java-tester), bash scripts/db-verify.sh mot riktig Postgres: nio federationsroute-tester (replay, öppen omdirigering, fail-closed utan konfigurerat certifikat, PASS utan verifierad signatur, protokoll som inte får väljas av endpointen), elva Java-tester mot verkligt signerad XML och verkligt signerade id_token inklusive falsk IdP, manipulerad payload, alg:none och jku-header, samt tests/sql/federation-replay.sql. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2080 — PASS
 
@@ -1274,7 +1278,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/scim-router.ts; apps/api/src/production-adapters/postgres/scim-repository.ts; migrations/data/0026_scim_client_issuance.sql |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: åtta SCIM-tester över HTTP samt tests/sql/scim-provisioning.sql. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2083 — PASS
 
@@ -1290,7 +1294,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/scim/src/index.ts; apps/api/src/scim-router.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: idempotenstest, avaktiveringstest och DELETE-test som bevisar att historik bevaras. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2084 — PASS
 
@@ -1306,7 +1310,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/scim-router.ts; migrations/data/0017_scim_provisioning.sql |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som visar att saknad, felformad och felaktig token ger samma svar, och att svaret inte beskriver vad som skulle ha nåtts. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 2085 — PASS
 
@@ -1322,24 +1326,24 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/scim/src/index.ts; apps/api/src/production-adapters/postgres/scim-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som visar att en gruppmappning utanför klientens scope avvisas och att ingenting skrivs. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ## KLASSA Inform. Tekn. Krav
 
-### 3501 — BLOCKED_EXTERNAL
+### 3501 — PENDING_ADOPTION
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska för de delar av verksamheten som berörs i leveransen ha ett ledningssystem för informationssäkerhet (LIS) som baseras på SS-EN ISO/IEC27001:2017 eller motsvarande. Ledningssystemet ska omfatta bland annat att samtliga säkerhetskritiska administrativa och tekniska processer är dokumenterade och vilar på en formell grund där roller, ansvar och befogenheter finns tydligt definierade. |
 | Typ | SKA |
 | ISO | A.6.1 Intern organisation — A.6.1.1 Informationssäkerhetsroller och ansvar |
-| Nuläge | Inget LIS finns dokumenterat. |
-| Gap | Ledningssystem för informationssäkerhet enligt ISO/IEC 27001 eller motsvarande saknas. |
-| Lösning | docs/isms/ med scope, roller, riskhantering och tillämplighetsförklaring. Mallar gör inte kravet uppfyllt. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | BLOCKED_EXTERNAL |
-| Blockerare | Etablerat och tillämpat LIS hos leverantören. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override. |
+| Lösning | docs/governance/INFORMATIONSSAKERHETSPOLICY.md |
+| Kodevidens | docs/governance/INFORMATIONSSAKERHETSPOLICY.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
+| Status | PENDING_ADOPTION |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3502 — PASS
 
@@ -1355,35 +1359,35 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | tests/run.mjs: gallringstest för godkännande av annan än begärande och spärr mot leverantörspersonal, samt test för supportåtkomst per person. |
 | Status | PASS |
 
-### 3503 — BLOCKED_EXTERNAL
+### 3503 — PENDING_ADOPTION
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha upprättat och upprätthålla kontakter med de myndigheter som berörs av leveransen |
 | Typ | SKA |
 | ISO | A.6.1 Intern organisation — A.6.1.3 Kontakt med myndigheter |
-| Nuläge | Organisatoriskt krav. |
-| Gap | Inga myndighetskontakter upprättade. |
-| Lösning | Ingen teknisk komponent. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | BLOCKED_EXTERNAL |
-| Blockerare | Upprättade myndighetskontakter. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override. |
+| Lösning | docs/governance/INCIDENTHANTERING.md |
+| Kodevidens | docs/governance/INCIDENTHANTERING.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
+| Status | PENDING_ADOPTION |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
-### 3504 — BLOCKED_EXTERNAL
+### 3504 — PENDING_ADOPTION
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha en policy som beskriver hur de anställda får arbeta på distans avseende drift, förvaltning och support av de levererade tjänsterna. Leverantören ska regelbundet kontrollera att den efterlevs. |
 | Typ | SKA |
 | ISO | A.6.2 Mobila enheter och distansarbete — A.6.2.2 Distansarbete |
-| Nuläge | Ingen distansarbetspolicy finns. |
-| Gap | Policy och efterlevnadskontroll saknas. |
-| Lösning | Policymall plus efterlevnadsrutin. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | BLOCKED_EXTERNAL |
-| Blockerare | Antagen och tillämpad policy. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override. |
+| Lösning | docs/governance/PERSONALSAKERHET.md |
+| Kodevidens | docs/governance/PERSONALSAKERHET.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
+| Status | PENDING_ADOPTION |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3505 — BLOCKED_EXTERNAL
 
@@ -1392,13 +1396,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Leverantören ska ha processer och rutiner på plats för bakgrundskontroll av personal. |
 | Typ | SKA |
 | ISO | A.7.1 Före anställning — A.7.1.1 Bakgrundskontroll |
-| Nuläge | Organisatoriskt krav. |
-| Gap | Ingen bakgrundskontrollsprocess. |
-| Lösning | Ingen teknisk komponent. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/PERSONALSAKERHET.md |
+| Kodevidens | docs/governance/PERSONALSAKERHET.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Genomförda bakgrundskontroller. |
+| Blockerare | Genomförda bakgrundskontroller med dokumenterat datum och utförare. Rutinen och omfattningen är utkastade. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3506 — BLOCKED_EXTERNAL
 
@@ -1407,13 +1412,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Leverantören ska ha avtal om tystnadsplikt med sina anställda. Tystnadsplikten ska omfatta information om leverantörens kunder. Via avtal ska leverantören även säkerställa tystnadsplikt för underleverantörer. |
 | Typ | SKA |
 | ISO | A.7.1 Före anställning — A.7.1.2 Anställningsvillkor |
-| Nuläge | Organisatoriskt krav. |
-| Gap | Inga tystnadspliktsavtal. |
-| Lösning | Ingen teknisk komponent. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/PERSONALSAKERHET.md |
+| Kodevidens | docs/governance/PERSONALSAKERHET.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Tecknade avtal med anställda och underleverantörer. |
+| Blockerare | Undertecknade avtal med anställda och underleverantörer. Innehållet är utkastat. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3507 — BLOCKED_EXTERNAL
 
@@ -1422,28 +1428,29 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Leverantören ska för sin personal regelbundet genomföra utbildningar för ökad medvetenhet kring informationssäkerhet samt hålla sig uppdaterad kring beställarens policys, regler och rutiner. |
 | Typ | SKA |
 | ISO | A.7.2 Under anställning — A.7.2.2 Medvetenhet, utbildning och fortbildning vad gäller informationssäkerhet |
-| Nuläge | Organisatoriskt krav. |
-| Gap | Ingen säkerhetsutbildning. |
-| Lösning | Ingen teknisk komponent. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/PERSONALSAKERHET.md |
+| Kodevidens | docs/governance/PERSONALSAKERHET.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Genomförd utbildning. |
+| Blockerare | Genomförd utbildning med registrerade deltagare och datum. Upplägg och takt är utkastade. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
-### 3508 — BLOCKED_EXTERNAL
+### 3508 — PENDING_ADOPTION
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha tydliga och kommunicerade åtgärder för överträdelse av informationssäkerhetsregler. |
 | Typ | SKA |
 | ISO | A.7.2 Under anställning — A.7.2.3 Disciplinär process |
-| Nuläge | Organisatoriskt krav. |
-| Gap | Ingen disciplinär process. |
-| Lösning | Ingen teknisk komponent. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | BLOCKED_EXTERNAL |
-| Blockerare | Fastställd process. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override. |
+| Lösning | docs/governance/PERSONALSAKERHET.md |
+| Kodevidens | docs/governance/PERSONALSAKERHET.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
+| Status | PENDING_ADOPTION |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3509 — BLOCKED_EXTERNAL
 
@@ -1452,28 +1459,29 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Leverantören ska till personalen ha kommunicerat de ansvar och skyldigheter som förblir gällande efter ändring eller avslut av anställning. Personalen ska ha skrivit under en ansvarsförbindelse avseende detta. |
 | Typ | SKA |
 | ISO | A.7.3 Avslut eller ändring av anställning — A.7.3.1 Avslut eller ändring av anställds ansvar |
-| Nuläge | Organisatoriskt krav. |
-| Gap | Ingen offboardingprocess med ansvarsförbindelse. |
-| Lösning | Ingen teknisk komponent. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/PERSONALSAKERHET.md |
+| Kodevidens | docs/governance/PERSONALSAKERHET.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Undertecknade ansvarsförbindelser. |
+| Blockerare | Undertecknade ansvarsförbindelser. Innehållet är utkastat. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
-### 3510 — BLOCKED_EXTERNAL
+### 3510 — PENDING_ADOPTION
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska ha dokumenterade regler, rutiner och roller som beskriver tillåten användning av de resurser som ingår i leveransen. Leverantören ska regelbundet kontrollera att de efterlevs. |
 | Typ | SKA |
 | ISO | A.8.1 Ansvar för tillgångar — A.8.1.3 Tillåten användning av tillgångar |
-| Nuläge | AGENTS.md innehåller icke förhandlingsbara regler för utveckling. |
-| Gap | Ingen policy för tillåten användning av driftresurser. |
-| Lösning | Acceptable use policy plus efterlevnadskontroll. |
-| Kodevidens | AGENTS.md |
-| Verifiering | Ingen. |
-| Status | BLOCKED_EXTERNAL |
-| Blockerare | Antagen policy och kontrollrutin. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override. |
+| Lösning | docs/governance/INFORMATIONSSAKERHETSPOLICY.md |
+| Kodevidens | docs/governance/INFORMATIONSSAKERHETSPOLICY.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
+| Status | PENDING_ADOPTION |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3511 — PASS
 
@@ -1488,7 +1496,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/workers/src/retention-handlers.ts; apps/workers/src/privacy-handlers.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallrings- och privacy-sviterna mot riktig Postgres. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3512 — BLOCKED_EXTERNAL
 
@@ -1497,13 +1505,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Leverantören ska genomföra regelbundna riskbedömningar för systemet dock minst årligen. Identifierade brister ska åtgärdas omgående enligt en dokumenterad plan och ska kunna redovisas för beställaren. |
 | Typ | SKA |
 | ISO | A.8.2 Informationsklassning — A.8.2.1 Klassning av information |
-| Nuläge | THREAT_MODEL.md finns men ingen återkommande riskbedömningsprocess. |
-| Gap | Ingen årlig riskbedömning med åtgärdsplan. |
-| Lösning | Rutin och mall för årlig riskbedömning. |
-| Kodevidens | THREAT_MODEL.md |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/RISKHANTERING.md |
+| Kodevidens | docs/governance/RISKHANTERING.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Genomförd riskbedömning. |
+| Blockerare | Genomförd riskbedömning enligt den nu utkastade processen. THREAT_MODEL.md finns; det som saknas är att den görs om återkommande och att registret förs. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3513 — PASS
 
@@ -1588,7 +1597,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/production-adapters/postgres/scim-repository.ts; migrations/data/0017_scim_provisioning.sql |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/scim-provisioning.sql kontrollerar att avprovisionering lämnar spår. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3519 — PASS
 
@@ -1603,22 +1612,22 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/scim-router.ts; packages/scim/src/index.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: DELETE-test över båda grenarna. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
-### 3520 — BLOCKED_EXTERNAL
+### 3520 — PENDING_ADOPTION
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska för sin personal ha fastställda regler för hur autentiseringsinformation får hanteras. |
 | Typ | SKA |
 | ISO | A.9.3 Användaransvar — A.9.3.1 Användning av konfidentiell autentiseringsinformation |
-| Nuläge | Organisatoriskt krav. |
-| Gap | Inga fastställda regler för hantering av autentiseringsinformation. |
-| Lösning | Ingen teknisk komponent. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | BLOCKED_EXTERNAL |
-| Blockerare | Fastställda regler. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override. |
+| Lösning | docs/governance/INFORMATIONSSAKERHETSPOLICY.md |
+| Kodevidens | docs/governance/INFORMATIONSSAKERHETSPOLICY.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
+| Status | PENDING_ADOPTION |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3521 — PASS
 
@@ -1691,7 +1700,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0029_key_rotation_backfill.sql; docs/runbooks/KEY_ROTATION.md; packages/crypto/src/key-rotation.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/key-rotation.sql, sju scenarier inklusive att en rotation utan registrerade kolumner inte kan rapportera sig verifierad. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3527 — BLOCKED_EXTERNAL
 
@@ -1793,7 +1802,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | bash scripts/db-verify.sh mot riktig Postgres: tests/sql/backup-signal.sql; npm run verify:e2e:application. |
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Leverantörsevidens för backuprutinen och en genomförd restore-övning med dokumenterat utfall. Rapporteringsvägen finns, men att en backup går att återläsa kan bara visas genom att någon återläser den. |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3534 — PASS
 
@@ -1985,13 +1994,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Leverantörens ansvar omfattar även underleverantörer. Underleverantörer ska godkännas av beställaren.Leverantören ska lista sina underleverantörer i anbudet som kommentar till detta krav. |
 | Typ | SKA |
 | ISO | A.15.1 Informationssäkerhet i leverantörsrelationer — A.15.1.1 Informationssäkerhetsregler för leverantörsrelationer |
-| Nuläge | Samma som 2030. |
-| Gap | Samma som 2030. |
-| Lösning | Samma som 2030. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/UNDERBITRADEN.md |
+| Kodevidens | docs/governance/UNDERBITRADEN.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Underbiträdesförteckning och kommunens godkännande. |
+| Blockerare | Skyldigheterna måste åläggas underbiträdena i avtal, och leverantören ska kunna visa att det gjorts. Kravlistan är utkastad. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3549 — PASS
 
@@ -2014,13 +2024,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Leverantören ska tillsammans med utpekad roll hos Beställaren samverka i hanteringen av sårbarheter, säkerhetshändelser eller säkerhetsincidenter. |
 | Typ | SKA |
 | ISO | A.16.1 Hantering av informationssäkerhetsincidenter och förbättringar — A.16.1.4 Bedömning av och beslut om informationssäkerhetshändelser |
-| Nuläge | Samma som 2027. |
-| Gap | Samma som 2027. |
-| Lösning | Samma som 2027. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/INCIDENTHANTERING.md |
+| Kodevidens | docs/governance/INCIDENTHANTERING.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Utpekad roll hos Kungälv. |
+| Blockerare | Samma som 2027: utpekad roll hos Kungälv. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
 ### 3551 — PASS
 
@@ -2087,26 +2098,27 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Beställaren ska i samråd med leverantören ha rätt att genomföra säkerhetsrevisioner av ingående delar i leveransen. |
 | Typ | SKA |
 | ISO | A.18.2 Granskningar av informationssäkerhet — A.18.2.3 Granskning av teknisk efterlevnad |
-| Nuläge | Ingen revisionsprocess avtalad. |
-| Gap | Ingen rutin för säkerhetsrevision. |
-| Lösning | docs/security/PENTEST_SCOPE.md plus revisionsrutin. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Utkast finns; det som återstår står i blockeraren. |
+| Lösning | docs/governance/REVISION.md |
+| Kodevidens | docs/governance/REVISION.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Avtalad revisionsrätt och genomförd revision. |
+| Blockerare | Avtalad revisionsrätt och genomförd revision. Formerna, varseltiderna och vad som alltid kan lämnas ut är utkastade. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 
-### 3557 — BLOCKED_EXTERNAL
+### 3557 — PENDING_ADOPTION
 
 | Fält | Innehåll |
 | --- | --- |
 | Krav | Leverantören ska begära tillstånd innan information i systemet (texter, bilder etc) återanvänds i andra sammanhang. |
 | Typ | SKA |
 | ISO | A.18.1 Efterlevnad av juridiska och avtalsmässiga krav — A. 18.1.2 Immateriella rättigheter |
-| Nuläge | Organisatoriskt krav. |
-| Gap | Ingen rutin för tillstånd före återanvändning av information. |
-| Lösning | Policy som förbjuder återanvändning utan tillstånd, inklusive förbud mot att skicka kunddata till externa AI- eller utvecklingsverktyg. |
-| Kodevidens | Ingen. |
-| Verifiering | Ingen. |
-| Status | BLOCKED_EXTERNAL |
-| Blockerare | Antagen policy. |
+| Nuläge | Styrdokumentet är utkastat och ligger i repot med tomt antagandeblock. |
+| Gap | Antagandet återstår: datum, beslutsfattare, dokumentägare och nästa översyn ska registreras, och kravet flyttas då till PASS i en daterad override. |
+| Lösning | docs/governance/INFORMATIONSSAKERHETSPOLICY.md |
+| Kodevidens | docs/governance/INFORMATIONSSAKERHETSPOLICY.md; docs/governance/README.md |
+| Verifiering | Dokumentet finns i repot. Antagandeblocket är tomt, vilket är hela poängen med statusen: ett utkast leverantören själv skrivit är inte ett beslut. |
+| Status | PENDING_ADOPTION |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign). FGS-paketet valideras nu mot Riksarkivets publicerade schemauppsättning, vilket hittade och rättade två profilbrott (2064, 2065 behåller BLOCKED_EXTERNAL med mindre kvarstående). Styrdokumenten för de organisatoriska kraven är utkastade under docs/governance/. Åtta krav där antagandet är enda kvarvarande steget står som PENDING_ADOPTION, som räknas som ouppfyllt. |
 

@@ -254,7 +254,7 @@ await check(
 
 await check(
   'REQUIREMENTS_RESOLVED',
-  'No requirement is left as GAP, PARTIAL, or BLOCKED_EXTERNAL.',
+  'No requirement is left as GAP, PARTIAL, PENDING_ADOPTION, or BLOCKED_EXTERNAL.',
   'Whoever supplies the artefacts each remaining blocker names.',
   async () => {
     const base = 'docs/compliance/kungalv';
@@ -270,7 +270,9 @@ await check(
       const status = merged[requirement.id]?.status ?? 'MISSING';
       counts[status] = (counts[status] ?? 0) + 1;
     }
-    const unresolved = (counts.GAP ?? 0) + (counts.PARTIAL ?? 0) + (counts.BLOCKED_EXTERNAL ?? 0) + (counts.MISSING ?? 0);
+    // PENDING_ADOPTION counts against: a drafted policy is not an adopted one.
+    const unresolved = (counts.GAP ?? 0) + (counts.PARTIAL ?? 0) + (counts.PENDING_ADOPTION ?? 0)
+      + (counts.BLOCKED_EXTERNAL ?? 0) + (counts.MISSING ?? 0);
     return {
       met: unresolved === 0,
       detail: Object.entries(counts).map(([status, count]) => `${status}=${count}`).join(' '),
