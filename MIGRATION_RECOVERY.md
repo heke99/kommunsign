@@ -35,3 +35,36 @@ select indexrelid::regclass from pg_index where not indisvalid;
 ```
 
 This must return no rows.
+
+## Applying migrations to production
+
+Use the **Database migration (production)** workflow
+(`.github/workflows/db-migrate-production.yml`). Dispatch it with `action: status` to list what is
+pending, then with `action: migrate` and the word `production` in the confirm box to apply.
+
+It needs two repository secrets, both **direct** connection strings:
+
+- `CONTROL_DATABASE_URL`
+- `DATA_DATABASE_URL`
+
+Not the transaction pooler. The pooler wraps statements in a transaction and rejects
+`CREATE INDEX CONCURRENTLY`; the workflow refuses a pooled-looking URL rather than failing halfway.
+
+After applying it re-runs the migrator to prove the pass was idempotent, and fails if any index was
+left `INVALID`.
+
+### Schema drift corrected 2026-08-19
+
+Two control-plane tables had row level security **enabled with no policy**, which no migration does:
+
+- `control.federation_assertion_ledger`
+- `control.tenant_federation_role_mappings`
+
+RLS with no policy is not a control. It denies every row to any role that does not hold `BYPASSRLS`
+and does nothing at all to one that does, so it was inert only because the runtime role currently
+bypasses RLS — and would have broken workforce federation login at the moment that changes. Neither
+table is reachable by `anon` or `authenticated` (no grants, no schema `USAGE`), so nothing was
+protected by it. Both were set back to the state the migrations define.
+
+If row level security on the control plane is wanted, it needs policies and a migration, not a
+dashboard toggle.
