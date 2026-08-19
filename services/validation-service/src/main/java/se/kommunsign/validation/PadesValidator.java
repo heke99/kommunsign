@@ -2,6 +2,7 @@ package se.kommunsign.validation;
 
 import java.io.ByteArrayInputStream;
 import java.security.cert.CertificateFactory;
+import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -9,6 +10,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import se.idsec.signservice.security.certificate.impl.SimpleCertificateValidator;
 import se.idsec.signservice.security.sign.SignatureValidationResult;
 import se.kommunsign.commons.HttpBoundary;
@@ -37,10 +39,44 @@ import se.swedenconnect.sigval.pdf.verify.impl.SVTenabledPDFDocumentSigVerifier;
  */
 public final class PadesValidator {
 
+    /**
+     * BouncyCastle has to be registered before any signature is inspected.
+     *
+     * sigval-pdf parses the CMS container through BC. Without the provider it
+     * does not throw — it returns signature results with no signer certificate,
+     * so every signature is reported as unverifiable. The direction is safe
+     * (nothing validates that should not) but the outcome is a validator that
+     * can never say yes, and the checks all read as though the signature were
+     * genuinely bad rather than as though the validator were misconfigured.
+     *
+     * This was a live defect, the twin of the one in SwedenConnectSigningEngine.
+     * The Java tests registered BC in their own fixture, so validation worked
+     * under test and would have failed in production. It was found by running
+     * the real chain over HTTP against the built services.
+     */
+    static {
+        ensureSecurityProvider();
+    }
+
+    /**
+     * Checked again at every validation, not only at class load.
+     *
+     * A static block runs once. In a long-lived process, anything that
+     * re-initialises the security providers would leave the validator silently
+     * unable to recover any signer certificate — reporting every signature as
+     * bad rather than reporting itself as broken.
+     */
+    static void ensureSecurityProvider() {
+        if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+            Security.addProvider(new BouncyCastleProvider());
+        }
+    }
+
     public static final String ENGINE = "swedenconnect-sigval-pdf";
     public static final String ENGINE_VERSION = "1.3.0";
 
     public Map<String, Object> validate(PadesValidationRequest request) {
+        ensureSecurityProvider();
         List<Map<String, Object>> checks = new ArrayList<>();
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("engine", ENGINE);
