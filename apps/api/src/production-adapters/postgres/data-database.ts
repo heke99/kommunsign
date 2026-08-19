@@ -256,10 +256,26 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
              values($1,$2,$3,$4,$5,$6,$7,$8,$9,'kommunsign.bankid-evidence.v2',$10,'prepared',$11,$12)`,
             [context.tenantId,signingIntentId,id,signer.id,signer.signing_order,visibleText,await sha256Hex(visibleText),payload,await sha256Hex(payload),signer.identifier_binding_mode,issuedAt.toISOString(),expiresAt.toISOString()],
           );
-          for (const document of snapshots) await transaction.query(
+          // One insert per document meant sending a case cost signers x documents round trips, all
+          // sequential inside a single transaction that also holds a connection open. Documents are
+          // capped at twenty, so this collapses up to twenty round trips per signer into one. The
+          // rows and their ordinals are unchanged; ordinal is carried explicitly rather than relying
+          // on ordering.
+          await transaction.query(
             `insert into app.signing_intent_documents(tenant_id,signing_intent_id,document_version_id,ordinal,document_sha256,display_name_snapshot,mime_type_snapshot,profile_snapshot,byte_size_snapshot)
-             values($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-            [context.tenantId,signingIntentId,document.documentVersionId,document.ordinal,document.sha256,document.displayName,document.mimeType,document.profile,document.byteSize],
+             select $1,$2,d.document_version_id,d.ordinal,d.document_sha256,d.display_name,d.mime_type,d.profile,d.byte_size
+               from jsonb_to_recordset($3::jsonb) as d(
+                 document_version_id uuid, ordinal integer, document_sha256 text,
+                 display_name text, mime_type text, profile text, byte_size bigint)`,
+            [context.tenantId, signingIntentId, JSON.stringify(snapshots.map((document) => ({
+              document_version_id: document.documentVersionId,
+              ordinal: document.ordinal,
+              document_sha256: document.sha256,
+              display_name: document.displayName,
+              mime_type: document.mimeType,
+              profile: document.profile,
+              byte_size: document.byteSize,
+            })))],
           );
           if (signer.signing_order === firstGroup) {
             const invitationId = crypto.randomUUID();
