@@ -268,9 +268,9 @@ export function createAuthenticationRepository(
           where tenant_id=$1
           order by created_at desc,id`, [tenantId],
       ));
-      const views: OrganizationUserView[] = [];
-      for (const row of rows.rows) views.push(await invitationView(row, infrastructure));
-      return views;
+      // Each view decrypts fields with WebCrypto. Awaiting one row before starting the next made
+      // the page cost the sum of every decrypt; Promise.all preserves order and overlaps them.
+      return Promise.all(rows.rows.map((row) => invitationView(row, infrastructure)));
     },
 
     async inviteOrganizationUser(context, tenantId, input, idempotencyKey, payloadHash) {

@@ -514,6 +514,7 @@ function mapKnownError(cause: unknown): ApiRequestError | null {
   if (!(cause instanceof Error)) return null;
   const mappings: Readonly<Record<string, readonly [number, string]>> = {
     IDEMPOTENCY_CONFLICT: [409, 'IDEMPOTENCY_KEY_REUSED'],
+    RETENTION_PREVIEW_TOO_LARGE: [413, 'RETENTION_PREVIEW_TOO_LARGE'],
     RESOURCE_VERSION_CONFLICT: [412, 'RESOURCE_VERSION_CONFLICT'],
     SIGN_SERVICE_NOT_CONFIGURED: [503, 'SIGN_SERVICE_NOT_CONFIGURED'],
     VALIDATION_SERVICE_NOT_CONFIGURED: [503, 'VALIDATION_SERVICE_NOT_CONFIGURED'],
