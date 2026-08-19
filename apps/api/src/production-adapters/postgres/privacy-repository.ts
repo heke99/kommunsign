@@ -107,8 +107,9 @@ export function createPrivacyRepository(database: SqlDatabase, sensitiveData: Se
           [context.tenantId, page.cursor ?? null, limit + 1],
         );
         const rows = result.rows.slice(0, limit);
-        const views: PrivacyRequestView[] = [];
-        for (const row of rows) views.push(await viewWithCoverage(tx, context.tenantId, row));
+        // One coverage query for the whole page instead of one per request.
+        const coverage = await coverageByRequest(tx, context.tenantId, rows.map((row) => row.id));
+        const views = rows.map((row) => buildView(row, coverage.get(row.id) ?? []));
         const last = rows[rows.length - 1];
         return {
           data: views,
@@ -148,18 +149,48 @@ async function loadView(tx: SqlTransaction, tenantId: string, privacyRequestId: 
   return viewWithCoverage(tx, tenantId, row);
 }
 
-async function viewWithCoverage(tx: SqlTransaction, tenantId: string, row: RequestRow): Promise<PrivacyRequestView> {
-  const coverage = await tx.query<{
-    readonly store: PrivacyRequestView['coverage'][number]['store'];
-    readonly record_count: number;
-    readonly searched: boolean;
-    readonly exemption_reason: string | null;
-    readonly action_taken: string;
-  }>(
-    `select store,record_count,searched,exemption_reason,action_taken
-       from app.privacy_request_coverage where tenant_id=$1 and privacy_request_id=$2 order by store`,
-    [tenantId, row.id],
+interface CoverageRow {
+  readonly privacy_request_id: string;
+  readonly store: PrivacyRequestView['coverage'][number]['store'];
+  readonly record_count: number;
+  readonly searched: boolean;
+  readonly exemption_reason: string | null;
+  readonly action_taken: string;
+}
+
+/**
+ * Coverage for a whole page in one query, grouped by request.
+ *
+ * Fetching it per request meant a page of up to a hundred privacy requests issued up to a hundred
+ * extra queries, one after another, inside a single transaction.
+ */
+async function coverageByRequest(
+  tx: SqlTransaction,
+  tenantId: string,
+  requestIds: readonly string[],
+): Promise<ReadonlyMap<string, readonly CoverageRow[]>> {
+  const grouped = new Map<string, CoverageRow[]>();
+  if (requestIds.length === 0) return grouped;
+  const rows = await tx.query<CoverageRow>(
+    `select privacy_request_id,store,record_count,searched,exemption_reason,action_taken
+       from app.privacy_request_coverage
+      where tenant_id=$1 and privacy_request_id = any($2::uuid[])
+      order by privacy_request_id, store`,
+    [tenantId, requestIds],
   );
+  for (const row of rows.rows) {
+    const existing = grouped.get(row.privacy_request_id);
+    if (existing) existing.push(row); else grouped.set(row.privacy_request_id, [row]);
+  }
+  return grouped;
+}
+
+async function viewWithCoverage(tx: SqlTransaction, tenantId: string, row: RequestRow): Promise<PrivacyRequestView> {
+  const grouped = await coverageByRequest(tx, tenantId, [row.id]);
+  return buildView(row, grouped.get(row.id) ?? []);
+}
+
+function buildView(row: RequestRow, coverageRows: readonly CoverageRow[]): PrivacyRequestView {
   const dueAt = new Date(row.due_at).toISOString();
   return {
     privacyRequestId: row.id,
@@ -173,7 +204,7 @@ async function viewWithCoverage(tx: SqlTransaction, tenantId: string, row: Reque
     identityAssurance: row.identity_assurance,
     deliveredAt: row.delivered_at ? new Date(row.delivered_at).toISOString() : null,
     refusalGround: row.refusal_ground,
-    coverage: coverage.rows.map((entry) => ({
+    coverage: coverageRows.map((entry) => ({
       store: entry.store,
       recordCount: entry.record_count,
       searched: entry.searched,

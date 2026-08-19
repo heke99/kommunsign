@@ -282,3 +282,65 @@ CREATE INDEX CONCURRENTLY validation_runs_signature_artifact_id_fk_idx
 DROP INDEX CONCURRENTLY IF EXISTS app.webhook_deliveries_outbox_event_id_fk_idx;
 CREATE INDEX CONCURRENTLY webhook_deliveries_outbox_event_id_fk_idx
   ON app.webhook_deliveries(tenant_id,outbox_event_id);
+
+-- The indexes above were derived from the schema as deployed, which is currently migrated through
+-- 0020. Migrations 0021 to 0029 are still pending and add further tables whose composite foreign
+-- keys are equally uncovered; none of those migrations declares an index for them. Because this file
+-- runs after them, those tables exist by the time these statements execute, so they are indexed here
+-- rather than leaving the gap to reappear the moment the deployment catches up.
+
+DROP INDEX CONCURRENTLY IF EXISTS app.document_download_events_grant_id_fk_idx;
+CREATE INDEX CONCURRENTLY document_download_events_grant_id_fk_idx
+  ON app.document_download_events(tenant_id,grant_id);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.document_download_grants_signature_case_id_fk_idx;
+CREATE INDEX CONCURRENTLY document_download_grants_signature_case_id_fk_idx
+  ON app.document_download_grants(tenant_id,signature_case_id);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.document_download_grants_signer_id_fk_idx;
+CREATE INDEX CONCURRENTLY document_download_grants_signer_id_fk_idx
+  ON app.document_download_grants(tenant_id,signer_id);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.gallring_jobs_approved_by_fk_idx;
+CREATE INDEX CONCURRENTLY gallring_jobs_approved_by_fk_idx
+  ON app.gallring_jobs(tenant_id,approved_by);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.gallring_jobs_requested_by_fk_idx;
+CREATE INDEX CONCURRENTLY gallring_jobs_requested_by_fk_idx
+  ON app.gallring_jobs(tenant_id,requested_by);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.gallring_reports_gallring_job_id_fk_idx;
+CREATE INDEX CONCURRENTLY gallring_reports_gallring_job_id_fk_idx
+  ON app.gallring_reports(tenant_id,gallring_job_id);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.key_rotation_columns_key_rotation_id_fk_idx;
+CREATE INDEX CONCURRENTLY key_rotation_columns_key_rotation_id_fk_idx
+  ON app.key_rotation_columns(tenant_id,key_rotation_id);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.key_rotations_requested_by_fk_idx;
+CREATE INDEX CONCURRENTLY key_rotations_requested_by_fk_idx
+  ON app.key_rotations(tenant_id,requested_by);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.privacy_request_coverage_privacy_request_id_fk_idx;
+CREATE INDEX CONCURRENTLY privacy_request_coverage_privacy_request_id_fk_idx
+  ON app.privacy_request_coverage(tenant_id,privacy_request_id);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.privacy_requests_handled_by_fk_idx;
+CREATE INDEX CONCURRENTLY privacy_requests_handled_by_fk_idx
+  ON app.privacy_requests(tenant_id,handled_by);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.privacy_requests_subject_user_id_fk_idx;
+CREATE INDEX CONCURRENTLY privacy_requests_subject_user_id_fk_idx
+  ON app.privacy_requests(tenant_id,subject_user_id);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.privacy_responses_privacy_request_id_fk_idx;
+CREATE INDEX CONCURRENTLY privacy_responses_privacy_request_id_fk_idx
+  ON app.privacy_responses(tenant_id,privacy_request_id);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.retention_policies_created_by_fk_idx;
+CREATE INDEX CONCURRENTLY retention_policies_created_by_fk_idx
+  ON app.retention_policies(tenant_id,created_by);
+
+DROP INDEX CONCURRENTLY IF EXISTS app.signing_intent_manifests_signing_intent_id_fk_idx;
+CREATE INDEX CONCURRENTLY signing_intent_manifests_signing_intent_id_fk_idx
+  ON app.signing_intent_manifests(tenant_id,signing_intent_id);
