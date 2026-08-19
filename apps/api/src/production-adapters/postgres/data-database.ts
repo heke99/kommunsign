@@ -416,7 +416,10 @@ export function createWebhookRepository(database: SqlDatabase, infrastructure: P
              join app.outbox_events e on e.tenant_id=d.tenant_id and e.id=d.outbox_event_id
             where d.tenant_id=$1 and ($4::text is null or d.status=$4)
             order by d.next_attempt_at desc,d.id desc offset $2 limit $3`,
-          [context.tenantId, offset, limit, status ?? null],
+          // limit + 1, like every other paged listing here: pageResult decides there is a next page
+          // by seeing more rows than the caller asked for. Fetching exactly `limit` made that test
+          // impossible, so this endpoint never emitted a cursor and could not be paged past page one.
+          [context.tenantId, offset, limit + 1, status ?? null],
         );
         return pageResult(result.rows.map(webhookDeliveryView), offset, limit);
       });

@@ -830,6 +830,36 @@ test('role lookups are memoised within a request and never across requests', asy
   assert.equal(attempts, 2);
 });
 
+test('paged listings fetch one row beyond the page so a cursor can be emitted', async () => {
+  const { createDataRepositories } = await import('../dist/apps/api/src/production-adapters/postgres/data-database.js');
+  const limits = [];
+  const database = {
+    transaction: async (work) => work({
+      query: async (sql, parameters = []) => {
+        // Record the LIMIT bound each paged listing asks the database for.
+        if (/limit \$/.test(sql) && /offset \$/.test(sql)) limits.push({ sql, parameters });
+        return { rows: [], rowCount: 0 };
+      },
+    }),
+  };
+  const repositories = createDataRepositories(database, {
+    sensitiveData: { encryptText: async () => new Uint8Array(), decryptText: async () => '', blindIndex: async () => '' },
+    objectStorage: {}, queue: { enqueue: async () => {} },
+  });
+  const context = {
+    tenantId: '11111111-1111-4111-8111-111111111111', subjectId: '22222222-2222-4222-8222-222222222222',
+    requestId: 'page-test', authMethod: 'development', source: 'api-client',
+  };
+  await repositories.webhooks.listDeliveries(context, { limit: 25 }, undefined);
+  assert.ok(limits.length > 0, 'the delivery listing must issue a paged query');
+  // pageResult decides there is a next page by seeing more rows than were asked for, so the query
+  // has to request limit + 1. Asking for exactly limit makes nextCursor unreachable.
+  assert.ok(
+    limits.some((entry) => entry.parameters.includes(26)),
+    `paged listing must request limit + 1, got parameters ${JSON.stringify(limits.map((e) => e.parameters))}`,
+  );
+});
+
 test('public routes stay reachable behind the public-router prefix guard', async () => {
   // handlePublicRequest now returns immediately unless the path is under /v1/public/ or
   // /v1/provider-webhooks/, so it no longer runs a dozen regexes for authenticated traffic. If a
