@@ -102,6 +102,26 @@ säger vad som faktiskt finns i stället för vad som fanns i ett paket.
 som GAP. Det stämde inte: overriden från 2026-08-11 sätter båda till PASS. Den
 raden var felet och är rättad.
 
+## Vad som inte är verifierat
+
+**Full real-flow E2E har aldrig körts.** API, workers, SignService och
+validation-service har aldrig startats tillsammans och fått ett dokument
+igenom. Varje del av kedjan är testad för sig — 147 tester, 17 Java-tester mot
+en riktig test-CA, elva SQL-sviter mot riktig Postgres — men *kopplingen mellan
+körande processer* är inte visad. En komponentsvit kan inte visa att tjänst A
+anropar tjänst B med de argument B väntar sig.
+
+Orsaken att den inte kördes här: Docker-bygget av Java-tjänsterna misslyckas i
+denna sandlåda eftersom Maven inne i containern inte når Maven Central —
+egress-proxyns TLS-certifikat finns inte i containerns Java-truststore.
+Värdbygget fungerar (`mvn -B test` är grönt) eftersom värden har det
+certifikatet. Det är en miljöbegränsning, inte ett fel i Dockerfilen, och det
+kringgicks inte genom att stänga av certifikatvalidering.
+
+Planen gjorde en grön full real-flow E2E till ett villkor för PRODUCTION_GO. Det
+villkoret är inte uppfyllt, och det är ett eget skäl — skilt från de externa
+artefakterna nedan — att inte sätta PRODUCTION_GO.
+
 ## PRODUCTION_GO: NEJ
 
 Det är rätt utfall. Kedjan är komplett och bevisad end-to-end mot en

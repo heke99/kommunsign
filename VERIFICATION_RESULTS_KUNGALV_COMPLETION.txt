@@ -66,15 +66,48 @@ mvn -B test   (services reactor)
                                                 refused.
   Total                                         17 tests, BUILD SUCCESS
 
-NOT RUN IN THIS ENVIRONMENT
-  npm run test:e2e            — Playwright. Requires the full compose stack including
-                                Gotenberg and MinIO with seeded tenants.
+NOT RUN — AND THIS IS THE MOST IMPORTANT LINE IN THIS FILE
+
+  Full real-flow E2E      — NEVER EXECUTED. The API, workers, SignService and
+                            validation-service have never been started together
+                            and had a document pushed through them
+                            (upload -> identity -> PAdES -> validation ->
+                            evidence package -> delivery -> archive export).
+
+                            Every piece of that chain is tested on its own: 147
+                            unit and contract tests, 17 Java tests against a real
+                            test certificate authority, and 11 SQL suites against
+                            real PostgreSQL. What is NOT demonstrated is the
+                            wiring between the running processes. A component
+                            suite cannot show that service A calls service B with
+                            the arguments B expects.
+
+                            Reason it was not run here: `docker compose --profile
+                            runtime build validation-service` fails in this
+                            sandbox because Maven inside the container cannot
+                            reach Maven Central — the egress proxy's TLS
+                            interception certificate is not in the container's
+                            Java truststore. The host build works (mvn -B test is
+                            green) because the host has that certificate. This is
+                            an environment limitation, not a defect in the
+                            Dockerfile, and the same build is expected to succeed
+                            on CI where egress is direct. It was not worked
+                            around by disabling certificate verification.
+
+  npm run test:e2e        — Playwright is not installed. The repository carries
+                            almost no npm dependencies by design, so the browser
+                            suite has never been runnable in this environment.
 
 PRODUCTION_GO: NO.
 
-  This is the correct outcome, not a shortfall. The signing chain is complete and
-  proven end to end against a test certificate authority, and the tests show it
-  refuses an untrusted one. Production requires artifacts no code can supply:
+  Two separate reasons, and only the second is external.
+
+  First: the plan made a green full real-flow E2E a precondition for
+  PRODUCTION_GO, and it has not been run. Until it has, nobody should read the
+  green gates above as evidence that the assembled system works — only that each
+  part does.
+
+  Second: production requires artifacts no code can supply:
 
     - a CA-issued signing certificate for the organisation
     - HSM or remote QSCD key protection (production refuses SOFTWARE protection)
