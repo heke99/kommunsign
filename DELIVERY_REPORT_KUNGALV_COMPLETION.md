@@ -102,29 +102,70 @@ säger vad som faktiskt finns i stället för vad som fanns i ett paket.
 som GAP. Det stämde inte: overriden från 2026-08-11 sätter båda till PASS. Den
 raden var felet och är rättad.
 
-## Vad som inte är verifierat
+## Vad körningen av hela kedjan visade
 
-**Full real-flow E2E har aldrig körts.** API, workers, SignService och
-validation-service har aldrig startats tillsammans och fått ett dokument
-igenom. Varje del av kedjan är testad för sig — 147 tester, 17 Java-tester mot
-en riktig test-CA, elva SQL-sviter mot riktig Postgres — men *kopplingen mellan
-körande processer* är inte visad. En komponentsvit kan inte visa att tjänst A
-anropar tjänst B med de argument B väntar sig.
+Full real-flow E2E körs nu, i två delar, och båda är grindar i CI.
 
-Orsaken att den inte kördes här: Docker-bygget av Java-tjänsterna misslyckas i
-denna sandlåda eftersom Maven inne i containern inte når Maven Central —
-egress-proxyns TLS-certifikat finns inte i containerns Java-truststore.
-Värdbygget fungerar (`mvn -B test` är grönt) eftersom värden har det
-certifikatet. Det är en miljöbegränsning, inte ett fel i Dockerfilen, och det
-kringgicks inte genom att stänga av certifikatvalidering.
+`npm run verify:e2e:signing` kör den kryptografiska kärnan: SignService och
+validation-service som separata processer, en PDF signerad och oberoende
+validerad över HTTP.
 
-Planen gjorde en grön full real-flow E2E till ett villkor för PRODUCTION_GO. Det
-villkoret är inte uppfyllt, och det är ett eget skäl — skilt från de externa
-artefakterna nedan — att inte sätta PRODUCTION_GO.
+`npm run verify:e2e:application` kör orkestreringen runt den: produktions-API:t
+och produktionsworkern som separata processer mot båda databaserna, MinIO,
+ClamAV, qpdf, Gotenberg, veraPDF och de två Java-tjänsterna. En organisation
+provisioneras genom plattforms-API:t, ett dokument går från uppladdningsgrant
+till validerad PDF/A-kanonisering, en inbjudan når e-postleverantören,
+undertecknaren öppnar den och startar BankID — och evidensen, som inget lokalt
+kan tillverka, **avvisas i stället för att accepteras**. Inget inne i systemet är
+mockat; de två dubblarna står för leverantörer utanför systemet och serveras
+över riktig HTTPS så att produktionsklienterna körs oförändrade.
+
+Att köra kedjan för första gången hittade tio fel som var fatala i produktion och
+osynliga för varje komponentsvit:
+
+1. **BouncyCastle registrerades aldrig** i vare sig signerings- eller
+   valideringstjänsten. Testfixturen gjorde det, produktionen inte.
+2. **DOCUMENT_SCAN kunde aldrig lyckas.** `FOR UPDATE` över en `LEFT JOIN` —
+   Postgres vägrar låsa den nullbara sidan. Samma form fanns i Office-scanningen
+   och i EMAIL_SEND, så ingen inbjudan hade kunnat skickas heller.
+3. **qpdf avslutar med 3 vid varningar**, vilket vanliga PDF:er från Word och
+   skannrar orsakar rutinmässigt. Bara `--check` var tillsagd att inte svara med
+   exitkod.
+4. **veraPDF svarade 500 på vår Accept-header** och rapporterar inte sin egen
+   version på `/api/info` — versionen i evidenspaketet var värdens kärnversion.
+5. **Ett ärende kunde aldrig skickas.** Repositoryt tillät `draft`, databasens
+   övergångstabell inte, och ingenting flyttade ett ärende ur `draft`.
+6. **Ingen tenant kunde starta BankID.** `tic_bankid_rollout_enabled` är false
+   som default och ingen kod skrev någonsin raden.
+7. **En BankID-signatur som inte verifierade gjorde omförsök** i stället för att
+   fälla undertecknaren: 422 betyder "detta verifierade inte" och lästes bara av
+   PAdES-klienten.
+8. **Ett jobb kunde dö tyst.** Raden hade `last_error_code`, men en rad är inte
+   någonstans en driftansvarig tittar. En strukturerad rad per misslyckat försök
+   hittade de fyra ovan.
+9. **Adaptermodulens sökväg löstes olika** i API och worker, eftersom V8 delar
+   kompileringen av en identisk `new Function`-källa mellan moduler.
+10. **Den lokala stacken kunde inte köra dokumentkedjan alls**: ClamAV
+    startloopade, Gotenbergs healthcheck anropade ett `wget` som inte finns i
+    imagen, och veraPDF saknades i compose trots att workern kräver den.
+
+Objektlagring var dessutom bara implementerad mot Supabase. En självhostad
+installation — och den MinIO som hela tiden legat i compose — hade ingen
+lagringsväg alls, vilket är där det kanoniska dokumentet bor och därmed där
+kedjan börjar. En S3-adapter finns nu, signerad med SigV4 på WebCrypto, verifierad
+mot en riktig MinIO inklusive de negativa fallen.
 
 ## PRODUCTION_GO: NEJ
 
-Det är rätt utfall. Kedjan är komplett och bevisad end-to-end mot en
+Det är rätt utfall, och det är nu **beräknat** i stället för påstått:
+`npm run check:production-go` väger nio förutsättningar mot faktisk evidens och
+går inte att övertala genom att redigera vare sig skriptet eller ett dokument.
+
+Åtta av nio är blockerade, alla av leverantörer utanför detta repository. Den
+nionde — att API och workers har körts end-to-end mot körande tjänster — var den
+enda ingen extern part blockerade, och den är nu uppfylld.
+
+Kedjan är komplett och bevisad end-to-end mot en
 test-CA — och testerna visar att den vägrar en otillförlitlig. Produktion kräver
 artefakter ingen kod kan leverera: CA-utfärdat certifikat, HSM eller QSCD,
 TSA-avtal, TIC-produktionscredentials, Kungälvs IdP-metadata, mottagande arkivs
