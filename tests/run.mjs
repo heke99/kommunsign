@@ -830,6 +830,31 @@ test('role lookups are memoised within a request and never across requests', asy
   assert.equal(attempts, 2);
 });
 
+test('request body ceilings match the limits each route actually declares', async () => {
+  const limits = await import('../apps/api/request-limits.mjs');
+  const { bodyLimitFor, maximumRequestBytes, maximumWebhookBytes, maximumEvidenceBytes } = limits;
+
+  // The router declares 2 MiB for provider webhooks and 250 MiB for evidence package verification.
+  // The server used to reject everything over 1 MiB first, making both unreachable.
+  assert.equal(maximumWebhookBytes, 2 * 1024 * 1024);
+  assert.equal(maximumEvidenceBytes, 250 * 1024 * 1024);
+  assert.equal(bodyLimitFor('/v1/provider-webhooks/tic/bankid'), maximumWebhookBytes);
+  assert.equal(bodyLimitFor('/v1/provider-webhooks/resend'), maximumWebhookBytes);
+  assert.equal(bodyLimitFor('/v1/public/verifications/packages/verify'), maximumEvidenceBytes);
+
+  // Everything else stays tight, so no ordinary JSON endpoint becomes a memory bomb.
+  assert.equal(maximumRequestBytes, 1024 * 1024);
+  for (const path of [
+    '/v1/signature-cases', '/v1/auth/login', '/v1/uploads', '/', '/metrics',
+    '/v1/public/verifications/packages', '/v1/public/signing-invitations/abc/bankid/start',
+  ]) {
+    assert.equal(bodyLimitFor(path), maximumRequestBytes, `${path} must keep the default ceiling`);
+  }
+
+  // A route that merely starts with a large-body path must not inherit its ceiling by accident.
+  assert.equal(bodyLimitFor('/v1/provider-webhooksX'), maximumRequestBytes);
+});
+
 test('responses compress except where compressing would leak a secret', async () => {
   const { compress, compressible } = await import('../apps/api/compression.mjs');
   const { brotliDecompress, gunzip } = await import('node:zlib');

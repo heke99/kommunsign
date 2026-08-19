@@ -2,9 +2,9 @@ import { createServer } from 'node:http';
 import { isIP } from 'node:net';
 import { timingSafeEqual } from 'node:crypto';
 import { compress, compressible } from './compression.mjs';
+import { bodyLimitFor } from './request-limits.mjs';
 
 const port = Number.parseInt(process.env.PORT ?? '3001', 10);
-const maximumRequestBytes = Number.parseInt(process.env.API_MAX_REQUEST_BYTES ?? String(1024 * 1024), 10);
 let applicationHandler = null;
 let readinessCode = 'API_DEPENDENCIES_NOT_CONFIGURED';
 
@@ -106,12 +106,12 @@ function trustedClientIp(request, proxyTrusted) {
   return null;
 }
 
-async function readBody(request) {
+async function readBody(request, limit) {
   const chunks = [];
   let length = 0;
   for await (const chunk of request) {
     length += chunk.length;
-    if (length > maximumRequestBytes) throw new Error('REQUEST_TOO_LARGE');
+    if (length > limit) throw new Error('REQUEST_TOO_LARGE');
     chunks.push(chunk);
   }
   return chunks.length === 0 ? undefined : Buffer.concat(chunks);
@@ -138,7 +138,8 @@ async function dispatch(request, response) {
 
   try {
     const host = request.headers.host ?? 'localhost';
-    const body = await readBody(request);
+    const requestPath = (request.url ?? '/').split('?', 1)[0];
+    const body = await readBody(request, bodyLimitFor(requestPath));
     const forwardedHeaders = new Headers(request.headers);
     const proxyTrusted = trustedProxyRequest(request);
     const forwardedHost = proxyTrusted ? request.headers['x-forwarded-host'] : undefined;
@@ -156,8 +157,7 @@ async function dispatch(request, response) {
     const fetchResponse = await applicationHandler(fetchRequest);
     let responseBody = Buffer.from(await fetchResponse.arrayBuffer());
     const headers = Object.fromEntries(fetchResponse.headers.entries());
-    const pathname = (request.url ?? '/').split('?', 1)[0];
-    const encoding = compressible(request, pathname, fetchResponse.status, headers, responseBody);
+    const encoding = compressible(request, requestPath, fetchResponse.status, headers, responseBody);
     if (encoding) {
       responseBody = await compress(encoding, responseBody);
       headers['content-encoding'] = encoding;
