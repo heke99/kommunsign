@@ -830,6 +830,35 @@ test('role lookups are memoised within a request and never across requests', asy
   assert.equal(attempts, 2);
 });
 
+test('responses compress except where compressing would leak a secret', async () => {
+  const { compress, compressible } = await import('../apps/api/compression.mjs');
+  const { brotliDecompress, gunzip } = await import('node:zlib');
+  const { promisify } = await import('node:util');
+
+  const big = Buffer.from(JSON.stringify({ items: Array.from({ length: 200 }, (_, i) => ({ i, name: `case ${i}` })) }));
+  const json = { 'content-type': 'application/json; charset=utf-8' };
+  const brotliClient = { headers: { 'accept-encoding': 'gzip, deflate, br' } };
+  const gzipClient = { headers: { 'accept-encoding': 'gzip' } };
+
+  assert.equal(compressible(brotliClient, '/v1/signature-cases', 200, json, big), 'br');
+  assert.equal(compressible(gzipClient, '/v1/signature-cases', 200, json, big), 'gzip');
+  assert.equal(compressible({ headers: {} }, '/v1/signature-cases', 200, json, big), null);
+
+  // BREACH: /v1/auth/* responses carry the CSRF token next to caller-influenced fields. Compressing
+  // a secret alongside attacker-influenced content under TLS leaks it through the compressed length.
+  assert.equal(compressible(brotliClient, '/v1/auth/session', 200, json, big), null);
+  assert.equal(compressible(brotliClient, '/v1/auth/login', 200, json, big), null);
+
+  assert.equal(compressible(brotliClient, '/v1/x', 200, json, Buffer.alloc(100)), null, 'small bodies');
+  assert.equal(compressible(brotliClient, '/v1/x', 200, { 'content-type': 'application/pdf' }, big), null, 'already compressed');
+  assert.equal(compressible(brotliClient, '/v1/x', 304, json, big), null, 'not modified');
+  assert.equal(compressible(brotliClient, '/v1/x', 200, { ...json, 'content-encoding': 'gzip' }, big), null, 'double encoding');
+
+  // Compression must be lossless, or every client sees corrupt JSON.
+  assert.deepEqual(await promisify(brotliDecompress)(await compress('br', big)), big);
+  assert.deepEqual(await promisify(gunzip)(await compress('gzip', big)), big);
+});
+
 test('API authorizes every case operation', async () => {
   const permissions = [];
   const context = { tenantId: 'tenant', source: 'api-client', subjectId: 'subject', requestId: 'ctx', authMethod: 'development' };

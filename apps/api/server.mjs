@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { isIP } from 'node:net';
 import { timingSafeEqual } from 'node:crypto';
+import { compress, compressible } from './compression.mjs';
 
 const port = Number.parseInt(process.env.PORT ?? '3001', 10);
 const maximumRequestBytes = Number.parseInt(process.env.API_MAX_REQUEST_BYTES ?? String(1024 * 1024), 10);
@@ -76,10 +77,13 @@ function constantTimeSecretMatches(value, expected) {
   return supplied.length === wanted.length && timingSafeEqual(supplied, wanted);
 }
 
+// Read once at boot rather than per request: the process would have to restart for either to change.
+const trustProxy = (process.env.TRUST_PROXY ?? 'true').trim().toLowerCase() === 'true';
+const proxyProvider = (process.env.TRUSTED_PROXY_PROVIDER ?? 'vercel').trim().toLowerCase();
+
 function trustedProxyRequest(request) {
-  const trustProxy = (process.env.TRUST_PROXY ?? 'true').trim().toLowerCase() === 'true';
   if (!trustProxy) return false;
-  const provider = (process.env.TRUSTED_PROXY_PROVIDER ?? 'vercel').trim().toLowerCase();
+  const provider = proxyProvider;
   if (provider === 'railway') {
     return Boolean(
       process.env.RAILWAY_ENVIRONMENT_ID
@@ -92,9 +96,10 @@ function trustedProxyRequest(request) {
   return constantTimeSecretMatches(request.headers['x-kommunsign-proxy-secret'], process.env.TRUSTED_PROXY_SHARED_SECRET);
 }
 
-function trustedClientIp(request) {
-  const provider = (process.env.TRUSTED_PROXY_PROVIDER ?? 'vercel').trim().toLowerCase();
-  if (!trustedProxyRequest(request) || provider === 'none') return firstForwardedIp(request.socket.remoteAddress);
+// Takes the already-computed trust decision so a request does not evaluate it twice.
+function trustedClientIp(request, proxyTrusted) {
+  const provider = proxyProvider;
+  if (!proxyTrusted || provider === 'none') return firstForwardedIp(request.socket.remoteAddress);
   if (provider === 'railway') return firstForwardedIp(request.headers['x-real-ip']);
   if (provider === 'cloudflare') return firstForwardedIp(request.headers['cf-connecting-ip']);
   if (provider === 'vercel') return firstForwardedIp(request.headers['x-vercel-forwarded-for'] ?? request.headers['x-forwarded-for']);
@@ -141,7 +146,7 @@ async function dispatch(request, response) {
     forwardedHeaders.delete('x-kommunsign-proxy-secret');
     forwardedHeaders.delete('x-forwarded-host');
     if (forwardedHost) forwardedHeaders.set('x-forwarded-host', String(forwardedHost).split(',', 1)[0].trim());
-    const clientIp = trustedClientIp(request);
+    const clientIp = trustedClientIp(request, proxyTrusted);
     if (clientIp) forwardedHeaders.set('x-kommunsign-end-user-ip', clientIp);
     const fetchRequest = new Request(`http://${host}${request.url ?? '/'}`, {
       method: request.method,
@@ -149,8 +154,16 @@ async function dispatch(request, response) {
       ...(body ? { body } : {}),
     });
     const fetchResponse = await applicationHandler(fetchRequest);
-    const responseBody = Buffer.from(await fetchResponse.arrayBuffer());
+    let responseBody = Buffer.from(await fetchResponse.arrayBuffer());
     const headers = Object.fromEntries(fetchResponse.headers.entries());
+    const pathname = (request.url ?? '/').split('?', 1)[0];
+    const encoding = compressible(request, pathname, fetchResponse.status, headers, responseBody);
+    if (encoding) {
+      responseBody = await compress(encoding, responseBody);
+      headers['content-encoding'] = encoding;
+      // A cache keyed only on the URL must not hand a brotli body to a client that cannot read it.
+      headers.vary = headers.vary ? `${headers.vary}, Accept-Encoding` : 'Accept-Encoding';
+    }
     response.writeHead(fetchResponse.status, { ...headers, ...corsHeaders(request), 'content-length': responseBody.length });
     response.end(responseBody);
   } catch (cause) {
@@ -161,8 +174,11 @@ async function dispatch(request, response) {
 
 const server = createServer((request, response) => { void dispatch(request, response); });
 server.requestTimeout = 30_000;
-server.headersTimeout = 15_000;
-server.keepAliveTimeout = 5_000;
+// keepAliveTimeout must exceed the proxy's idle timeout, or the proxy races a socket this server is
+// already closing and the client sees a sporadic 502. Node requires headersTimeout to be the larger
+// of the two.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 70_000;
 server.listen(port, '0.0.0.0', () => {
   console.log(JSON.stringify({ level: 'info', event: 'api_listening', port, ready: Boolean(applicationHandler) }));
 });
