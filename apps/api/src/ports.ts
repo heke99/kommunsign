@@ -1,3 +1,4 @@
+import type { DeliveryRepository } from './production-adapters/postgres/delivery-repository.js';
 import type { FederationRepository } from './production-adapters/postgres/federation-repository.js';
 import type { ScimRepository } from './production-adapters/postgres/scim-repository.js';
 import type { Permission, PlatformPermission } from '../../../packages/authorization/src/index.js';
@@ -552,6 +553,10 @@ export interface PublicVerificationRepository {
   get(verificationId: string): Promise<PublicVerificationSummary | null>;
   verifyPackage(bytes: Uint8Array): Promise<{ readonly verified: boolean; readonly packageSha256: string; readonly failures: readonly string[] }>;
 }
+export interface MetricsEndpoint {
+  readonly scrapeToken: string;
+  render(now: Date): Promise<string>;
+}
 export interface ApiDependencies {
   readonly cases: CaseRepository;
   readonly uploads: UploadRepository;
@@ -566,6 +571,18 @@ export interface ApiDependencies {
   readonly scim?: ScimRepository;
   /** Optional: a tenant with no IdP configured simply cannot federate. */
   readonly federation?: FederationRepository;
+  /**
+   * Optional: without a scrape credential configured there is no /metrics
+   * endpoint. The default has to be "absent" rather than "open", because an
+   * accidentally public metrics endpoint leaks cross-tenant operational state
+   * and nothing about the deployment looks wrong while it does.
+   */
+  readonly metrics?: MetricsEndpoint;
+  /**
+   * Optional: without it a completed document can still be fetched through the
+   * authenticated API, there is simply no shareable link.
+   */
+  readonly delivery?: DeliveryRepository;
   readonly publicSigning?: PublicSigningRepository;
   readonly providerWebhooks?: ProviderWebhookRepository;
   readonly publicVerification?: PublicVerificationRepository;

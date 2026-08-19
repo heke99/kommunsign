@@ -18,3 +18,5 @@ psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/archive-export.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/gallring.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/privacy-requests.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/scim-provisioning.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/document-delivery.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/key-rotation.sql

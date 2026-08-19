@@ -1,13 +1,17 @@
 declare const process: { readonly env: Readonly<Record<string, string | undefined>> };
 import { requirePermission, requirePlatformPermission } from '../../../../../packages/authorization/src/index.js';
 import { TenantHostnameResolver } from '../../../../../packages/tenant-gateway/src/index.js';
-import type { ApiDependencies } from '../../ports.js';
+import type { ApiDependencies, MetricsEndpoint } from '../../ports.js';
+import type { SqlDatabase } from '../../../../../packages/database/src/index.js';
 import type { ProductionRuntimeConfiguration } from '../../production-runtime.js';
 import { createDataRepositories } from './data-database.js';
 import { createRetentionRepository } from './retention-repository.js';
 import { createPrivacyRepository } from './privacy-repository.js';
 import { createScimRepository } from './scim-repository.js';
 import { createFederationRepository } from './federation-repository.js';
+import { createMetricsRepository } from './metrics-repository.js';
+import { createDeliveryRepository } from './delivery-repository.js';
+import { renderPrometheus } from '../../../../../packages/observability/src/prometheus.js';
 import { withKeysetListRepositories } from './keyset-repositories.js';
 import { createDomainRepository } from './domain-repository.js';
 import { loadProductionInfrastructure } from './infrastructure.js';
@@ -65,6 +69,8 @@ export async function createProductionDependencies(configuration: ProductionRunt
       privacy: createPrivacyRepository(dataDatabase, infrastructure.sensitiveData),
       scim: createScimRepository(dataDatabase, infrastructure.sensitiveData),
       federation: createFederationRepository(controlDatabase),
+      delivery: createDeliveryRepository(dataDatabase),
+      ...metricsEndpoint(controlDatabase, dataDatabase),
       uploads: signingSourceUploads,
       ...publicRepositories,
       onboarding: createOnboardingRepository(controlDatabase, infrastructure),
@@ -140,3 +146,26 @@ export { createWebhookRepository } from './webhook-repository.js';
 export { createReadinessRepository } from './readiness-repository.js';
 export { createActivationRepository } from './activation-repository.js';
 export { createPublicRepositories } from './public-signing-repository.js';
+
+
+/**
+ * The scrape endpoint, when a credential is configured.
+ *
+ * Absent rather than open by default: an accidentally public /metrics leaks
+ * cross-tenant operational state, and nothing about the deployment looks wrong
+ * while it does.
+ */
+function metricsEndpoint(controlDatabase: SqlDatabase, dataDatabase: SqlDatabase): { readonly metrics?: MetricsEndpoint } {
+  const scrapeToken = process.env.METRICS_SCRAPE_TOKEN ?? '';
+  if (scrapeToken.length < 32) return {};
+  const repository = createMetricsRepository(controlDatabase, dataDatabase);
+  return {
+    metrics: {
+      scrapeToken,
+      async render(now: Date) {
+        const { counters, gauges } = await repository.collect(now);
+        return renderPrometheus(counters, gauges);
+      },
+    },
+  };
+}

@@ -103,6 +103,9 @@ import {
 } from '../dist/apps/workers/src/platform-handlers.js';
 import { handlePrivacyRequestExecute } from '../dist/apps/workers/src/privacy-handlers.js';
 import { handleScimRequest } from '../dist/apps/api/src/scim-router.js';
+import {
+  PROMETHEUS_COUNTERS, PROMETHEUS_GAUGES, renderPrometheus,
+} from '../dist/packages/observability/src/prometheus.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -3534,6 +3537,141 @@ test('replay protection is only real if it survives a restart', async () => {
   // for it in production by accident.
   assert.match(library, /export class InMemoryAssertionLedger/);
   assert.match(library, /loses every consumed ID on restart/);
+});
+
+// --- Prometheus exposition ---------------------------------------------------
+
+test('every alert rule watches a series this system actually emits', async () => {
+  const rules = await readFile('infrastructure/monitoring/prometheus-alerts.yaml', 'utf8');
+  const referenced = new Set([...rules.matchAll(/kommunsign_[a-z0-9_]+/g)].map((match) => match[0]));
+  assert.ok(referenced.size >= 5, 'the alert rules must still reference metrics');
+
+  const emitted = new Set([...PROMETHEUS_COUNTERS, ...PROMETHEUS_GAUGES]);
+  for (const series of referenced) {
+    // An alert watching a series nobody produces is worse than no alert,
+    // because a silent alert reads as "nothing is wrong". Every one of the five
+    // rules was in exactly that state before this endpoint existed.
+    assert.ok(emitted.has(series), `${series} is alerted on but never emitted`);
+  }
+});
+
+test('the exposition escapes label values and omits what it could not compute', () => {
+  const rendered = renderPrometheus(
+    [{ name: 'kommunsign_signature_attempts_total', value: 3, labels: { outcome: 'failed' } }],
+    [
+      { name: 'kommunsign_webhook_queue_oldest_age_seconds', value: 42 },
+      // A metric that could not be computed is omitted. Emitting NaN fails the
+      // whole scrape, taking every other series down with it.
+      { name: 'kommunsign_worker_queue_depth', value: Number.NaN, labels: { queue: 'EMAIL_SEND' } },
+      { name: 'kommunsign_cases_awaiting_completion', value: Number.POSITIVE_INFINITY },
+    ],
+  );
+
+  assert.match(rendered, /# TYPE kommunsign_signature_attempts_total counter/);
+  assert.match(rendered, /# TYPE kommunsign_webhook_queue_oldest_age_seconds gauge/);
+  assert.match(rendered, /kommunsign_signature_attempts_total\{outcome="failed"\} 3/);
+  assert.doesNotMatch(rendered, /NaN|Inf/);
+
+  // HELP and TYPE appear once per family. Repeating them per series makes
+  // Prometheus reject the whole scrape rather than skip the duplicate.
+  assert.equal(rendered.match(/# TYPE kommunsign_signature_attempts_total/g).length, 1);
+
+  // A quote in a label value would otherwise end the label early and the rest
+  // would parse as further labels — a scrape reporting the wrong series.
+  const escaped = renderPrometheus([], [{ name: 'kommunsign_worker_queue_depth', value: 1, labels: { queue: 'a"b\nc' } }]);
+  assert.match(escaped, /queue="a\\"b\\nc"/);
+
+  // Two renders of the same input are byte-identical, so a diff between
+  // scrapes is about the values rather than about map ordering.
+  const input = [{ name: 'kommunsign_worker_queue_depth', value: 2, labels: { queue: 'b' } }, { name: 'kommunsign_worker_queue_depth', value: 1, labels: { queue: 'a' } }];
+  assert.equal(renderPrometheus([], input), renderPrometheus([], [...input].reverse()));
+});
+
+test('a metric label can never carry a case id or a personal number', () => {
+  // The allow-list is the real control: a high-cardinality label both destroys
+  // the metrics backend and quietly turns the scrape into an unredacted export.
+  assert.throws(
+    () => renderPrometheus([], [{ name: 'kommunsign_worker_queue_depth', value: 1, labels: { caseId: 'abc' } }]),
+    /not allowed/,
+  );
+  assert.throws(
+    () => renderPrometheus([], [{ name: 'kommunsign_worker_queue_depth', value: 1, labels: { tenant: '19850101-1234' } }]),
+    /personal number/,
+  );
+});
+
+test('the scrape endpoint is absent by default and refuses a wrong credential', async () => {
+  const router = await readFile('apps/api/src/router.ts', 'utf8');
+  // Absent rather than open when unconfigured: an accidentally public /metrics
+  // leaks cross-tenant operational state, and nothing looks wrong while it does.
+  assert.match(router, /if \(!dependencies\.metrics\) return null;/);
+  // Compared over digests, so a wrong token cannot be told from a nearly-right
+  // one by how long the rejection took.
+  assert.match(router, /sha256Hex\(new TextEncoder\(\)\.encode\(presented\)\)/);
+  assert.match(router, /presentedDigest !== expectedDigest/);
+  assert.match(router, /text\/plain; version=0\.0\.4/);
+
+  const wiring = await readFile('apps/api/src/production-adapters/postgres/index.ts', 'utf8');
+  assert.match(wiring, /scrapeToken\.length < 32/, 'a short or empty token must not enable the endpoint');
+
+  // Everything is read from the databases at scrape time. A process-local
+  // counter restarts at zero on deploy, which increase() reads as a reset.
+  const repository = await readFile('apps/api/src/production-adapters/postgres/metrics-repository.ts', 'utf8');
+  assert.doesNotMatch(repository, /new Map\(\)[\s\S]{0,80}\+= 1|let total = 0/);
+  assert.match(repository, /from app\.signature_attempts/);
+  assert.match(repository, /tenant\.access\.cross_tenant_attempt/);
+});
+
+// --- Delivering the finished document ---------------------------------------
+
+test('a download link is coarsened before it is recorded, and reveals nothing when it fails', async () => {
+  const { truncateClientAddress, userAgentFamily } = await import('../dist/apps/api/src/production-adapters/postgres/delivery-repository.js');
+
+  // A full client address is personal data retained for a purpose nobody
+  // stated. A /24 still answers the only question the trail has to answer:
+  // "same office twice" versus "this link is being passed around".
+  assert.equal(truncateClientAddress('192.0.2.147'), '192.0.2.0/24');
+  assert.equal(truncateClientAddress('2001:db8:1234:5678::1'), '2001:db8:1234::/48');
+  assert.equal(truncateClientAddress(''), undefined);
+  assert.equal(truncateClientAddress('not-an-address'), undefined);
+
+  // A full user agent is a fingerprint; a family is not.
+  assert.equal(userAgentFamily('Mozilla/5.0 (X11) Firefox/128.0'), 'firefox');
+  assert.equal(userAgentFamily('Mozilla/5.0 Chrome/126 Safari/537'), 'chrome');
+  assert.equal(userAgentFamily(null), undefined);
+
+  const repository = await readFile('apps/api/src/production-adapters/postgres/delivery-repository.ts', 'utf8');
+  // Redemption is one conditional UPDATE, not read-then-write: two concurrent
+  // fetches must not both see the last remaining use and both take it.
+  assert.match(repository, /update app\.document_download_grants[\s\S]{0,400}use_count < maximum_uses/);
+  assert.doesNotMatch(repository, /select[\s\S]{0,200}from app\.document_download_grants[\s\S]{0,200}update app\.document_download_grants/);
+  // The token is stored only as a hash, so a leaked database is not a set of
+  // working download links.
+  assert.match(repository, /token_hash/);
+  assert.doesNotMatch(repository, /token text|token: token,\s*\n\s*tokenHash/);
+
+  const router = await readFile('apps/api/src/router.ts', 'utf8');
+  // Unknown, expired, revoked and spent are one answer. Distinguishing them
+  // would tell a probing caller which links once existed.
+  assert.match(router, /DOWNLOAD_LINK_INVALID/);
+  assert.match(router, /if \(!redeemed\) throw new ApiRequestError\('DOWNLOAD_LINK_INVALID'/);
+  // Issuing a shareable link is a disclosure, so it needs the download grant.
+  assert.match(router, /download-links[\s\S]{0,300}authorize\(dependencies, context, 'document:download'\)/);
+});
+
+test('a case cannot be created already completed', async () => {
+  const migration = await readFile('migrations/data/0028_completion_guards_cover_insert.sql', 'utf8');
+  // Every completion guard was BEFORE UPDATE OF status. Verified against a live
+  // database: a case with no signers, no evidence package and no signature
+  // chain inserted cleanly as completed. Migration 0021 exists to make that
+  // impossible, and the promise had an INSERT-shaped hole in it.
+  assert.match(migration, /BEFORE INSERT ON app\.signature_cases/);
+  assert.match(migration, /BEFORE INSERT ON app\.signers/);
+  assert.match(migration, /BEFORE INSERT ON app\.document_versions/);
+  assert.match(migration, /case cannot be created already completed/);
+
+  const suite = await readFile('tests/sql/document-delivery.sql', 'utf8');
+  assert.match(suite, /a case was created already completed/, 'the guard needs a live-database check, not only a migration');
 });
 
 let failed = 0;
