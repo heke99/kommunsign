@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import nodeCrypto from 'node:crypto';
+import { createObjectStorageAdapter as createS3ObjectStorageAdapter } from '../dist/apps/api/src/adapters/s3-object-storage.js';
 import { readFile } from 'node:fs/promises';
 import { base64Encode, canonicalJson, sha256Hex, hmacSha256Hex, verifyHmacSha256Hex } from '../dist/packages/crypto/src/index.js';
 import { resolveTenantContext, assertTenantMatch } from '../dist/packages/tenant-context/src/index.js';
@@ -3975,6 +3977,156 @@ test('an id_token with no destination is checked against the endpoint we recorde
   const shared = await readFile('services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java', 'utf8');
   assert.match(shared, /class CompactJwsVerifier/);
   assert.match(validator, /import se\.kommunsign\.commons\.CompactJwsVerifier;/);
+});
+
+// --- S3-compatible object storage adapter -----------------------------------
+
+const s3Settings = {
+  S3_ENDPOINT: 'https://storage.example.org',
+  S3_REGION: 'eu-north-1',
+  S3_ACCESS_KEY_ID: 'AKIAEXAMPLE',
+  S3_SECRET_ACCESS_KEY: 'secret-example-key',
+};
+
+const s3TenantId = '11111111-2222-3333-4444-555555555555';
+const s3Context = { tenantId: s3TenantId, actorId: 'worker-1', actorKind: 'worker' };
+
+async function withCapturedFetch(fn, respond) {
+  const captured = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    captured.push({ url: String(url), method: init.method ?? 'GET', headers: { ...(init.headers ?? {}) }, body: init.body });
+    return respond(captured.length - 1, String(url), init);
+  };
+  try { return { result: await fn(), captured }; }
+  finally { globalThis.fetch = original; }
+}
+
+function s3Response(status, headers = {}, body = new Uint8Array()) {
+  return new Response(status === 204 || status === 304 ? null : body, { status, headers });
+}
+
+/** Independent SigV4, so the test does not agree with the adapter by construction. */
+function expectedSignature({ method, canonicalUri, canonicalQuery, headers, payloadHash, amzDate, region, secret }) {
+  const names = Object.keys(headers).sort();
+  const canonicalHeaders = names.map((name) => `${name}:${headers[name].trim().replace(/\s+/g, ' ')}\n`).join('');
+  const signedHeaders = names.join(';');
+  const canonicalRequest = [method, canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, payloadHash].join('\n');
+  const scope = `${amzDate.slice(0, 8)}/${region}/s3/aws4_request`;
+  const stringToSign = [
+    'AWS4-HMAC-SHA256', amzDate, scope,
+    nodeCrypto.createHash('sha256').update(canonicalRequest).digest('hex'),
+  ].join('\n');
+  let key = nodeCrypto.createHmac('sha256', `AWS4${secret}`).update(amzDate.slice(0, 8)).digest();
+  for (const part of [region, 's3', 'aws4_request']) key = nodeCrypto.createHmac('sha256', key).update(part).digest();
+  return { signature: nodeCrypto.createHmac('sha256', key).update(stringToSign).digest('hex'), signedHeaders, scope };
+}
+
+test('s3 adapter signs writes with a signature an independent SigV4 reproduces', async () => {
+  const adapter = createS3ObjectStorageAdapter(s3Settings);
+  const bytes = new TextEncoder().encode('%PDF-1.7 signed revision');
+  const { result, captured } = await withCapturedFetch(
+    () => adapter.putObject(s3Context, `${s3TenantId}/signed/case-1.pdf`, bytes, 'application/pdf'),
+    (index) => s3Response(index === 0 ? 200 : 200),
+  );
+
+  const write = captured[captured.length - 1];
+  assert.equal(write.method, 'PUT');
+  assert.equal(write.url, `https://storage.example.org/signed-documents/${s3TenantId}/signed/case-1.pdf`);
+  // Immutability is the whole point for a signed revision.
+  assert.equal(write.headers['if-none-match'], '*');
+
+  const digest = nodeCrypto.createHash('sha256').update(bytes).digest('hex');
+  assert.equal(result.sha256, digest);
+  assert.equal(write.headers['x-amz-content-sha256'], digest);
+
+  const { authorization, ...signedHeaderValues } = write.headers;
+  const expected = expectedSignature({
+    method: 'PUT',
+    canonicalUri: `/signed-documents/${s3TenantId}/signed/case-1.pdf`,
+    canonicalQuery: '',
+    headers: signedHeaderValues,
+    payloadHash: digest,
+    amzDate: write.headers['x-amz-date'],
+    region: s3Settings.S3_REGION,
+    secret: s3Settings.S3_SECRET_ACCESS_KEY,
+  });
+  assert.equal(
+    authorization,
+    `AWS4-HMAC-SHA256 Credential=${s3Settings.S3_ACCESS_KEY_ID}/${expected.scope}, SignedHeaders=${expected.signedHeaders}, Signature=${expected.signature}`,
+  );
+});
+
+test('s3 adapter refuses to overwrite an object that already exists', async () => {
+  const adapter = createS3ObjectStorageAdapter(s3Settings);
+  await assert.rejects(
+    withCapturedFetch(
+      () => adapter.putObject(s3Context, `${s3TenantId}/signed/case-1.pdf`, new Uint8Array([1]), 'application/pdf'),
+      (index) => s3Response(index === 0 ? 200 : 412),
+    ),
+    /STORAGE_OBJECT_ALREADY_EXISTS/,
+  );
+});
+
+test('s3 adapter presigns an upload that carries a signature and an expiry', async () => {
+  const adapter = createS3ObjectStorageAdapter(s3Settings);
+  const expiresAt = new Date(Date.now() + 900_000).toISOString();
+  const { result } = await withCapturedFetch(
+    () => adapter.createUploadGrant(s3Context, {
+      fileName: 'beslut.pdf', mimeType: 'application/pdf', byteSize: 12, sha256: 'a'.repeat(64),
+      objectKey: `${s3TenantId}/inbox/beslut.pdf`, expiresAt,
+    }),
+    () => s3Response(200),
+  );
+  const url = new URL(result.uploadUrl);
+  assert.equal(url.pathname, `/document-quarantine/${s3TenantId}/inbox/beslut.pdf`);
+  assert.equal(url.searchParams.get('X-Amz-Algorithm'), 'AWS4-HMAC-SHA256');
+  assert.equal(url.searchParams.get('X-Amz-SignedHeaders'), 'host');
+  assert.match(url.searchParams.get('X-Amz-Signature') ?? '', /^[0-9a-f]{64}$/);
+  const expires = Number(url.searchParams.get('X-Amz-Expires'));
+  assert.ok(expires > 0 && expires <= 900, `unexpected expiry ${expires}`);
+  assert.equal(result.requiredHeaders['content-type'], 'application/pdf');
+});
+
+test('s3 adapter refuses an upload grant that has already expired', async () => {
+  const adapter = createS3ObjectStorageAdapter(s3Settings);
+  await assert.rejects(
+    withCapturedFetch(
+      () => adapter.createUploadGrant(s3Context, {
+        fileName: 'beslut.pdf', mimeType: 'application/pdf', byteSize: 12, sha256: 'a'.repeat(64),
+        objectKey: `${s3TenantId}/inbox/beslut.pdf`, expiresAt: new Date(Date.now() - 1000).toISOString(),
+      }),
+      () => s3Response(200),
+    ),
+    /STORAGE_UPLOAD_GRANT_ALREADY_EXPIRED/,
+  );
+});
+
+test('s3 adapter refuses an object key belonging to another tenant', async () => {
+  const adapter = createS3ObjectStorageAdapter(s3Settings);
+  await assert.rejects(
+    adapter.headObject(s3Context, '99999999-2222-3333-4444-555555555555/signed/case-1.pdf'),
+    /STORAGE_OBJECT_TENANT_MISMATCH/,
+  );
+});
+
+test('s3 adapter reads size and checksum back from object metadata', async () => {
+  const adapter = createS3ObjectStorageAdapter(s3Settings);
+  const digest = nodeCrypto.createHash('sha256').update('x').digest('hex');
+  const { result } = await withCapturedFetch(
+    () => adapter.headObject(s3Context, `${s3TenantId}/canonical/case-1.pdf`),
+    () => s3Response(200, { 'content-length': '4096', 'content-type': 'application/pdf', 'x-amz-meta-sha256': digest }),
+  );
+  assert.deepEqual(result, { byteSize: 4096, contentType: 'application/pdf', sha256: digest });
+});
+
+test('s3 adapter rejects a plaintext endpoint outside the local stack', () => {
+  assert.throws(
+    () => createS3ObjectStorageAdapter({ ...s3Settings, S3_ENDPOINT: 'http://storage.example.org' }),
+    /S3_ENDPOINT_HTTPS_REQUIRED/,
+  );
+  // The local stack is the exception, and it has to keep working.
+  assert.ok(createS3ObjectStorageAdapter({ ...s3Settings, S3_ENDPOINT: 'http://minio:9000' }));
 });
 
 let failed = 0;

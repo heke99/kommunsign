@@ -32,7 +32,7 @@
     "verify:provenance": "node scripts/check-provenance.mjs",
     "verify:java": "bash scripts/build-java.sh",
     "verify:java:maven": "bash scripts/build-java-maven.sh",
-    "verify": "npm run clean && npm run build && npm run verify:repository && npm run verify:deployment-config && npm run verify:migrations && npm run verify:requirements && npm run verify:provenance && npm run verify:sdk && npm run verify:accessibility && npm run scan:secrets && npm run verify:java && node tests/run.mjs && node tests/m365-office.mjs && node tests/provider-runtime.mjs && node tests/auth-observability.mjs && node tests/integration.mjs && node tests/security.mjs",
+    "verify": "npm run clean && npm run build && npm run verify:repository && npm run verify:deployment-config && npm run verify:env-contract && npm run verify:migrations && npm run verify:requirements && npm run verify:provenance && npm run verify:sdk && npm run verify:accessibility && npm run scan:secrets && npm run verify:java && node tests/run.mjs && node tests/m365-office.mjs && node tests/provider-runtime.mjs && node tests/auth-observability.mjs && node tests/integration.mjs && node tests/security.mjs",
     "package:release": "bash scripts/package-release.sh",
     "provenance:report": "node scripts/provenance-report.mjs",
     "verify:migrations": "node scripts/check-sql-migrations.mjs",
@@ -75,7 +75,8 @@
     "verify:deployment:live": "node --env-file-if-exists=.env.local scripts/verify-live-deployment.mjs",
     "verify:accessibility": "node scripts/check-accessibility.mjs",
     "verify:e2e:signing": "bash scripts/e2e-signing-chain.sh",
-    "check:production-go": "node scripts/check-production-go.mjs"
+    "verify:storage": "npm run build && node --env-file-if-exists=.env.local scripts/verify-object-storage.mjs",
+  "check:production-go": "node scripts/check-production-go.mjs"
   },
   "packageManager": "npm@10.9.2",
   "devDependencies": {

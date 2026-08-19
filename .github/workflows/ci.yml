@@ -55,6 +55,42 @@ jobs:
           java-version: '21'
           cache: maven
       - run: npm run verify:e2e:signing
+  object-storage:
+    # The S3 adapter signs its own requests. A canonical request can be wrong in
+    # a way that is perfectly self-consistent, so the unit tests cannot settle
+    # it — only a backend that rejects bad signatures can. This job runs the
+    # adapter against a real MinIO, including the negative cases: a presigned
+    # URL moved to a different object, an unsigned read, an overwrite of a
+    # signed document.
+    #
+    # MinIO is started as a step rather than a service container because it
+    # needs a command argument ("server /data"), which services cannot set.
+    runs-on: ubuntu-24.04
+    env:
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_REGION: us-east-1
+      S3_ACCESS_KEY_ID: ci-only
+      S3_SECRET_ACCESS_KEY: ci-only-change-me
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '22.16.0', cache: npm }
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER="$S3_ACCESS_KEY_ID" \
+            -e MINIO_ROOT_PASSWORD="$S3_SECRET_ACCESS_KEY" \
+            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          for attempt in $(seq 1 60); do
+            if curl -fsS "$S3_ENDPOINT/minio/health/live" >/dev/null 2>&1; then exit 0; fi
+            sleep 2
+          done
+          echo "MinIO did not become healthy" >&2
+          docker logs minio >&2
+          exit 1
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: node scripts/verify-object-storage.mjs
   database:
     runs-on: ubuntu-24.04
     services:

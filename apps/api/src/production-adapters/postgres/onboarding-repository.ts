@@ -552,8 +552,14 @@ async function collectReadinessChecks(transaction:SqlTransaction,tenantId:string
   const emailProvider=(environmentValue('EMAIL_PROVIDER')??'').toLowerCase();
   const ticApiKey=environmentValue('TIC_API_KEY');
   const ticWebhookSecret=environmentValue('TIC_WEBHOOK_SECRET');
-  const privateStorageReady=environmentValue('STORAGE_PROVIDER')==='supabase'
-    && environmentPresent('SUPABASE_DATA_PROJECT_URL','SUPABASE_DATA_SERVICE_ROLE_KEY','STORAGE_DOCUMENT_QUARANTINE_BUCKET','STORAGE_CANONICAL_DOCUMENTS_BUCKET','STORAGE_VALIDATION_REPORTS_BUCKET','STORAGE_EVIDENCE_PACKAGES_BUCKET');
+  // Two storage backends are supported and each has its own credentials. The
+  // check used to hardcode 'supabase', which meant a correctly configured
+  // self-hosted S3 deployment could never pass readiness.
+  const storageProvider=(environmentValue('STORAGE_PROVIDER')??'').toLowerCase();
+  const bucketsConfigured=environmentPresent('STORAGE_DOCUMENT_QUARANTINE_BUCKET','STORAGE_CANONICAL_DOCUMENTS_BUCKET','STORAGE_VALIDATION_REPORTS_BUCKET','STORAGE_EVIDENCE_PACKAGES_BUCKET');
+  const privateStorageReady=bucketsConfigured&&(
+    (storageProvider==='supabase'&&environmentPresent('SUPABASE_DATA_PROJECT_URL','SUPABASE_DATA_SERVICE_ROLE_KEY'))
+    ||(storageProvider==='s3'&&environmentPresent('S3_ENDPOINT','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY')));
   const pdfPipelineApproved=environmentFlag('PDF_PIPELINE_APPROVED');
   const checks:ReadinessCheck[]=[
     check('TENANT_DATABASE_NOT_READY',env?.data_plane_status==='ready','blocking',checkedAt,{dataPlaneStatus:env?.data_plane_status??'missing'}),
