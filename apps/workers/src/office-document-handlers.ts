@@ -76,7 +76,7 @@ async function handleOfficeScan(
          from app.document_versions v
          join app.documents d on d.tenant_id=v.tenant_id and d.id=v.document_id
          left join app.tenant_signing_settings s on s.tenant_id=v.tenant_id
-        where v.tenant_id=$1 and v.id=$2 for update`,
+        where v.tenant_id=$1 and v.id=$2 for update of v`,
       [job.tenantId, documentVersionId],
     );
     const row = requireRow(result.rows[0], 'DOCUMENT_VERSION_NOT_FOUND');

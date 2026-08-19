@@ -84,6 +84,13 @@ await step('refuses to overwrite a signed document', async () => {
   if (createHash('sha256').update(artifact.bytes).digest('hex') !== digest) throw new Error('stored bytes were replaced');
 });
 
+await step('the same bytes written twice is a completed retry', async () => {
+  // Jobs are delivered at least once. A worker that wrote the object and then
+  // lost its lease writes the same bytes again, and that must not dead-letter.
+  const result = await adapter.putObject(context, signedKey, bytes, 'application/pdf');
+  if (result.sha256 !== digest) throw new Error(`digest mismatch on retry: ${result.sha256}`);
+});
+
 await step('a presigned upload URL is accepted by the backend', async () => {
   const uploadKey = `${tenantId}/inbox/underlag.pdf`;
   const grant = await adapter.createUploadGrant(context, {

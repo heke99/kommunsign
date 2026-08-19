@@ -131,10 +131,20 @@ export function createObjectStorageAdapter(
           ...(immutable ? { 'if-none-match': '*' } : {}),
         },
       });
-      // 412 is the backend telling us the object was already there. For an
-      // immutable write that is the guarantee working, not a fault, but the
-      // caller must not be told the bytes it holds are what is stored.
-      if (response.status === 412) throw new Error('STORAGE_OBJECT_ALREADY_EXISTS');
+      // 412 is the backend telling us the object was already there.
+      //
+      // Jobs are delivered at least once, so a worker that wrote the object and
+      // then lost its lease will come back and write the same bytes again. If
+      // what is stored has the digest we were about to write, the write already
+      // happened and the retry is complete; if it differs, something is trying
+      // to replace a signed document and must be refused. Anything less
+      // specific than comparing the digest either breaks every retry or lets an
+      // overwrite through.
+      if (response.status === 412) {
+        const stored = await storedDigest(settings, resolved);
+        if (stored?.sha256 === digest) return { byteSize: bytes.byteLength, sha256: digest };
+        throw new Error('STORAGE_OBJECT_ALREADY_EXISTS');
+      }
       if (!response.ok) throw await storageError(response, 'STORAGE_UPLOAD_FAILED');
       return { byteSize: bytes.byteLength, sha256: digest };
     },
@@ -146,6 +156,24 @@ export function createObjectStorageAdapter(
       if (!response.ok && response.status !== 404) throw await storageError(response, 'STORAGE_DELETE_FAILED');
     },
   };
+}
+
+/**
+ * The digest of what is already stored, or null if it cannot be established.
+ *
+ * Null is deliberately not "the same": a backend that does not return the
+ * checksum leaves us unable to tell a retry from an overwrite, and the safe
+ * answer there is to refuse.
+ */
+async function storedDigest(
+  settings: S3Configuration,
+  resolved: { readonly bucket: string; readonly path: string },
+): Promise<{ readonly sha256: string } | null> {
+  const response = await signedRequest(settings, 'HEAD', resolved.bucket, resolved.path);
+  if (!response.ok) return null;
+  const checksum = base64ChecksumToHex(response.headers.get('x-amz-checksum-sha256'))
+    ?? response.headers.get('x-amz-meta-sha256');
+  return checksum && /^[0-9a-f]{64}$/.test(checksum) ? { sha256: checksum } : null;
 }
 
 async function ensurePrivateBucket(settings: S3Configuration, bucket: string): Promise<void> {

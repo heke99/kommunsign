@@ -85,7 +85,7 @@ async function handleDocumentScan(database: SqlDatabase, infrastructure: Product
          from app.document_versions v
          join app.documents d on d.tenant_id=v.tenant_id and d.id=v.document_id
          left join app.tenant_signing_settings s on s.tenant_id=v.tenant_id
-        where v.tenant_id=$1 and v.id=$2 for update`, [job.tenantId, documentVersionId]);
+        where v.tenant_id=$1 and v.id=$2 for update of v`, [job.tenantId, documentVersionId]);
     const row = requireRow(result.rows[0], 'DOCUMENT_VERSION_NOT_FOUND');
     if (['canonicalizing','ready','locked','partially_signed','signed','validated','archived'].includes(row.status)) return { skip: true as const, row };
     if (row.status === 'rejected') return { skip: true as const, row };
@@ -396,7 +396,7 @@ async function handleEmailSend(database: SqlDatabase, infrastructure: Production
       `select m.id,m.signer_id,m.signature_case_id,m.template_key,m.template_version,m.locale,m.recipient_ciphertext,m.message_payload_ciphertext,m.idempotency_key,m.status,m.attempt_count,m.maximum_attempts,o.legal_name
          from app.email_messages m left join app.signature_cases c on c.tenant_id=m.tenant_id and c.id=m.signature_case_id
          left join app.organizations o on o.tenant_id=c.tenant_id
-        where m.tenant_id=$1 and m.id=$2 for update`, [job.tenantId, emailMessageId]);
+        where m.tenant_id=$1 and m.id=$2 for update of m`, [job.tenantId, emailMessageId]);
     return requireRow(result.rows[0], 'EMAIL_MESSAGE_NOT_FOUND');
   });
   if (['accepted','delivered','bounced','complained','cancelled'].includes(row.status)) return;
@@ -531,7 +531,15 @@ function createServices(configuration: Readonly<Record<string,string>>): Service
   const emailProviderName = required(configuration, 'EMAIL_PROVIDER').toLowerCase();
   const applicationEnvironment = (configuration.APP_ENV ?? 'production').trim().toLowerCase();
   const email: EmailProvider = emailProviderName === 'resend'
-    ? new ResendEmailProvider({ apiKey: required(configuration, 'RESEND_API_KEY'), webhookSecret: required(configuration, 'RESEND_WEBHOOK_SECRET') })
+    // RESEND_BASE_URL is optional and still has to be https. It exists because
+    // the endpoint is not always api.resend.com: a deployment behind an egress
+    // proxy has to point at the proxy, and the application-chain E2E points at
+    // a local stub so the real provider code runs rather than a mock.
+    ? new ResendEmailProvider({
+        apiKey: required(configuration, 'RESEND_API_KEY'),
+        webhookSecret: required(configuration, 'RESEND_WEBHOOK_SECRET'),
+        ...(configuration.RESEND_BASE_URL?.trim() ? { baseUrl: configuration.RESEND_BASE_URL.trim() } : {}),
+      })
     : emailProviderName === 'development' && applicationEnvironment !== 'production'
       ? new DevelopmentEmailProvider()
       : (() => { throw new Error('EMAIL_PROVIDER_NOT_CONFIGURED'); })();
@@ -609,7 +617,17 @@ async function saveProcessorReport(database: SqlDatabase, infrastructure: Produc
   if (!infrastructure.objectStorage.putObject) throw permanent('STORAGE_IMMUTABLE_PUT_NOT_CONFIGURED');
   const bytes = UTF8.encode(canonicalJson(report as CanonicalJsonValue));
   const key = `${tenantId}/cases/${row.signature_case_id}/documents/${row.document_id}/versions/${row.id}/validation/${reportType.toLowerCase()}.json`;
-  await infrastructure.objectStorage.putObject(workerContext(tenantId), key, bytes, 'application/json', true);
+  try {
+    await infrastructure.objectStorage.putObject(workerContext(tenantId), key, bytes, 'application/json', true);
+  } catch (cause) {
+    // First report written wins, which is what the insert below already says
+    // with on conflict do nothing. Jobs are delivered at least once, and a
+    // second attempt produces a report that differs in engine version or
+    // timing, so an immutable store refuses it. Refusing is correct -- the
+    // record of what the scanner said must not be rewritten -- but it is not a
+    // reason to fail the job that has already done the work.
+    if (!(cause instanceof Error) || cause.message !== 'STORAGE_OBJECT_ALREADY_EXISTS') throw cause;
+  }
   await tenant(database, tenantId, async (tx) => tx.query(
     `insert into app.document_processor_reports(tenant_id,document_version_id,report_type,engine,engine_version,result,object_key,sha256,findings)
      values($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) on conflict(tenant_id,document_version_id,report_type) do nothing`,

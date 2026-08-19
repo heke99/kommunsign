@@ -77,6 +77,28 @@ function safeWorkerErrorCode(cause: unknown): string {
   return candidate || 'WORKER_ERROR';
 }
 
+/**
+ * One line per failed attempt, and nothing that could carry content.
+ *
+ * The row already records last_error_code, but a row is not somewhere an
+ * operator is looking. A job could fail its way to the dead letter queue
+ * without the worker writing anything at all, which is how a stalled pipeline
+ * looks exactly like an idle one. The Postgres fields below are the same set
+ * the API already treats as safe to log: they name the constraint that
+ * refused, never the values it refused.
+ */
+function logFailure(job: DurableJob, code: string, dead: boolean, cause: unknown): void {
+  const detail: Record<string, string> = {};
+  const source = cause as { readonly code?: unknown; readonly constraint_name?: unknown; readonly table_name?: unknown; readonly routine?: unknown };
+  for (const [key, value] of [['sqlState', source?.code], ['constraint', source?.constraint_name], ['table', source?.table_name], ['routine', source?.routine]] as const) {
+    if (typeof value === 'string' && /^[A-Za-z0-9_.]{1,80}$/.test(value)) detail[key] = value;
+  }
+  globalThis.console?.error?.(JSON.stringify({
+    level: 'error', service: 'kommunsign-workers', event: dead ? 'job_dead_lettered' : 'job_attempt_failed',
+    jobId: job.id, jobType: job.type, attempts: job.attempts, code, ...detail,
+  }));
+}
+
 export async function processClaimedJob(
   repository: DurableJobRepository,
   workerId: string,
@@ -96,7 +118,9 @@ export async function processClaimedJob(
   } catch (cause) {
     const messageCode = cause instanceof Error && /^[A-Z][A-Z0-9_]{2,79}$/.test(cause.message) ? cause.message : undefined;
     const code = messageCode ?? safeWorkerErrorCode(cause);
-    if ((cause instanceof Error && cause.name === 'PermanentWorkerError') || job.attempts >= job.maximumAttempts) await repository.deadLetter(job.id, workerId, code);
+    const dead = (cause instanceof Error && cause.name === 'PermanentWorkerError') || job.attempts >= job.maximumAttempts;
+    logFailure(job, code, dead, cause);
+    if (dead) await repository.deadLetter(job.id, workerId, code);
     else {
       const delaySeconds = jitteredRetryDelaySeconds(job.id, job.attempts);
       await repository.retry(job.id, workerId, new Date(Date.now() + delaySeconds * 1000).toISOString(), code);
