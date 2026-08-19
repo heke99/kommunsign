@@ -3,9 +3,9 @@
 <!-- GENERERAD FIL. Redigera inte för hand.
      Kör `node scripts/build-requirement-matrix.mjs`. -->
 
-Bedömningsdatum: 2026-08-11
+Bedömningsdatum: 2026-08-19
 
-42 av 138 krav kan inte avgöras i kodbasen.
+44 av 138 krav kan inte avgöras i kodbasen.
 De kräver avtal, credentials, certifiering, leverantörsevidens eller
 organisatoriska åtgärder. Kraven markeras medvetet inte som uppfyllda.
 
@@ -22,7 +22,7 @@ organisatoriska åtgärder. Kraven markeras medvetet inte som uppfyllda.
 | 2030 | SKA | Kommunens godkännande av varje underbiträde. | Ingen underbiträdesförteckning finns i repot. |
 | 2031 | SKA | Avtalad process med kommunen. | Ingen process för byte av underleverantör finns. |
 | 2032 | SKA | Två referenskunder i drift. Kundnamn ska inte läggas i repot. | Kan inte uppfyllas med kod. |
-| 2037 | SKA | Leverantörsevidens och genomförd restore-övning. | docs/operations/backup-and-restore.md finns. |
+| 2037 | SKA | Driftplattformens backupjobb måste mata kommunsign_last_successful_backup_timestamp_seconds, och kommunen måste bekräfta backupfönster och retention. Utan det larmar BackupFailed aldrig, hur frisk regeln än ser ut. | Backup tas av driftplattformen och inte av applikationen. Larmregeln BackupFailed finns och serien är deklarerad, men ingenting i det här systemet vet när senaste backup lyckades, så serien är uttryckligen listad som omatad i PROMETHEUS_UNFED_SERIES. Det är avsiktligt synligt: BackupFailed larmar på frånvaron av en färsk tidsstämpel, vilket betyder att en omatad serie ser exakt ut som en frisk för den som inte kontrollerat. |
 | 2039 | SKA | Avtalsvillkor. | Avtalsfråga. |
 | 2040 | SKA | Bilagan Supportavtal för molnbaserade tjänster från Kungälvs kommun. När bilagan tillhandahålls jämförs den mot KUNGALV_SUPPORT_SLA.md och avvikande nivåer justeras; ingen kodändring väntas, det är en avtalsjämförelse. Blockerar inte teknisk go-live. | Supportorganisation, kontaktvägar, öppettider, prioritetsnivåer, svarstider och eskalering är dokumenterade i docs/operations/KUNGALV_SUPPORT_SLA.md, och incident- och eskaleringsrutinen i docs/operations/OVERVAKNING_OCH_INCIDENT.md avsnitt 3. Den tekniska förmåga supporten vilar på finns: korrelations-ID genom API, workers och loggar, readiness som skiljer databas, Redis, lagring, TIC, signeringstjänst och valideringstjänst, samt hashkedjad auditlogg. |
 | 2042 | SKA | Prisbilaga. | Prisfråga. |
@@ -30,6 +30,8 @@ organisatoriska åtgärder. Kraven markeras medvetet inte som uppfyllda.
 | 2048 | SKA | Införandeplan tas fram i projektet. | Projektfråga. |
 | 2051 | SKA | Samarbete i införandeprojektet. | Projektfråga. |
 | 2054 | SKA | Utbildningstillfälle genomförs av leverantören. | Ingen utbildning planerad. |
+| 2064 | SKA | Bekräftad FGS-version från kommunen samt den XSD-uppsättning och eventuella lokala profilutökningar mottagande e-arkiv kräver. Validering mot den uppsättningen är ett externt steg; koden är på plats och FGS_CONFORMANCE_STATUS redovisar exakt vad som återstår. | Arkivpaketet innehåller nu en riktig METS sip.xml enligt den profil Riksarkivet publicerar, vid sidan av det JSON-manifest som gör offline-verifiering möjlig. Profil-URI, ExtensionMETS-namnrymden, ext:OAISSTATUS, CHECKSUMTYPE och den enkla Profilestructmap är hämtade ur profilen och inte gissade. Men strukturen följer profilen är ett annat påstående än validerad mot mottagarens XSD, och FGS_CONFORMANCE_STATUS.schemaValidated är false. |
+| 2065 | SKA | Bekräftad föreskriftsversion och schemauppsättning från kommunens e-arkiv. Utan den kan konformitet inte verifieras, bara påstås. | Samma paket och samma profil som 2064. Arkivexporten körs nu på riktigt via ARCHIVE_EXPORT i stället för att vara ett bibliotek utan anropare, och paketet är deterministiskt: samma stängda ärende exporterat två gånger ger identiska bytes, annars går den arkiverade kopian inte att visa vara den som levererades. |
 | 3501 | SKA | Etablerat och tillämpat LIS hos leverantören. | Inget LIS finns dokumenterat. |
 | 3503 | SKA | Upprättade myndighetskontakter. | Organisatoriskt krav. |
 | 3504 | SKA | Antagen och tillämpad policy. | Ingen distansarbetspolicy finns. |

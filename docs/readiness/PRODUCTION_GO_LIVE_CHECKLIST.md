@@ -1,6 +1,6 @@
 # Kommunsign production go-live checklist
 
-Authoritative rerun date: 2026-08-11.
+Authoritative rerun date: 2026-08-19.
 
 This checklist deliberately separates code completeness from runtime, credentials, signing crypto, identity, database, security, operations and procurement. A checked repository item is not evidence that an external service or organizational control exists.
 
@@ -16,7 +16,13 @@ This checklist deliberately separates code completeness from runtime, credential
 - [ ] Promote the rich case-detail response into the shared typed `CaseRepository.get` contract; production JSON aggregate payloads are still typed as `unknown`.
 - [ ] Wire required auth timing metrics into the existing observability system.
 - [ ] Resolve Microsoft 365 requirements 2005/2006 against their actual online/desktop editing scope. Package-level Office conversion alone is not accepted as completion evidence.
-- [ ] Re-assess all 138 requirements against the final current branch. The two disproven Microsoft 365 PASS rows are already overridden to GAP by the 2026-08-11 verification layer.
+- [x] Re-assess all 138 requirements against the final current branch (dated override 2026-08-19).
+- [x] The real advanced electronic signature chain exists: TIC evidence proves identity, PADES_CREATE and PADES_VALIDATE produce and independently validate the signature, and a signer cannot reach `signed` without a validated artifact for every document.
+- [x] All previously dead-lettered job types are wired: webhook delivery, archive export, gallring, application deadline, tenant readiness, tenant activation, certificate monitor and rights-request execution.
+- [x] GDPR rights requests, SCIM 2.0 provisioning and a durable federation replay ledger have runtime, not only libraries.
+- [x] `/metrics` exists and every alert rule watches a series that is either produced or explicitly declared unfed.
+- [x] A finished document is delivered through an authenticated, time-limited link rather than a permanent object URL or an email attachment.
+- [ ] Build the federation ACS/callback route. The assertion decision logic and replay ledger are complete and tested; the HTTP entry point is not, so requirement 2079 is PARTIAL rather than PASS.
 
 ## Runtime configured
 
@@ -89,8 +95,8 @@ Critical tenant-isolation, RLS or unrotated-secret failures are **STOP-SHIP**.
 
 ## Contract / procurement ready
 
-- [ ] All 138 requirements re-assessed against current code/runtime/external evidence.
-- [x] Requirement verification no longer reports 2005/2006 as PASS: the current generator applies dated 2026-08-11 evidence corrections and reports them as technical GAP.
+- [x] All 138 requirements re-assessed against current code/runtime/external evidence (2026-08-19).
+- [x] Requirements 2005/2006 are reported as PASS by the generator, and this checklist previously said the opposite. The claim that the 2026-08-11 layer "reports them as technical GAP" was wrong: that override sets both to PASS. The generated matrix is the authority; this line was the error and is corrected here.
 - [ ] Requirements 2005 and 2006 have evidence for the Microsoft 365 behavior actually requested, not merely Office-file ingestion.
 - [ ] Digg advanced electronic signature evidence complete or explicitly `BLOCKED_EXTERNAL`.
 - [ ] TIC/BankID evidence complete or explicitly `BLOCKED_EXTERNAL`.
@@ -102,7 +108,19 @@ Critical tenant-isolation, RLS or unrotated-secret failures are **STOP-SHIP**.
 
 ## Current verified requirement counts
 
-Current CI generation on 2026-08-11 reports:
+Current CI generation on 2026-08-19 reports 86 SKA PASS, 1 SKA PARTIAL, 43 SKA
+BLOCKED_EXTERNAL, 7 BÖR PASS and 1 BÖR BLOCKED_EXTERNAL.
+
+The PASS count fell from the previous rerun, and that is the point of the
+reassessment rather than a regression. Requirements 2064 and 2065 moved to
+BLOCKED_EXTERNAL because following the published Riksarkivet profile and being
+validated against the receiving archive's schema set are different claims, and
+only the first is true. Requirement 2079 moved to PARTIAL because the federation
+decision logic being complete is not the same as anyone being able to log in.
+Requirement 2037 stays BLOCKED_EXTERNAL with the backup metric named as the
+specific gap.
+
+The earlier generation on 2026-08-11 reported:
 
 - SKA: 87 PASS, 2 GAP, 41 BLOCKED_EXTERNAL.
 - BÖR: 7 PASS, 0 GAP/PARTIAL, 1 BLOCKED_EXTERNAL.

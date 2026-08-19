@@ -56,6 +56,24 @@ const HELP: Readonly<Record<string, string>> = {
   kommunsign_cases_awaiting_completion: 'Cases where every mandatory signer has signed but the case is not completed.',
 };
 
+/**
+ * Series this build declares but cannot yet produce a value for.
+ *
+ * Being explicit about the gap is the point. Backups are taken by the hosting
+ * platform, not by this application, so nothing here knows when the last one
+ * succeeded — and the BackupFailed rule alerts on the *absence* of a recent
+ * timestamp, which means an un-fed series looks exactly like a healthy one to
+ * anyone who has not checked. Listing it here lets the tests hold the line: a
+ * series may be alerted on and unfed, but only if it says so out loud.
+ *
+ * Feeding it is an operator integration, not a code change: the backup job
+ * writes the timestamp through the same scrape endpoint's push path or through
+ * the platform's own exporter.
+ */
+export const PROMETHEUS_UNFED_SERIES: readonly string[] = [
+  'kommunsign_last_successful_backup_timestamp_seconds',
+];
+
 const TYPE: Readonly<Record<string, 'counter' | 'gauge'>> = Object.fromEntries([
   ...PROMETHEUS_COUNTERS.map((name) => [name, 'counter' as const]),
   ...PROMETHEUS_GAUGES.map((name) => [name, 'gauge' as const]),

@@ -104,7 +104,7 @@ import {
 import { handlePrivacyRequestExecute } from '../dist/apps/workers/src/privacy-handlers.js';
 import { handleScimRequest } from '../dist/apps/api/src/scim-router.js';
 import {
-  PROMETHEUS_COUNTERS, PROMETHEUS_GAUGES, renderPrometheus,
+  PROMETHEUS_COUNTERS, PROMETHEUS_GAUGES, PROMETHEUS_UNFED_SERIES, renderPrometheus,
 } from '../dist/packages/observability/src/prometheus.js';
 
 const tests = [];
@@ -3546,12 +3546,33 @@ test('every alert rule watches a series this system actually emits', async () =>
   const referenced = new Set([...rules.matchAll(/kommunsign_[a-z0-9_]+/g)].map((match) => match[0]));
   assert.ok(referenced.size >= 5, 'the alert rules must still reference metrics');
 
-  const emitted = new Set([...PROMETHEUS_COUNTERS, ...PROMETHEUS_GAUGES]);
+  const declared = new Set([...PROMETHEUS_COUNTERS, ...PROMETHEUS_GAUGES]);
   for (const series of referenced) {
     // An alert watching a series nobody produces is worse than no alert,
     // because a silent alert reads as "nothing is wrong". Every one of the five
     // rules was in exactly that state before this endpoint existed.
-    assert.ok(emitted.has(series), `${series} is alerted on but never emitted`);
+    assert.ok(declared.has(series), `${series} is alerted on but not even declared`);
+  }
+
+  // Declared is not the same as fed. The exporter is checked against what the
+  // repository actually queries, so a name added to the catalogue without a
+  // query behind it does not quietly satisfy the check above.
+  const repository = await readFile('apps/api/src/production-adapters/postgres/metrics-repository.ts', 'utf8');
+  const unfed = new Set(PROMETHEUS_UNFED_SERIES);
+  for (const series of [...PROMETHEUS_COUNTERS, ...PROMETHEUS_GAUGES]) {
+    const fed = repository.includes(`'${series}'`);
+    if (fed) {
+      assert.ok(!unfed.has(series), `${series} is fed but still listed as unfed`);
+      continue;
+    }
+    // A series may be declared and unfed, but only if it says so out loud —
+    // and then the requirement matrix has to carry the same admission.
+    assert.ok(unfed.has(series), `${series} is declared but nothing produces it, and it is not listed as unfed`);
+  }
+
+  const blockers = await readFile('docs/compliance/kungalv/EXTERNAL_EVIDENCE_BLOCKERS.md', 'utf8');
+  for (const series of PROMETHEUS_UNFED_SERIES) {
+    assert.match(blockers, /[Bb]ackup/, `${series} is unfed, so the gap must be recorded as an external blocker`);
   }
 });
 

@@ -1,0 +1,72 @@
+Kommunsign — verification results
+Branch: claude/happy-planck-ewrny2
+Date:   2026-08-19
+
+COMMANDS RUN
+  env -u CONTROL_DATABASE_URL -u DATA_DATABASE_URL npm run verify
+  bash scripts/db-verify.sh                     (against real PostgreSQL, docker compose)
+  npm run db:migrate                            (clean replay, control 0001-0018, data 0001-0029)
+
+RESULT: all green.
+
+npm run verify
+  clean, build                                  OK
+  verify:repository                             OK
+  verify:deployment-config                      OK
+  verify:migrations                             OK
+  verify:requirements                           138 requirements
+                                                SKA  PASS=86 PARTIAL=1 BLOCKED_EXTERNAL=43
+                                                BÖR  PASS=7  BLOCKED_EXTERNAL=1
+  verify:provenance                             OK
+  verify:sdk                                    OK
+  verify:accessibility                          OK (6 portals, WCAG 2.2 AA static)
+  scan:secrets                                  OK
+  verify:java                                   OK (offline javac services and SDK)
+  tests/run.mjs                                 138 tests passed
+  tests/m365-office.mjs                         OK
+  tests/provider-runtime.mjs                    OK
+  tests/auth-observability.mjs                  OK
+  tests/integration.mjs                         OK (3 suites)
+  tests/security.mjs                            OK
+
+bash scripts/db-verify.sh   (real PostgreSQL 16, both planes)
+  onboarding-control.sql                        OK
+  verify_accounts.sql                           OK
+  verify_organization_creation.sql              OK
+  verify_platform_jobs.sql                      OK
+  federation-replay.sql                         federation replay guards: OK
+  migrations/data/verify.sql                    OK
+  verify_organization_creation.sql (data)       OK
+  tenant-isolation.sql                          OK
+  pades-signature-chain.sql                     pades signature chain guards: OK
+  webhook-delivery.sql                          webhook delivery guards: OK
+  archive-export.sql                            archive export guards: OK
+  gallring.sql                                  gallring guards: OK
+  privacy-requests.sql                          privacy request guards: OK
+  scim-provisioning.sql                         scim provisioning guards: OK
+  document-delivery.sql                         document delivery guards: OK
+  key-rotation.sql                              key rotation guards: OK
+
+NOT RUN IN THIS ENVIRONMENT
+  npm run verify:java:maven   — Maven build of signservice and validation-service.
+                                Runs as its own CI gate (.github/workflows). Last green
+                                run in this branch: 20 Java tests, phase 0.
+  npm run test:e2e            — Playwright. Requires the full compose stack including
+                                Gotenberg and MinIO with seeded tenants.
+
+PRODUCTION_GO: NO.
+
+  This is the correct outcome, not a shortfall. The signing chain is complete and
+  proven end to end against a test certificate authority, and the tests show it
+  refuses an untrusted one. Production requires artifacts no code can supply:
+
+    - a CA-issued signing certificate for the organisation
+    - HSM or remote QSCD key protection (production refuses SOFTWARE protection)
+    - an RFC 3161 timestamp authority contract
+    - TIC/BankID production credentials
+    - Kungälv's IdP metadata (EntityID, SSO endpoint, signing certificate)
+    - the receiving e-archive's confirmed FGS version and XSD set
+    - the hosting platform feeding kommunsign_last_successful_backup_timestamp_seconds
+
+  Each is recorded as BLOCKED_EXTERNAL against the specific requirement in
+  docs/compliance/kungalv/EXTERNAL_EVIDENCE_BLOCKERS.md, with the exact blocker.
