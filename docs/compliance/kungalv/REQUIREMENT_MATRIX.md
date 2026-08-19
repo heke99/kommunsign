@@ -28,7 +28,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 86 | 1 | 0 | 43 | 130 |
+| SKA | 87 | 0 | 0 | 43 | 130 |
 | BÖR | 7 | 0 | 0 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -110,7 +110,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0027_signed_document_delivery.sql; apps/api/src/production-adapters/postgres/delivery-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/document-delivery.sql med sju scenarier samt enhetstest för avkortning och att okänd, utgången, återkallad och förbrukad länk ger samma svar. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### F006 — PASS
 
@@ -466,7 +466,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/observability/src/prometheus.ts; apps/api/src/production-adapters/postgres/metrics-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som läser larmreglerna och failar om den larmade och den sända mängden glider isär, samt test för etikettkontroll och escaping. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2023 — PASS
 
@@ -482,7 +482,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0025_privacy_request_runtime.sql; apps/workers/src/privacy-handlers.ts; apps/api/src/production-adapters/postgres/privacy-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: sex enhetstester och tests/sql/privacy-requests.sql med nio scenarier. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2024 — PASS
 
@@ -513,7 +513,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/workers/src/privacy-handlers.ts; packages/privacy/src/index.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: raderingstest som bevisar att objekt förstörs, identifierare nollställs och loggraderna inte tas bort. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2026 — BLOCKED_EXTERNAL
 
@@ -701,7 +701,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som kräver att varje deklarerad serie antingen matas av metrics-repository eller står med i omatad-listan. |
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Driftplattformens backupjobb måste mata kommunsign_last_successful_backup_timestamp_seconds, och kommunen måste bekräfta backupfönster och retention. Utan det larmar BackupFailed aldrig, hur frisk regeln än ser ut. |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2038 — PASS
 
@@ -1025,7 +1025,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: fem FGS-tester inklusive determinism, XML-escaping och att adaptern aldrig påstår schemakonformitet den inte verifierat. |
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Bekräftad FGS-version från kommunen samt den XSD-uppsättning och eventuella lokala profilutökningar mottagande e-arkiv kräver. Validering mot den uppsättningen är ett externt steg; koden är på plats och FGS_CONFORMANCE_STATUS redovisar exakt vad som återstår. |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2065 — BLOCKED_EXTERNAL
 
@@ -1042,7 +1042,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/archive-export.sql samt determinismtestet. |
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Bekräftad föreskriftsversion och schemauppsättning från kommunens e-arkiv. Utan den kan konformitet inte verifieras, bara påstås. |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2066 — PASS
 
@@ -1088,7 +1088,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0024_gallring_runtime.sql; apps/workers/src/retention-handlers.ts; apps/api/src/production-adapters/postgres/retention-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/gallring.sql, nio scenarier som var för sig kontrollerar att rätt guard utlöstes. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2069 — PASS
 
@@ -1104,7 +1104,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/router.ts; apps/api/src/production-adapters/postgres/retention-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstester samt behörighetstester för retention:manage och retention:execute. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2070 — PASS
 
@@ -1120,7 +1120,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/workers/src/retention-handlers.ts; packages/retention/src/executor.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstest som avvisar en rapport som påstår fullständighet samtidigt som den räknar upp oadresserade mål. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2071 — PASS
 
@@ -1136,7 +1136,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/authorization/src/index.ts; migrations/data/0024_gallring_runtime.sql |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/gallring.sql bevisar att självgodkännande avvisas med rätt guard. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2072 — PASS
 
@@ -1152,7 +1152,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/retention/src/index.ts; migrations/data/0024_gallring_runtime.sql |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstester inklusive fullständighetsvillkoret. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2073 — PASS
 
@@ -1214,7 +1214,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | Dokumenterat åtagande. Tenantmedveten rate limiting säkerställer att gränserna inte blir en delad budget mellan kunder. |
 | Status | PASS |
 
-### 2079 — PARTIAL
+### 2079 — PASS
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1222,13 +1222,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Inloggning |
-| Nuläge | Beslutslogiken för federerad inloggning är komplett och testad för både SAML 2.0 och OIDC, och replayskyddet är nu varaktigt: control.federation_assertion_ledger konsumerar ett assertion-ID exakt en gång med insert ... on conflict do nothing, så två samtidiga replays inte kan vinna båda. Tidigare fanns bara InMemoryAssertionLedger, som glömmer allt vid omstart och i en flerinstansdrift aldrig skyddade något alls. Det som saknas är HTTP-ingången: det finns ingen ACS- eller callback-route, så ingen kan faktiskt logga in via en IdP ännu. |
-| Gap | ACS/callback-routen är inte byggd. Den tidigare PASS-bedömningen beskrev biblioteket, inte en inloggning någon kunde utföra. |
-| Lösning | packages/federation (verifyWorkforceAssertion, mapWorkforceIdentity, resolveLogoutTargets), apps/api/src/production-adapters/postgres/federation-repository.ts (varaktig ledger och tenant-IdP-konfiguration), control/0017 (GENERIC_SAML/GENERIC_OIDC och rollmappning). |
-| Kodevidens | packages/federation/src/index.ts; apps/api/src/production-adapters/postgres/federation-repository.ts; migrations/control/0017_workforce_federation.sql |
-| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: federationstester samt tests/sql/federation-replay.sql som bevisar engångsförbrukning, tenantisolering och att gallring inte får öppna replayfönstret. |
-| Status | PARTIAL |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Nuläge | Federerad inloggning fungerar nu hela vägen. En inloggning startas mot /auth/federation/{providerKey}/login, bindningen sparas i control.federation_login_requests, och ACS:en konsumerar den innan något läses ur assertionen — tenanten kommer alltid från den registrerade inloggningen och aldrig ur meddelandet. Signaturverifieringen ligger i validation-service, som redan har XML-DSig-maskineriet: SamlAssertionValidator jämför mot tenantens konfigurerade certifikat innan något parsas, avvisar externa referenser och DTD, och letar upp det signerade elementet ur signaturens egen Reference i stället för att parsa först och kontrollera sedan. Beslutet fattas i ett anrop till verifyWorkforceAssertion mot den varaktiga assertion-ledgern. |
+| Gap | Ingen kvarvarande kodbrist. Den tidigare bedömningen sattes till PARTIAL för att beslutslogiken var komplett men HTTP-ingången saknades; den finns nu. |
+| Lösning | apps/api/src/federation-router.ts (login, ACS), migrations/control/0019_federation_login_requests.sql (engångsförbrukad bindning), services/validation-service SamlAssertionValidator och POST /v1/validate/saml, packages/validation-client validateSaml, federation-repository (ledger och tenant-IdP-konfiguration). |
+| Kodevidens | apps/api/src/federation-router.ts; services/validation-service/src/main/java/se/kommunsign/validation/SamlAssertionValidator.java; migrations/control/0019_federation_login_requests.sql |
+| Verifiering | npm run verify (145 tester), mvn -B test (11 Java-tester), bash scripts/db-verify.sh mot riktig Postgres: sju federationsroute-tester (replay, öppen omdirigering, fail-closed utan konfigurerat certifikat, PASS utan verifierad signatur), fem Java-tester mot verkligt signerad XML inklusive falsk IdP och manipulerad assertion, samt tests/sql/federation-replay.sql. |
+| Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2080 — PASS
 
@@ -1274,7 +1274,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/scim-router.ts; apps/api/src/production-adapters/postgres/scim-repository.ts; migrations/data/0026_scim_client_issuance.sql |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: åtta SCIM-tester över HTTP samt tests/sql/scim-provisioning.sql. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2083 — PASS
 
@@ -1290,7 +1290,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/scim/src/index.ts; apps/api/src/scim-router.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: idempotenstest, avaktiveringstest och DELETE-test som bevisar att historik bevaras. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2084 — PASS
 
@@ -1306,7 +1306,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/scim-router.ts; migrations/data/0017_scim_provisioning.sql |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som visar att saknad, felformad och felaktig token ger samma svar, och att svaret inte beskriver vad som skulle ha nåtts. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 2085 — PASS
 
@@ -1322,7 +1322,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/scim/src/index.ts; apps/api/src/production-adapters/postgres/scim-repository.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som visar att en gruppmappning utanför klientens scope avvisas och att ingenting skrivs. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ## KLASSA Inform. Tekn. Krav
 
@@ -1488,7 +1488,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/workers/src/retention-handlers.ts; apps/workers/src/privacy-handlers.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallrings- och privacy-sviterna mot riktig Postgres. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 3512 — BLOCKED_EXTERNAL
 
@@ -1588,7 +1588,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/production-adapters/postgres/scim-repository.ts; migrations/data/0017_scim_provisioning.sql |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/scim-provisioning.sql kontrollerar att avprovisionering lämnar spår. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 3519 — PASS
 
@@ -1603,7 +1603,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/scim-router.ts; packages/scim/src/index.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: DELETE-test över båda grenarna. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 3520 — BLOCKED_EXTERNAL
 
@@ -1691,7 +1691,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0029_key_rotation_backfill.sql; docs/runbooks/KEY_ROTATION.md; packages/crypto/src/key-rotation.ts |
 | Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/key-rotation.sql, sju scenarier inklusive att en rotation utan registrerade kolumner inte kan rapportera sig verifierad. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS. |
 
 ### 3527 — BLOCKED_EXTERNAL
 

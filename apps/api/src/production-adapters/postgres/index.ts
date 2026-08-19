@@ -12,6 +12,7 @@ import { createFederationRepository } from './federation-repository.js';
 import { createMetricsRepository } from './metrics-repository.js';
 import { createDeliveryRepository } from './delivery-repository.js';
 import { renderPrometheus } from '../../../../../packages/observability/src/prometheus.js';
+import { ValidationServiceClient } from '../../../../../packages/validation-client/src/index.js';
 import { withKeysetListRepositories } from './keyset-repositories.js';
 import { createDomainRepository } from './domain-repository.js';
 import { loadProductionInfrastructure } from './infrastructure.js';
@@ -69,6 +70,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
       privacy: createPrivacyRepository(dataDatabase, infrastructure.sensitiveData),
       scim: createScimRepository(dataDatabase, infrastructure.sensitiveData),
       federation: createFederationRepository(controlDatabase),
+      ...federationVerification(controlDatabase),
       delivery: createDeliveryRepository(dataDatabase),
       ...metricsEndpoint(controlDatabase, dataDatabase),
       uploads: signingSourceUploads,
@@ -166,6 +168,41 @@ function metricsEndpoint(controlDatabase: SqlDatabase, dataDatabase: SqlDatabase
         const { counters, gauges } = await repository.collect(now);
         return renderPrometheus(counters, gauges);
       },
+    },
+  };
+}
+
+
+/**
+ * Signature verification and trust material for federated login.
+ *
+ * Both are absent unless configured, and the router fails closed on either
+ * being missing. That is the right default: a federation endpoint that accepts
+ * an assertion it cannot verify against a known certificate is an
+ * authentication bypass, and it looks like a working login while it is one.
+ */
+function federationVerification(controlDatabase: SqlDatabase): {
+  readonly federationValidation?: NonNullable<ApiDependencies['federationValidation']>;
+  readonly federationTrust?: NonNullable<ApiDependencies['federationTrust']>;
+} {
+  const baseUrl = process.env.VALIDATION_SERVICE_URL ?? '';
+  const serviceToken = process.env.VALIDATION_SERVICE_TOKEN ?? '';
+  if (!baseUrl || !serviceToken) return {};
+  const client = new ValidationServiceClient(baseUrl, serviceToken);
+
+  return {
+    federationValidation: { validateSaml: (input) => client.validateSaml(input) },
+    async federationTrust(_config, tenantId) {
+      // Read at use rather than cached: rotating an IdP certificate must take
+      // effect on the next login, not on the next deploy.
+      const result = await controlDatabase.transaction(async (tx) => tx.query<{ readonly certificate_base64: string | null }>(
+        `select public_configuration->>'signingCertificateBase64' certificate_base64
+           from control.tenant_identity_providers
+          where tenant_id=$1 and enabled=true
+          order by environment limit 1`,
+        [tenantId],
+      ));
+      return result.rows[0]?.certificate_base64 ?? null;
     },
   };
 }

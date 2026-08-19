@@ -84,9 +84,13 @@ Alla 138 krav är ombedömda mot faktisk kod. **PASS-antalet sjönk**, från 96 
 - **2064, 2065** → BLOCKED_EXTERNAL. Att följa Riksarkivets publicerade profil
   och att vara validerad mot mottagande arkivs schemauppsättning är olika
   påståenden, och bara det första är sant.
-- **2079** → PARTIAL. Beslutslogiken för federerad inloggning är komplett och
-  testad, men ACS/callback-routen är inte byggd, så ingen kan faktiskt logga in
-  via en IdP.
+- **2079** var kortvarigt PARTIAL av samma skäl — att beslutslogiken är komplett
+  är inte samma sak som att någon kan logga in — och gick tillbaka till PASS när
+  ACS-routen faktiskt byggdes. Signaturverifieringen ligger i validation-service
+  där XML-DSig-maskineriet redan finns, och jämför mot tenantens konfigurerade
+  certifikat innan något parsas ur meddelandet. Fem Java-tester körs mot verkligt
+  signerad XML: en falsk IdP med samma issuer-sträng avvisas, en äkta signatur
+  över ändrade attribut avvisas, och en osignerad respons avvisas.
 - **2037** → kvar som BLOCKED_EXTERNAL, med backup-mätvärdet namngivet som den
   specifika luckan.
 
@@ -108,6 +112,13 @@ FGS-version, och att driftplattformen matar backup-serien.
 
 Var och en står som BLOCKED_EXTERNAL mot sitt krav i
 `docs/compliance/kungalv/EXTERNAL_EVIDENCE_BLOCKERS.md`, med exakt blockerare.
+
+## Vad som fortfarande är öppet i kod
+
+OIDC-callbacken. SAML-vägen är komplett; en tenant som väljer OIDC i stället
+behöver id_token-verifieringen, som återanvänder samma beslutslager. Det står
+som en öppen punkt i `PRODUCTION_GO_LIVE_CHECKLIST.md` snarare än som en
+uppfylld förmåga.
 
 ## Filer
 

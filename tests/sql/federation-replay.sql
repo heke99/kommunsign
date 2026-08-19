@@ -114,6 +114,75 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- ===========================================================================
+-- 6. A login request is single use and immutable.
+--    verifyWorkforceAssertion refuses an assertion that does not answer a
+--    request we started, and refuses one with no InResponseTo at all. That
+--    check is only worth anything if the binding is durable and can be
+--    consumed exactly once.
+-- ===========================================================================
+INSERT INTO control.federation_login_requests
+  (tenant_id, request_id, provider_key, environment, redirect_uri, return_path, expires_at)
+VALUES (:tenant, '_login-request-0000000000001', 'GENERIC_SAML', 'production',
+        'https://kungalv.kommunsign.se/auth/federation/GENERIC_SAML/acs', '/arenden',
+        now() + interval '10 minutes');
+
+DO $$
+DECLARE consumed integer;
+BEGIN
+  UPDATE control.federation_login_requests SET consumed_at = now()
+   WHERE request_id = '_login-request-0000000000001' AND consumed_at IS NULL AND expires_at > now();
+  GET DIAGNOSTICS consumed = ROW_COUNT;
+  IF consumed <> 1 THEN RAISE EXCEPTION 'GUARD FAILED: a live login request could not be consumed'; END IF;
+
+  -- The second attempt matches nothing, which is what makes one assertion per
+  -- request rather than one per validity window.
+  UPDATE control.federation_login_requests SET consumed_at = now()
+   WHERE request_id = '_login-request-0000000000001' AND consumed_at IS NULL AND expires_at > now();
+  GET DIAGNOSTICS consumed = ROW_COUNT;
+  IF consumed <> 0 THEN RAISE EXCEPTION 'GUARD FAILED: a login request was consumed twice'; END IF;
+END $$;
+
+DO $$ BEGIN
+  BEGIN
+    UPDATE control.federation_login_requests SET consumed_at = NULL
+     WHERE request_id = '_login-request-0000000000001';
+    RAISE EXCEPTION 'GUARD FAILED: a consumed login request was reopened';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM NOT LIKE 'FEDERATION_LOGIN_REQUEST_ALREADY_CONSUMED%' THEN
+      RAISE EXCEPTION 'WRONG GUARD FIRED: %', SQLERRM;
+    END IF;
+  END;
+END $$;
+
+DO $$ BEGIN
+  BEGIN
+    -- Moving the endpoint after the fact would let an assertion captured
+    -- elsewhere become valid here.
+    UPDATE control.federation_login_requests SET redirect_uri = 'https://evil.example/acs'
+     WHERE request_id = '_login-request-0000000000001';
+    RAISE EXCEPTION 'GUARD FAILED: the endpoint a login was started against was rewritten';
+  EXCEPTION WHEN check_violation THEN
+    IF SQLERRM NOT LIKE 'FEDERATION_LOGIN_REQUEST_IS_IMMUTABLE%' THEN
+      RAISE EXCEPTION 'WRONG GUARD FIRED: %', SQLERRM;
+    END IF;
+  END;
+END $$;
+
+-- A return path must be same-origin. `//host` is protocol-relative and a
+-- browser follows it off-site, which on a login endpoint is a phishing tool.
+DO $$ BEGIN
+  BEGIN
+    INSERT INTO control.federation_login_requests
+      (tenant_id, request_id, provider_key, environment, redirect_uri, return_path, expires_at)
+    VALUES ('16161616-1616-4161-8161-161616161616', '_login-request-0000000000002', 'GENERIC_SAML', 'production',
+            'https://kungalv.kommunsign.se/auth/federation/GENERIC_SAML/acs', '//evil.example/steal',
+            now() + interval '10 minutes');
+    RAISE EXCEPTION 'GUARD FAILED: a protocol-relative return path was stored';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+END $$;
+
 SELECT 'federation replay guards: OK' AS result;
 
 ROLLBACK;

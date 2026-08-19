@@ -1,6 +1,7 @@
 import { handleOnboardingRequest } from './onboarding-router.js';
 import { handleAuthRequest } from './auth-router.js';
 import { handleScimRequest } from './scim-router.js';
+import { handleFederationRequest } from './federation-router.js';
 import {
   DEFAULT_GRANT_LIFETIME_SECONDS, MAXIMUM_GRANT_LIFETIME_SECONDS,
   truncateClientAddress, userAgentFamily,
@@ -613,6 +614,10 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
       // SCIM authenticates with its own tenant-scoped provisioning credential.
       const scimResponse = await handleScimRequest(dependencies, request, requestId);
       if (scimResponse) return scimResponse;
+      // Also before resolveContext: an assertion is the credential, so there is
+      // no session yet when the ACS is called.
+      const federationResponse = await handleFederationRequest(dependencies, request, requestId);
+      if (federationResponse) return federationResponse;
       const onboardingResponse = await handleOnboardingRequest(dependencies, request, requestId);
       if (onboardingResponse) return onboardingResponse;
       const context = await dependencies.resolveContext(request);

@@ -12,7 +12,32 @@ import type { AssertionLedger, FederationConfig, FederationProtocol } from '../.
  * key for the job; nothing used it.
  */
 
+export interface FederationLoginRequest {
+  readonly tenantId: string;
+  readonly requestId: string;
+  readonly providerKey: string;
+  readonly environment: string;
+  readonly redirectUri: string;
+  readonly returnPath: string;
+}
+
 export interface FederationRepository {
+  /**
+   * Records a login this system started, so an assertion can be required to
+   * answer one. Held in process memory the binding would be lost on restart and
+   * unknown to every other instance, so a login would fail on whichever pod did
+   * not start it — and IdP-initiated flows, which the decision layer refuses,
+   * would become the only ones that worked.
+   */
+  startLogin(input: FederationLoginRequest & { readonly lifetimeSeconds: number }): Promise<void>;
+  /**
+   * Consumes a login request, or returns null.
+   *
+   * Consumption is the same conditional-update pattern the assertion ledger
+   * uses, for the same reason: two assertions answering one request must not
+   * both find it unconsumed.
+   */
+  consumeLogin(requestId: string, now: Date): Promise<FederationLoginRequest | null>;
   /**
    * A ledger bound to one tenant.
    *
@@ -27,10 +52,45 @@ export interface FederationRepository {
   configFor(tenantId: string, providerKey: string, environment: string): Promise<FederationConfig | null>;
   /** Removes ledger entries whose assertions can no longer be replayed. */
   pruneLedger(now: Date): Promise<number>;
+  /** Removes login requests that can no longer be answered. */
+  pruneLoginRequests(now: Date): Promise<number>;
 }
 
 export function createFederationRepository(controlDatabase: SqlDatabase): FederationRepository {
   return {
+    async startLogin(input) {
+      await controlDatabase.transaction(async (tx) => tx.query(
+        `insert into control.federation_login_requests(
+           tenant_id,request_id,provider_key,environment,redirect_uri,return_path,expires_at)
+         values($1,$2,$3,$4,$5,$6,now()+make_interval(secs=>$7))`,
+        [input.tenantId, input.requestId, input.providerKey, input.environment,
+          input.redirectUri, input.returnPath, input.lifetimeSeconds],
+      ));
+    },
+
+    async consumeLogin(requestId, now) {
+      const consumed = await controlDatabase.transaction(async (tx) => tx.query<{
+        readonly tenant_id: string; readonly provider_key: string; readonly environment: string;
+        readonly redirect_uri: string; readonly return_path: string;
+      }>(
+        `update control.federation_login_requests
+            set consumed_at = $2
+          where request_id = $1 and consumed_at is null and expires_at > $2
+          returning tenant_id,provider_key,environment,redirect_uri,return_path`,
+        [requestId, now.toISOString()],
+      ));
+      const row = consumed.rows[0];
+      if (!row) return null;
+      return {
+        tenantId: row.tenant_id,
+        requestId,
+        providerKey: row.provider_key,
+        environment: row.environment,
+        redirectUri: row.redirect_uri,
+        returnPath: row.return_path,
+      };
+    },
+
     ledgerFor(tenantId) {
       return {
         /**
@@ -78,8 +138,9 @@ export function createFederationRepository(controlDatabase: SqlDatabase): Federa
         issuer: requireString(configuration, 'issuer'),
         audience: requireString(configuration, 'audience'),
         destination: requireString(configuration, 'destination'),
-        // Never the certificate itself: a signing certificate inlined in a
-        // configuration row is a secret in a column nobody treats as one.
+        // A reference, never the certificate itself. An IdP signing certificate
+        // is public material, but the column is a reference by convention and
+        // breaking that here would make one row behave unlike every other.
         signingCertificateSecretReference: row.certificate_secret_reference ?? '',
         requiredAuthnContexts: stringArray(configuration, 'requiredAuthnContexts'),
         maximumAuthenticationAgeSeconds: numberOr(configuration, 'maximumAuthenticationAgeSeconds', 3600),
@@ -88,6 +149,14 @@ export function createFederationRepository(controlDatabase: SqlDatabase): Federa
         groupToRole: Object.fromEntries(mappings.rows.map((entry) => [entry.group_value, entry.role_key])),
         assignableRoles: stringArray(configuration, 'assignableRoles'),
       };
+    },
+
+    async pruneLoginRequests(now) {
+      const result = await controlDatabase.transaction(async (tx) => tx.query(
+        `delete from control.federation_login_requests where expires_at < $1`,
+        [now.toISOString()],
+      ));
+      return result.rowCount ?? 0;
     },
 
     async pruneLedger(now) {

@@ -77,6 +77,32 @@ export interface PadesValidationReport {
   readonly validatedAt: string;
 }
 
+export interface SamlValidationRequest {
+  readonly responseXmlBase64: string;
+  /** The tenant's configured IdP certificate. Required: never taken from the message. */
+  readonly trustedCertificateBase64: string;
+  readonly expectedAudience: string;
+  readonly expectedDestination: string;
+}
+export interface SamlValidationReport {
+  readonly result: 'PASS' | 'FAIL';
+  readonly signatureVerified: boolean;
+  readonly reason?: string;
+  readonly protocol?: 'SAML2';
+  readonly assertionId?: string;
+  readonly issuer?: string | null;
+  readonly audience?: string | null;
+  readonly destination?: string | null;
+  readonly inResponseTo?: string | null;
+  readonly notBefore?: string | null;
+  readonly notOnOrAfter?: string | null;
+  readonly authenticatedAt?: string | null;
+  readonly authnContext?: string | null;
+  readonly subject?: string;
+  readonly attributes?: Readonly<Record<string, readonly string[]>>;
+  readonly checks?: readonly { readonly name: string; readonly passed: boolean }[];
+}
+
 export class ValidationServiceClient {
   private readonly baseUrl: string;
   constructor(baseUrl: string, private readonly serviceToken: string, private readonly http: typeof fetch = fetch) {
@@ -109,6 +135,38 @@ export class ValidationServiceClient {
         throw new Error('VALIDATION_SERVICE_PROTOCOL_INVALID');
       }
       if (!['TOTAL_PASSED', 'INDETERMINATE', 'TOTAL_FAILED'].includes(report.indication)) throw new Error('VALIDATION_SERVICE_PROTOCOL_INVALID');
+      return report;
+    } finally { clearTimeout(timeout); }
+  }
+
+  /**
+   * Verifies a SAML Response and returns what it says.
+   *
+   * The service does cryptography and parsing; it never decides admission.
+   * That keeps every tenant rule in verifyWorkforceAssertion rather than
+   * splitting them across a Java validator and a TypeScript decision layer that
+   * would eventually disagree.
+   */
+  async validateSaml(input: SamlValidationRequest): Promise<SamlValidationReport> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000);
+    try {
+      const response = await this.http(`${this.baseUrl}/v1/validate/saml`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${this.serviceToken}`, 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(input),
+        signal: controller.signal,
+      });
+      // 422 is a completed validation that answered "no", which has to be read
+      // rather than treated as a transport failure.
+      if (!response.ok && response.status !== 422) throw new Error(`VALIDATION_SERVICE_FAILED:${response.status}`);
+      const report = await response.json() as SamlValidationReport;
+      if (!report || !['PASS', 'FAIL'].includes(report.result) || typeof report.signatureVerified !== 'boolean') {
+        throw new Error('VALIDATION_SERVICE_PROTOCOL_INVALID');
+      }
+      // A report claiming PASS without a verified signature is a protocol
+      // violation, not a result to act on.
+      if (report.result === 'PASS' && !report.signatureVerified) throw new Error('VALIDATION_SERVICE_PROTOCOL_INVALID');
       return report;
     } finally { clearTimeout(timeout); }
   }

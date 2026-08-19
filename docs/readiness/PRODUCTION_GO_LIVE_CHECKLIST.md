@@ -22,7 +22,8 @@ This checklist deliberately separates code completeness from runtime, credential
 - [x] GDPR rights requests, SCIM 2.0 provisioning and a durable federation replay ledger have runtime, not only libraries.
 - [x] `/metrics` exists and every alert rule watches a series that is either produced or explicitly declared unfed.
 - [x] A finished document is delivered through an authenticated, time-limited link rather than a permanent object URL or an email attachment.
-- [ ] Build the federation ACS/callback route. The assertion decision logic and replay ledger are complete and tested; the HTTP entry point is not, so requirement 2079 is PARTIAL rather than PASS.
+- [x] The federation ACS route is built. A login is started and its binding recorded durably, the assertion is signature-verified against the tenant's configured certificate in the validation service, and the decision is made by verifyWorkforceAssertion against the durable replay ledger. Requirement 2079 is PASS.
+- [ ] OIDC callback. The SAML path is complete; a tenant choosing OIDC instead needs the id_token verification route, which reuses the same decision layer.
 
 ## Runtime configured
 
@@ -108,17 +109,18 @@ Critical tenant-isolation, RLS or unrotated-secret failures are **STOP-SHIP**.
 
 ## Current verified requirement counts
 
-Current CI generation on 2026-08-19 reports 86 SKA PASS, 1 SKA PARTIAL, 43 SKA
+Current CI generation on 2026-08-19 reports 87 SKA PASS, 43 SKA
 BLOCKED_EXTERNAL, 7 BÖR PASS and 1 BÖR BLOCKED_EXTERNAL.
 
 The PASS count fell from the previous rerun, and that is the point of the
 reassessment rather than a regression. Requirements 2064 and 2065 moved to
 BLOCKED_EXTERNAL because following the published Riksarkivet profile and being
 validated against the receiving archive's schema set are different claims, and
-only the first is true. Requirement 2079 moved to PARTIAL because the federation
-decision logic being complete is not the same as anyone being able to log in.
-Requirement 2037 stays BLOCKED_EXTERNAL with the backup metric named as the
-specific gap.
+only the first is true. Requirement 2079 was briefly PARTIAL for the same kind
+of reason — the federation decision logic being complete is not the same as
+anyone being able to log in — and returned to PASS once the ACS route was
+actually built. Requirement 2037 stays BLOCKED_EXTERNAL with the backup metric
+named as the specific gap.
 
 The earlier generation on 2026-08-11 reported:
 

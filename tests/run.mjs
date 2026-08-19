@@ -103,6 +103,7 @@ import {
 } from '../dist/apps/workers/src/platform-handlers.js';
 import { handlePrivacyRequestExecute } from '../dist/apps/workers/src/privacy-handlers.js';
 import { handleScimRequest } from '../dist/apps/api/src/scim-router.js';
+import { handleFederationRequest } from '../dist/apps/api/src/federation-router.js';
 import {
   PROMETHEUS_COUNTERS, PROMETHEUS_GAUGES, PROMETHEUS_UNFED_SERIES, renderPrometheus,
 } from '../dist/packages/observability/src/prometheus.js';
@@ -3693,6 +3694,210 @@ test('a case cannot be created already completed', async () => {
 
   const suite = await readFile('tests/sql/document-delivery.sql', 'utf8');
   assert.match(suite, /a case was created already completed/, 'the guard needs a live-database check, not only a migration');
+});
+
+// --- Federated login over the wire ------------------------------------------
+
+const FED_ROUTE_TENANT = '21212121-2121-4121-8121-212121212121';
+const FED_REQUEST_ID = '_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+function federationDoubles(overrides = {}) {
+  const started = [];
+  const consumed = [];
+  const config = {
+    tenantId: FED_ROUTE_TENANT, protocol: 'SAML2', enabled: true,
+    issuer: 'https://idp.kungalv.se/saml',
+    audience: 'https://kungalv.kommunsign.se/sp',
+    destination: 'https://kungalv.kommunsign.se/auth/federation/GENERIC_SAML/acs',
+    signingCertificateSecretReference: 'vault://idp-cert',
+    requiredAuthnContexts: [], maximumAuthenticationAgeSeconds: 3600,
+    subjectAttribute: 'uid', groupsAttribute: 'memberOf',
+    groupToRole: { 'CN=Kommunsign-Handlaggare': 'document_creator' },
+    assignableRoles: ['document_creator'],
+    ...(overrides.config ?? {}),
+  };
+  const seen = new Set();
+  const federation = {
+    async configFor() { return overrides.noConfig ? null : config; },
+    async startLogin(input) { started.push(input); },
+    async consumeLogin(requestId) {
+      consumed.push(requestId);
+      if (overrides.loginMissing) return null;
+      // Single use, exactly as the conditional update in the repository is.
+      if (seen.has(requestId)) return null;
+      seen.add(requestId);
+      return {
+        tenantId: FED_ROUTE_TENANT, requestId, providerKey: 'GENERIC_SAML',
+        environment: 'production', redirectUri: config.destination, returnPath: '/arenden',
+      };
+    },
+    ledgerFor() { return { async consume() { return true; } }; },
+    async pruneLedger() { return 0; },
+    async pruneLoginRequests() { return 0; },
+  };
+  const now = new Date();
+  const report = {
+    result: 'PASS', signatureVerified: true,
+    assertionId: '_assertion-1', issuer: config.issuer, audience: config.audience,
+    destination: config.destination, inResponseTo: FED_REQUEST_ID,
+    notBefore: new Date(now.getTime() - 60_000).toISOString(),
+    notOnOrAfter: new Date(now.getTime() + 300_000).toISOString(),
+    authenticatedAt: new Date(now.getTime() - 30_000).toISOString(),
+    authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactor',
+    subject: 'anna.andersson',
+    attributes: { uid: ['anna.andersson'], memberOf: ['CN=Kommunsign-Handlaggare'] },
+    ...(overrides.report ?? {}),
+  };
+  return {
+    started, consumed, config,
+    dependencies: {
+      federation,
+      federationValidation: { async validateSaml() { return report; } },
+      federationTrust: overrides.noTrust ? async () => null : async () => 'Y2VydA==',
+      reportError() {},
+    },
+  };
+}
+
+const acsRequest = (relayState = FED_REQUEST_ID, samlResponse = 'PHNhbWw+') =>
+  new Request('https://api.kommunsign.se/auth/federation/GENERIC_SAML/acs', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ SAMLResponse: samlResponse, RelayState: relayState }).toString(),
+  });
+
+test('a federated login must answer a request this system started', async () => {
+  const doubles = federationDoubles();
+
+  // Starting a login records the binding. Held only in memory it would be lost
+  // on restart and unknown to other instances, so the only flows that worked
+  // would be the IdP-initiated ones the decision layer refuses.
+  const start = await handleFederationRequest(doubles.dependencies, new Request(
+    `https://api.kommunsign.se/auth/federation/GENERIC_SAML/login?tenantId=${FED_ROUTE_TENANT}&returnPath=/arenden`,
+    { method: 'POST' },
+  ), 'r1');
+  assert.equal(start.status, 201);
+  assert.equal(doubles.started.length, 1);
+  assert.match(doubles.started[0].requestId, /^_/, 'a SAML ID may not start with a digit');
+  assert.equal(doubles.started[0].returnPath, '/arenden');
+
+  const accepted = await handleFederationRequest(doubles.dependencies, acsRequest(), 'r2');
+  assert.equal(accepted.status, 200);
+  const identity = await accepted.json();
+  assert.equal(identity.tenantId, FED_ROUTE_TENANT, 'the tenant comes from the login we recorded');
+  assert.deepEqual(identity.roles, ['document_creator']);
+  assert.equal(identity.returnPath, '/arenden');
+
+  // Replaying the same assertion answers a login that no longer exists.
+  const replayed = await handleFederationRequest(doubles.dependencies, acsRequest(), 'r3');
+  assert.equal(replayed.status, 401);
+  assert.equal((await replayed.json()).error.code, 'FEDERATION_LOGIN_REQUEST_INVALID');
+});
+
+test('an assertion with no login behind it is refused, and unknown is indistinguishable from expired', async () => {
+  const missing = federationDoubles({ loginMissing: true });
+  const response = await handleFederationRequest(missing.dependencies, acsRequest(), 'r4');
+  assert.equal(response.status, 401);
+  // Unknown, expired and already-answered are one answer. Telling them apart
+  // would confirm which request ids existed.
+  assert.equal((await response.json()).error.code, 'FEDERATION_LOGIN_REQUEST_INVALID');
+
+  // A RelayState that is not one of ours never reaches the store at all.
+  const malformed = federationDoubles();
+  const bad = await handleFederationRequest(malformed.dependencies, acsRequest('../../etc/passwd'), 'r5');
+  assert.equal(bad.status, 400);
+  assert.equal(malformed.consumed.length, 0);
+});
+
+test('federated login fails closed when the IdP certificate is not configured', async () => {
+  // Without the configured certificate the only verifiable claim is that the
+  // message signed itself, which is what anybody with a text editor can do.
+  const doubles = federationDoubles({ noTrust: true });
+  const response = await handleFederationRequest(doubles.dependencies, acsRequest(), 'r6');
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, 'FEDERATION_TRUST_NOT_CONFIGURED');
+
+  // And when nothing is configured at all, the endpoint refuses rather than
+  // accepting an assertion it cannot check.
+  const unconfigured = await handleFederationRequest({ reportError() {} }, acsRequest(), 'r7');
+  assert.equal(unconfigured.status, 503);
+  assert.equal((await unconfigured.json()).error.code, 'FEDERATION_NOT_CONFIGURED');
+});
+
+test('a report that did not verify the signature can never become an accepted login', async () => {
+  for (const report of [
+    { result: 'FAIL', signatureVerified: false, reason: 'SIGNER_NOT_TRUSTED' },
+    // The dangerous one: a PASS with the flag missing. Defaulting it to true
+    // would make every check below it meaningless.
+    { result: 'PASS', signatureVerified: false },
+  ]) {
+    const doubles = federationDoubles({ report });
+    const response = await handleFederationRequest(doubles.dependencies, acsRequest(), 'r8');
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).error.code, 'FEDERATION_SIGNATURE_NOT_VERIFIED');
+  }
+
+  // A missing validity window is not a permissive one.
+  const noWindow = federationDoubles({ report: { notOnOrAfter: null } });
+  const expired = await handleFederationRequest(noWindow.dependencies, acsRequest(), 'r9');
+  assert.equal(expired.status, 401);
+  assert.equal((await expired.json()).error.code, 'FEDERATION_ASSERTION_EXPIRED');
+
+  // An assertion with no id cannot be consumed, so it cannot be replay-protected.
+  const noId = federationDoubles({ report: { assertionId: null } });
+  const unconsumable = await handleFederationRequest(noId.dependencies, acsRequest(), 'r10');
+  assert.equal(unconsumable.status, 401);
+});
+
+test('the ACS refuses an assertion minted for another endpoint or another service provider', async () => {
+  const wrongAudience = federationDoubles({ report: { audience: 'https://someone-else.example/sp' } });
+  const audience = await handleFederationRequest(wrongAudience.dependencies, acsRequest(), 'r11');
+  assert.equal(audience.status, 401);
+  assert.equal((await audience.json()).error.code, 'FEDERATION_AUDIENCE_MISMATCH');
+
+  const wrongDestination = federationDoubles({ report: { destination: 'https://evil.example/acs' } });
+  const destination = await handleFederationRequest(wrongDestination.dependencies, acsRequest(), 'r12');
+  assert.equal(destination.status, 401);
+  assert.equal((await destination.json()).error.code, 'FEDERATION_DESTINATION_MISMATCH');
+
+  // An assertion that answers a different login than the one we consumed.
+  const wrongRequest = federationDoubles({ report: { inResponseTo: '_someone-elses-request' } });
+  const mismatched = await handleFederationRequest(wrongRequest.dependencies, acsRequest(), 'r13');
+  assert.equal(mismatched.status, 401);
+  assert.equal((await mismatched.json()).error.code, 'FEDERATION_REQUEST_MISMATCH');
+});
+
+test('the login endpoint will not become an open redirect', async () => {
+  const doubles = federationDoubles();
+  for (const returnPath of ['//evil.example/steal', 'https://evil.example', '/\\evil.example']) {
+    const response = await handleFederationRequest(doubles.dependencies, new Request(
+      `https://api.kommunsign.se/auth/federation/GENERIC_SAML/login?tenantId=${FED_ROUTE_TENANT}&returnPath=${encodeURIComponent(returnPath)}`,
+      { method: 'POST' },
+    ), 'r14');
+    // An open redirect on a login endpoint is exactly where phishing wants one,
+    // and `//host` is protocol-relative: a browser follows it off-site.
+    assert.equal(response.status, 400, `${returnPath} must be refused`);
+    assert.equal((await response.json()).error.code, 'FEDERATION_RETURN_PATH_INVALID');
+  }
+  assert.equal(doubles.started.length, 0);
+});
+
+test('signature verification lives in the validation service, not in the router', async () => {
+  const router = await readFile('apps/api/src/federation-router.ts', 'utf8');
+  // The router must not verify crypto itself: one implementation, in the place
+  // that already has the XML-DSig machinery and its own tests.
+  assert.doesNotMatch(router, /createVerify|XMLSignature|crypto\.subtle\.verify/);
+  assert.match(router, /validation\.validateSaml/);
+  // And the tenant is taken from the recorded login, never from the assertion.
+  assert.match(router, /tenantId: login\.tenantId/);
+  assert.doesNotMatch(router, /tenantId: (?:report|assertion)\./);
+
+  const validator = await readFile('services/validation-service/src/main/java/se/kommunsign/validation/SamlAssertionValidator.java', 'utf8');
+  // The configured certificate is compared before anything is read from the
+  // message. KeyInfo is attacker-supplied.
+  assert.match(validator, /SIGNER_IS_CONFIGURED_IDP/);
+  assert.match(validator, /EXTERNAL_REFERENCE_FORBIDDEN/);
+  assert.match(validator, /disallow-doctype-decl/);
 });
 
 let failed = 0;

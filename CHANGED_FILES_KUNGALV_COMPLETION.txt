@@ -2,9 +2,14 @@
 .env.production.template
 .github/workflows/ci.yml
 .gitignore
+CHANGED_FILES_KUNGALV_COMPLETION.txt
+DELIVERY_REPORT_KUNGALV_COMPLETION.md
+FILE_MANIFEST.sha256
 LICENSE_POLICY.md
 THIRD_PARTY_NOTICES.md
+VERIFICATION_RESULTS_KUNGALV_COMPLETION.txt
 apps/api/src/dev-runtime.ts
+apps/api/src/federation-router.ts
 apps/api/src/ports.ts
 apps/api/src/production-adapters/postgres/data-database.ts
 apps/api/src/production-adapters/postgres/delivery-repository.ts
@@ -31,6 +36,8 @@ docs/architecture/adr/0003-signing-backend-dependency-policy.md
 docs/architecture/adr/0004-sweden-connect-signing-backend.md
 docs/compliance/kungalv/EXTERNAL_EVIDENCE_BLOCKERS.md
 docs/compliance/kungalv/REQUIREMENT_MATRIX.md
+docs/compliance/kungalv/assessment-overrides-2026-08-19.json
+docs/readiness/PRODUCTION_GO_LIVE_CHECKLIST.md
 docs/runbooks/KEY_ROTATION.md
 infrastructure/docker/signservice.Dockerfile
 infrastructure/docker/validation-service.Dockerfile
@@ -39,6 +46,7 @@ infrastructure/railway/shared.runtime.env.example
 infrastructure/railway/signservice.env.example
 infrastructure/railway/signservice.railway.json
 migrations/control/0018_platform_job_runtime.sql
+migrations/control/0019_federation_login_requests.sql
 migrations/control/verify_platform_jobs.sql
 migrations/data/0021_pades_signature_chain_guards.sql
 migrations/data/0022_webhook_delivery_runtime.sql
@@ -59,12 +67,14 @@ packages/signservice-client/src/index.ts
 packages/validation-client/src/index.ts
 scripts/build-java-maven.sh
 scripts/build-java.sh
+scripts/build-requirement-matrix.mjs
 scripts/db-verify.sh
 scripts/verify-repository.mjs
 services/commons/pom.xml
 services/commons/src/main/java/se/kommunsign/commons/HttpBoundary.java
 services/commons/src/main/java/se/kommunsign/commons/Json.java
 services/integration-tests/pom.xml
+services/integration-tests/src/test/java/se/kommunsign/integration/SamlAssertionValidatorTest.java
 services/integration-tests/src/test/java/se/kommunsign/integration/SigningChainIntegrationTest.java
 services/integration-tests/src/test/java/se/kommunsign/integration/SigningTestAuthority.java
 services/pom.xml
@@ -85,6 +95,8 @@ services/signservice/src/test/java/se/kommunsign/signservice/TicIdentityBindingT
 services/validation-service/pom.xml
 services/validation-service/src/main/java/se/kommunsign/validation/PadesValidationRequest.java
 services/validation-service/src/main/java/se/kommunsign/validation/PadesValidator.java
+services/validation-service/src/main/java/se/kommunsign/validation/SamlAssertionRequest.java
+services/validation-service/src/main/java/se/kommunsign/validation/SamlAssertionValidator.java
 services/validation-service/src/main/java/se/kommunsign/validation/ValidationServiceApplication.java
 tests/run.mjs
 tests/sql/archive-export.sql

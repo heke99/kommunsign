@@ -28,6 +28,9 @@ public final class ValidationServiceApplication {
     private static final int TIC_MAX_BODY_BYTES = 5_000_000;
     /** A signed PDF plus base64 overhead plus trust anchors. */
     private static final int PADES_MAX_BODY_BYTES = 96 * 1024 * 1024;
+    // A SAML Response is small. Capping it far below the PDF limit means a
+    // malformed or hostile assertion cannot be used to exhaust the parser.
+    private static final int SAML_MAX_BODY_BYTES = 4 * 1024 * 1024;
 
     private ValidationServiceApplication() {}
 
@@ -40,11 +43,13 @@ public final class ValidationServiceApplication {
 
         TicBankIdEvidenceValidator ticValidator = new TicBankIdEvidenceValidator();
         PadesValidator padesValidator = new PadesValidator();
+        SamlAssertionValidator samlValidator = new SamlAssertionValidator();
 
         server.createContext("/health", exchange -> respond(exchange, 200, Map.of(
             "status", "UP",
             "ticValidator", "TIC_BANKID_XMLDSIG_V1",
             "padesValidator", PadesValidator.ENGINE + "/" + PadesValidator.ENGINE_VERSION,
+            "samlValidator", "SAML2_XMLDSIG_V1",
             "egress", "NOT_REQUIRED")));
 
         server.createContext("/v1/validate/tic-bankid", exchange -> handle(exchange, token, TIC_MAX_BODY_BYTES, parsed -> {
@@ -65,6 +70,18 @@ public final class ValidationServiceApplication {
                 Json.stringList(parsed, "trustAnchorsBase64", true),
                 Json.string(parsed, "policyVersion", true));
             return padesValidator.validate(request);
+        }));
+
+        server.createContext("/v1/validate/saml", exchange -> handle(exchange, token, SAML_MAX_BODY_BYTES, parsed -> {
+            SamlAssertionRequest request = new SamlAssertionRequest(
+                Json.string(parsed, "responseXmlBase64", true),
+                // Required, not optional. A signature verified against a
+                // certificate the message itself carried proves only that
+                // whoever wrote the message also signed it.
+                Json.string(parsed, "trustedCertificateBase64", true),
+                Json.string(parsed, "expectedAudience", true),
+                Json.string(parsed, "expectedDestination", true));
+            return samlValidator.validate(request);
         }));
 
         server.start();

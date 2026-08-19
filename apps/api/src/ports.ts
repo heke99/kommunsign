@@ -1,3 +1,5 @@
+import type { SamlValidationReport, SamlValidationRequest } from '../../../packages/validation-client/src/index.js';
+import type { FederationConfig } from '../../../packages/federation/src/index.js';
 import type { DeliveryRepository } from './production-adapters/postgres/delivery-repository.js';
 import type { FederationRepository } from './production-adapters/postgres/federation-repository.js';
 import type { ScimRepository } from './production-adapters/postgres/scim-repository.js';
@@ -571,6 +573,16 @@ export interface ApiDependencies {
   readonly scim?: ScimRepository;
   /** Optional: a tenant with no IdP configured simply cannot federate. */
   readonly federation?: FederationRepository;
+  /** Verifies an assertion's signature. Separate port so the router never verifies crypto itself. */
+  readonly federationValidation?: { validateSaml(input: SamlValidationRequest): Promise<SamlValidationReport> };
+  /**
+   * Resolves the tenant's configured IdP signing certificate.
+   *
+   * A port rather than a column read, because where the certificate lives is a
+   * deployment decision. Returning nothing must fail the login closed: without
+   * it the only thing verifiable is that the message signed itself.
+   */
+  readonly federationTrust?: (config: FederationConfig, tenantId: string) => Promise<string | null>;
   /**
    * Optional: without a scrape credential configured there is no /metrics
    * endpoint. The default has to be "absent" rather than "open", because an
