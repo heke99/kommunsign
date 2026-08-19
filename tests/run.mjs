@@ -4129,6 +4129,66 @@ test('s3 adapter rejects a plaintext endpoint outside the local stack', () => {
   assert.ok(createS3ObjectStorageAdapter({ ...s3Settings, S3_ENDPOINT: 'http://minio:9000' }));
 });
 
+// --- The production go/no-go gate -------------------------------------------
+
+/** Runs the gate as a child process and returns its machine-readable verdict. */
+async function productionGoVerdict(environment) {
+  const { execFile } = await import('node:child_process');
+  return await new Promise((resolve, reject) => {
+    execFile(
+      process.execPath,
+      ['scripts/check-production-go.mjs', '--json'],
+      { env: { ...process.env, ...environment }, timeout: 30_000 },
+      (error, stdout) => {
+        // Exit codes 1 and 2 are verdicts, not failures to run.
+        if (error && error.code === undefined) return reject(error);
+        try { resolve({ code: error?.code ?? 0, report: JSON.parse(stdout) }); }
+        catch (cause) { reject(cause); }
+      },
+    );
+  });
+}
+
+const stateOf = (report, id) => report.checks.find((entry) => entry.id === id)?.state;
+
+test('the go/no-go gate says UNKNOWN, not BLOCKED, when it cannot see the deployment', async () => {
+  const { code, report } = await productionGoVerdict({
+    APP_ENV: '', SIGNSERVICE_URL: '', CONTROL_DATABASE_URL: '', TIC_BASE_URL: '', TIC_API_KEY: '',
+  });
+  // Not being pointed at production is not evidence that a supplier failed to
+  // deliver. Reporting it as BLOCKED accuses them; reporting it as UNKNOWN
+  // says what is true, which is that nobody looked.
+  for (const id of ['SIGNING_KEY_PROTECTION', 'SIGNING_CERTIFICATE', 'TIMESTAMP_AUTHORITY', 'BANKID_PRODUCTION_CREDENTIALS', 'MUNICIPAL_IDP_METADATA']) {
+    assert.equal(stateOf(report, id), 'UNKNOWN', `${id} should be UNKNOWN away from production`);
+  }
+  assert.equal(report.productionGo, false);
+  assert.equal(report.determinable, false);
+  // Never 0: an unknown precondition is never a GO.
+  assert.ok(code === 1 || code === 2, `unexpected exit code ${code}`);
+});
+
+test('the go/no-go gate says BLOCKED when it is looking at production and the service is silent', async () => {
+  const { report } = await productionGoVerdict({
+    APP_ENV: 'production', SIGNSERVICE_URL: 'http://127.0.0.1:9', CONTROL_DATABASE_URL: '',
+    TIC_BASE_URL: '', TIC_API_KEY: '',
+  });
+  for (const id of ['SIGNING_KEY_PROTECTION', 'SIGNING_CERTIFICATE', 'TIMESTAMP_AUTHORITY']) {
+    assert.equal(stateOf(report, id), 'BLOCKED', `${id} should be BLOCKED in production`);
+  }
+  assert.equal(stateOf(report, 'BANKID_PRODUCTION_CREDENTIALS'), 'BLOCKED');
+  assert.match(report.vantagePoint, /APP_ENV=production/);
+});
+
+test('the go/no-go gate cannot be talked into GO by an environment variable', async () => {
+  // The repo-evaluable preconditions are read from generated artefacts, so no
+  // amount of environment can flip them.
+  const { report } = await productionGoVerdict({
+    APP_ENV: 'production', PRODUCTION_GO: 'YES', ARCHIVE_SCHEMA_CONFORMANCE: 'true', BACKUP_SIGNAL: 'true',
+  });
+  assert.equal(report.productionGo, false);
+  assert.equal(stateOf(report, 'REQUIREMENTS_RESOLVED'), 'BLOCKED');
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try { await fn(); console.log(`✓ ${name}`); }

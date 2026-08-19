@@ -32,29 +32,52 @@ const json = process.argv.includes('--json');
 const checks = [];
 
 /**
+ * Three outcomes, because two of them lie.
+ *
+ * A precondition can be met, or evaluated and refused, or not evaluable from
+ * where this was run. Collapsing the last two into "blocked" is what the first
+ * version did, and it reads as an accusation against a supplier who may have
+ * delivered perfectly: "SignService is not reachable" from a laptop says
+ * nothing about production. It also hides the opposite error — an operator
+ * running this against the real deployment cannot tell a genuine gap from a
+ * missing environment variable in their own shell.
+ *
+ * So UNKNOWN is its own answer, and it is never treated as GO. It just stops
+ * pretending we looked.
+ *
  * @param id        stable identifier, so a blocker can be tracked over time
  * @param statement what must be true, written as the fact and not as a task
- * @param evaluate  returns { met, detail } — never throws to mean "no"
  * @param supplier  who has to act when it is not met
+ * @param evaluate  returns { met, detail } or { unknown: true, detail } —
+ *                  never throws to mean "no"
  */
 async function check(id, statement, supplier, evaluate) {
-  let met = false;
+  let state = 'BLOCKED';
   let detail = 'not evaluated';
   try {
     const outcome = await evaluate();
-    met = outcome.met === true;
     detail = outcome.detail;
+    state = outcome.unknown === true ? 'UNKNOWN' : outcome.met === true ? 'MET' : 'BLOCKED';
   } catch (error) {
-    // An evaluation that failed is not a precondition that passed. The
-    // distinction matters most exactly when something is misconfigured.
-    met = false;
+    // An evaluation that threw told us nothing, which is exactly UNKNOWN. It
+    // is still not GO.
+    state = 'UNKNOWN';
     detail = `could not be evaluated: ${error instanceof Error ? error.message : 'unknown error'}`;
   }
-  checks.push({ id, statement, supplier, met, detail });
+  checks.push({ id, statement, supplier, state, met: state === 'MET', detail });
 }
+
 
 const environment = process.env;
 const has = (name) => typeof environment[name] === 'string' && environment[name].trim().length > 0;
+/**
+ * Whether this run is looking at a production deployment at all.
+ *
+ * It decides how an unreachable dependency is read: in production a service
+ * that does not answer is a real blocker, anywhere else it means we are simply
+ * not pointed at the thing being judged.
+ */
+const inspectingProduction = environment.APP_ENV === 'production';
 
 /** Reads a service's own report of itself, or null when it is not reachable. */
 async function health(url) {
@@ -70,6 +93,17 @@ async function health(url) {
 
 const signHealth = await health(environment.SIGNSERVICE_URL);
 
+/** The same reading of an absent SignService, for all three signing checks. */
+function unreachableSignService(what) {
+  if (!has('SIGNSERVICE_URL')) {
+    return { unknown: true, detail: `SIGNSERVICE_URL is not set, so ${what} cannot be read from here` };
+  }
+  if (inspectingProduction) {
+    return { met: false, detail: `SignService did not answer at ${environment.SIGNSERVICE_URL}, and this is a production environment` };
+  }
+  return { unknown: true, detail: `SignService did not answer at ${environment.SIGNSERVICE_URL}, and APP_ENV is not production` };
+}
+
 // --- Cryptographic signing -------------------------------------------------
 
 await check(
@@ -77,7 +111,7 @@ await check(
   'The signing key is held in an HSM or a remote QSCD, not in software.',
   'The customer or hosting provider, by provisioning key protection hardware.',
   async () => {
-    if (!signHealth) return { met: false, detail: 'SignService is not reachable, so its key protection cannot be confirmed' };
+    if (!signHealth) return unreachableSignService('its key protection');
     const level = signHealth.keyProtection;
     return {
       met: typeof level === 'string' && level !== 'SOFTWARE',
@@ -91,7 +125,7 @@ await check(
   'The signing certificate is issued by a certificate authority under a certificate policy.',
   'A CA. No code can issue this.',
   async () => {
-    if (!signHealth) return { met: false, detail: 'SignService is not reachable' };
+    if (!signHealth) return unreachableSignService('the certificate it signs with');
     // productionReady is the service's own judgement, and it is deliberately
     // conservative: it requires protected keys and a timestamp source together.
     return {
@@ -106,7 +140,7 @@ await check(
   'An RFC 3161 timestamp authority is configured, so a signature can reach PAdES-T and above.',
   'A TSA, under contract.',
   async () => {
-    if (!signHealth) return { met: false, detail: 'SignService is not reachable' };
+    if (!signHealth) return unreachableSignService('its timestamp source');
     const levels = Array.isArray(signHealth.supportedPadesLevels) ? signHealth.supportedPadesLevels : [];
     return {
       met: signHealth.timestampConfigured === true && levels.includes('PAdES-T'),
@@ -121,12 +155,17 @@ await check(
   'BANKID_PRODUCTION_CREDENTIALS',
   'TIC/BankID production credentials are configured.',
   'The BankID provider, through the customer.',
-  async () => ({
-    met: has('TIC_BASE_URL') && has('TIC_API_KEY') && environment.APP_ENV === 'production',
-    detail: environment.APP_ENV === 'production'
-      ? `TIC_BASE_URL=${has('TIC_BASE_URL') ? 'set' : 'missing'}, TIC_API_KEY=${has('TIC_API_KEY') ? 'set' : 'missing'}`
-      : `APP_ENV=${environment.APP_ENV ?? 'unset'}, so no production credential is in use`,
-  }),
+  async () => {
+    // Outside production this says nothing about whether the credential
+    // exists — only that this shell is not the one holding it.
+    if (!inspectingProduction) {
+      return { unknown: true, detail: `APP_ENV=${environment.APP_ENV ?? 'unset'}, so this is not the environment that would hold the credential` };
+    }
+    return {
+      met: has('TIC_BASE_URL') && has('TIC_API_KEY'),
+      detail: `TIC_BASE_URL=${has('TIC_BASE_URL') ? 'set' : 'missing'}, TIC_API_KEY=${has('TIC_API_KEY') ? 'set' : 'missing'}`,
+    };
+  },
 );
 
 await check(
@@ -135,7 +174,7 @@ await check(
   'The municipality. It is their federation metadata.',
   async () => {
     const url = environment.CONTROL_DATABASE_URL;
-    if (!url) return { met: false, detail: 'CONTROL_DATABASE_URL is not set, so the configuration cannot be read' };
+    if (!url) return { unknown: true, detail: 'CONTROL_DATABASE_URL is not set, so the configuration cannot be read from here' };
     const { default: postgres } = await import('postgres');
     const sql = postgres(url, { max: 1, idle_timeout: 2 });
     try {
@@ -249,25 +288,55 @@ await check(
 
 // --- Verdict ---------------------------------------------------------------
 
-const blockers = checks.filter((entry) => !entry.met);
-const go = blockers.length === 0;
+const blocked = checks.filter((entry) => entry.state === 'BLOCKED');
+const unknown = checks.filter((entry) => entry.state === 'UNKNOWN');
+const go = blocked.length === 0 && unknown.length === 0;
+
+/**
+ * Where this judgement was made, printed with it.
+ *
+ * A verdict without its vantage point is not readable later: NO from a laptop
+ * and NO from the production host mean different things, and the difference is
+ * the whole reason UNKNOWN exists.
+ */
+const vantagePoint = [
+  `APP_ENV=${environment.APP_ENV ?? 'unset'}`,
+  `SIGNSERVICE_URL=${has('SIGNSERVICE_URL') ? (signHealth ? 'answering' : 'set but silent') : 'unset'}`,
+  `CONTROL_DATABASE_URL=${has('CONTROL_DATABASE_URL') ? 'set' : 'unset'}`,
+].join(', ');
 
 if (json) {
-  console.log(JSON.stringify({ productionGo: go, evaluatedAt: new Date().toISOString(), checks }, null, 2));
+  console.log(JSON.stringify({
+    productionGo: go,
+    determinable: unknown.length === 0,
+    evaluatedAt: new Date().toISOString(),
+    vantagePoint,
+    checks,
+  }, null, 2));
 } else {
-  console.log(`\nPRODUCTION_GO: ${go ? 'YES' : 'NO'}\n`);
+  console.log(`\nPRODUCTION_GO: ${go ? 'YES' : unknown.length && !blocked.length ? 'NOT DETERMINABLE HERE' : 'NO'}`);
+  console.log(`  assessed from: ${vantagePoint}\n`);
   for (const entry of checks) {
-    console.log(`  ${entry.met ? 'MET    ' : 'BLOCKED'}  ${entry.id}`);
+    console.log(`  ${entry.state.padEnd(7)}  ${entry.id}`);
     console.log(`           ${entry.statement}`);
     console.log(`           ${entry.detail}`);
-    if (!entry.met) console.log(`           supplier: ${entry.supplier}`);
+    if (entry.state === 'BLOCKED') console.log(`           supplier: ${entry.supplier}`);
     console.log('');
   }
-  if (!go) {
-    console.log(`  ${blockers.length} precondition(s) unmet. This is computed, not asserted:`);
+  if (blocked.length) {
+    console.log(`  ${blocked.length} precondition(s) evaluated and unmet. This is computed, not asserted:`);
     console.log('  editing this file cannot change the answer, and neither can editing a document.');
-    console.log('  Most of the remaining suppliers are external to this repository.\n');
+    console.log('  Most of the remaining suppliers are external to this repository.');
   }
+  if (unknown.length) {
+    console.log(`  ${unknown.length} precondition(s) could not be evaluated from here. That is not the same`);
+    console.log('  as unmet: run this again on the target deployment, with its environment, before');
+    console.log('  concluding anything about them.');
+  }
+  console.log('');
 }
 
-process.exit(go ? 0 : 1);
+// 0 means GO. 1 means at least one precondition was evaluated and refused.
+// 2 means nothing was refused but something could not be judged from here —
+// a different answer from NO, and one a pipeline should treat differently.
+process.exit(go ? 0 : blocked.length ? 1 : 2);
