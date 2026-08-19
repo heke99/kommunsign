@@ -74,16 +74,20 @@ export function createAuthenticationRepository(
       'select tenant_id from app.subject_membership_destinations($1)',
       [subjectId],
     ));
-    const destinations = await Promise.all(memberships.rows.map(async (membership) => {
-      try { return await primaryTenantDestination(controlDatabase, membership.tenant_id, tenantDiscoveryHostname); }
-      catch (cause) {
-        if (cause instanceof Error && cause.message === 'ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE') return null;
-        throw cause;
-      }
-    }));
-    const destination = destinations.find((value): value is ResolvedDestination => value !== null);
-    if (destination) return destination;
-    throw new Error('AUTH_ACCOUNT_NOT_AUTHORIZED');
+    // This used to resolve a destination for every membership in parallel -- up to 25 concurrent
+    // control-plane transactions from a single login, against a pool of 20, so one multi-tenant user
+    // signing in could starve the pool. All but the first result were then discarded:
+    // primaryTenantDestination falls back to the discovery hostname when a tenant has no active
+    // primary domain, so it never returns null and the first membership always won. (The catch for
+    // ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE was dead too -- that error is raised by the
+    // hostname-based resolver below, not by this one.)
+    //
+    // Resolving only the first membership is therefore one query instead of up to 25, with exactly
+    // the destination the previous code produced. Memberships are already ordered most recently
+    // joined first by app.subject_membership_destinations.
+    const primary = memberships.rows[0];
+    if (!primary) throw new Error('AUTH_ACCOUNT_NOT_AUTHORIZED');
+    return primaryTenantDestination(controlDatabase, primary.tenant_id, tenantDiscoveryHostname);
   }
 
   async function assertSubjectAccess(subjectId: string, destination: ResolvedDestination): Promise<string | undefined> {
