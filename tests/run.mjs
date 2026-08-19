@@ -800,6 +800,36 @@ test('API hashes semantically identical create payloads canonically', async () =
   assert.equal(hashes[0], hashes[1]);
 });
 
+test('role lookups are memoised within a request and never across requests', async () => {
+  const { createRoleMemo } = await import('../dist/apps/api/src/production-adapters/postgres/index.js');
+  const lookups = [];
+  const memo = createRoleMemo(async (context) => { lookups.push(context.requestId); return ['tenant_admin']; });
+  const base = { tenantId: 'tenant-1', subjectId: 'subject-1', authMethod: 'session', source: 'api-client' };
+
+  // Two permission checks inside one request share a single role lookup.
+  const first = { ...base, requestId: 'request-1' };
+  assert.deepEqual(await memo(first), ['tenant_admin']);
+  assert.deepEqual(await memo(first), ['tenant_admin']);
+  assert.deepEqual(lookups, ['request-1']);
+
+  // A new request must re-read the roles, so revoking a role takes effect immediately.
+  await memo({ ...base, requestId: 'request-2' });
+  assert.deepEqual(lookups, ['request-1', 'request-2']);
+
+  // The same request id must not leak roles across tenants or subjects.
+  await memo({ ...base, requestId: 'request-1', tenantId: 'tenant-2' });
+  await memo({ ...base, requestId: 'request-1', subjectId: 'subject-2' });
+  assert.equal(lookups.length, 4);
+
+  // A failed lookup must not be remembered as a decision.
+  let attempts = 0;
+  const failing = createRoleMemo(async () => { attempts += 1; throw new Error('ROLE_LOOKUP_FAILED'); });
+  const context = { ...base, requestId: 'request-3' };
+  await assert.rejects(failing(context), /ROLE_LOOKUP_FAILED/);
+  await assert.rejects(failing(context), /ROLE_LOOKUP_FAILED/);
+  assert.equal(attempts, 2);
+});
+
 test('API authorizes every case operation', async () => {
   const permissions = [];
   const context = { tenantId: 'tenant', source: 'api-client', subjectId: 'subject', requestId: 'ctx', authMethod: 'development' };
