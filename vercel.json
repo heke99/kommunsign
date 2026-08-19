@@ -21,6 +21,13 @@
       "continue": true
     },
     {
+      "src": "^/(?:[A-Za-z0-9_-]+/)*(?:app|qr|office-upload)\\.[A-Za-z0-9_-]{16}\\.(?:css|js)$",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable"
+      },
+      "continue": true
+    },
+    {
       "src": "/",
       "has": [
         {
@@ -116,6 +123,20 @@
       }
     },
     {
+      "src": "/auth-assets/(app\\.[A-Za-z0-9_-]{16}\\.(?:css|js))",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "dest": "/__portals/auth/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Kommunsign-Portal": "auth"
+      }
+    },
+    {
       "src": "/auth-assets/(.*)",
       "has": [
         {
@@ -130,7 +151,7 @@
       "dest": "/__portals/auth/$1"
     },
     {
-      "src": "/(app\\.(?:css|js))",
+      "src": "/((?:app|office-upload)\\.[A-Za-z0-9_-]{16}\\.(?:css|js))",
       "has": [
         {
           "type": "host",
@@ -139,6 +160,7 @@
       ],
       "dest": "/__portals/tenant/$1",
       "headers": {
+        "Cache-Control": "public, max-age=31536000, immutable",
         "X-Kommunsign-Portal": "tenant"
       }
     },
@@ -171,18 +193,18 @@
       "dest": "/__portals/tenant/index.html"
     },
     {
-      "src": "/(app\\.(?:css|js))",
+      "src": "/(app\\.[A-Za-z0-9_-]{16}\\.(?:css|js))",
       "has": [
         {
           "type": "host",
           "value": "admin.kommunsign.se"
         }
       ],
+      "dest": "/__portals/admin/$1",
       "headers": {
-        "Cache-Control": "private, no-store",
+        "Cache-Control": "public, max-age=31536000, immutable",
         "X-Kommunsign-Portal": "admin"
-      },
-      "dest": "/__portals/admin/$1"
+      }
     },
     {
       "src": "/",
