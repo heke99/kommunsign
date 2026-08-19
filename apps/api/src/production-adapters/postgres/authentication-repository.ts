@@ -60,14 +60,18 @@ export function createAuthenticationRepository(
     ));
     if (platform.rows[0]) return { boundary: 'platform', hostname: platformAdminHostname, destinationUrl: `https://${platformAdminHostname}/` };
 
+    // Login has to map a verified subject to its tenants before any tenant is known, so this read is
+    // necessarily cross-tenant. It used to be an ordinary query with no tenant context set, which only
+    // returned rows because the runtime role holds BYPASSRLS -- every app table has FORCE ROW LEVEL
+    // SECURITY with tenant_id = app.current_tenant_id(), and with no context that is NULL. Routing it
+    // through an explicit SECURITY DEFINER resolver makes the one deliberate cross-tenant read narrow
+    // and auditable, and keeps login working once the runtime moves to a role that respects RLS.
+    //
+    // The subject id comes from a verified Supabase Auth response, never from a request field, so
+    // AGENTS.md rule 1 holds. Authorization for the tenant that is actually chosen is still decided
+    // separately in assertSubjectAccess, under withTenantTransaction, so RLS governs that decision.
     const memberships = await dataDatabase.transaction(async (transaction) => transaction.query<{ readonly tenant_id: string }>(
-      `select u.tenant_id
-         from app.users u
-         join app.memberships m on m.tenant_id=u.tenant_id and m.user_id=u.id and m.status='active'
-        where u.external_subject=$1 and u.disabled_at is null
-        group by u.tenant_id
-        order by max(m.created_at) desc, u.tenant_id
-        limit 25`,
+      'select tenant_id from app.subject_membership_destinations($1)',
       [subjectId],
     ));
     const destinations = await Promise.all(memberships.rows.map(async (membership) => {
