@@ -1,5 +1,26 @@
 # Kommunsign production go-live checklist
 
+> **PRODUCTION_GO is computed, not written here.** Run
+> `npm run check:production-go`. It evaluates every precondition against
+> something real — a running service's report of itself, a configuration value,
+> a database row, a generated artefact — and exits 0 only when all of them are
+> met. Editing this document cannot change the answer, which is the point: a
+> hand-maintained status can be set to YES without anything about the system
+> changing, and that is the overclaim this delivery has spent its length
+> removing from the requirement matrix.
+>
+> As of 2026-08-19 it reports **NO**, with nine unmet preconditions. Eight have
+> external suppliers: a CA must issue a certificate, a TSA must sign a contract,
+> the municipality must hand over IdP metadata, the receiving archive must name
+> its FGS version, the hosting platform must publish a backup timestamp. No code
+> can produce any of those.
+>
+> One is ours: the API and worker orchestration has not been driven end to end.
+> That is blocked on a real gap — the only `createObjectStorageAdapter` targets
+> Supabase, so the MinIO in `docker-compose.yml` has no adapter and a
+> self-hosted deployment has no object storage path at all. Which backend to
+> support is a deployment decision, not something to assume.
+
 Authoritative rerun date: 2026-08-19.
 
 This checklist deliberately separates code completeness from runtime, credentials, signing crypto, identity, database, security, operations and procurement. A checked repository item is not evidence that an external service or organizational control exists.

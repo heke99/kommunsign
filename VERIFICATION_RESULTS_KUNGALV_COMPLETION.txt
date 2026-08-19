@@ -144,7 +144,19 @@ NOT RUN
                             almost no npm dependencies by design, so the browser
                             suite has never been runnable in this environment.
 
-PRODUCTION_GO: NO.
+PRODUCTION_GO: NO — and this is now computed rather than asserted.
+
+  npm run check:production-go
+
+  Nine preconditions, each evaluated against something real. Eight have external
+  suppliers and no code can satisfy them. The ninth is ours and is blocked on a
+  finding this exercise surfaced: the only createObjectStorageAdapter targets
+  Supabase, so the MinIO in docker-compose has no adapter and a self-hosted
+  deployment has no object storage path. That is why the API and worker
+  orchestration has not been driven end to end.
+
+  The script cannot be made to say YES by editing it, and neither can a
+  document. It says YES when the artefacts exist.
 
   Two separate reasons, and only the second is external.
 
