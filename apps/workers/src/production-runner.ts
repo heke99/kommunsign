@@ -9,6 +9,11 @@ interface ProductionWorkerAdapter {
 interface ProductionWorkerModule {
   readonly createProductionWorkerAdapter?: (configuration: Readonly<Record<string, string>>) => Promise<ProductionWorkerAdapter> | ProductionWorkerAdapter;
 }
+function boundedInteger(name: string, fallback: string, minimum: number, maximum: number): number {
+  const parsed=Number.parseInt(process.env[name]?.trim()||fallback,10);
+  if(!Number.isInteger(parsed)||parsed<minimum||parsed>maximum)throw new Error(`${name}_INVALID`);
+  return parsed;
+}
 function required(name: string): string { const value=process.env[name]?.trim(); if(!value)throw new Error(`${name}_MISSING`); return value; }
 
 if (process.env.APP_ENV !== 'production') throw new Error('PRODUCTION_WORKER_REQUIRES_PRODUCTION_ENV');
@@ -25,12 +30,26 @@ const adapter=await loaded.createProductionWorkerAdapter(configuration);
 const workerId=process.env.WORKER_ID?.trim()||`kommunsign-${process.pid}-${crypto.randomUUID()}`;
 const claimLimit=Number.parseInt(process.env.WORKER_CLAIM_LIMIT??'10',10);
 const leaseSeconds=Number.parseInt(process.env.WORKER_LEASE_SECONDS??'60',10);
-const pollMilliseconds=Number.parseInt(process.env.WORKER_POLL_MILLISECONDS??'1000',10);
+const pollMilliseconds=boundedInteger('WORKER_POLL_MILLISECONDS','1000',100,60_000);
+// An idle queue used to be polled once a second forever. Each poll listed every tenant and
+// opened a transaction per tenant, which is what produced 384k claim calls and 192k tenant
+// listings in production for a handful of actual jobs. Backing off when there is nothing to
+// do costs idle pickup latency and nothing else; the delay resets the moment work appears.
+const maximumPollMilliseconds=boundedInteger('WORKER_POLL_MAX_MILLISECONDS','30000',pollMilliseconds,600_000);
+const pollBackoffFactor=boundedInteger('WORKER_POLL_BACKOFF_FACTOR','2',1,10);
+let idlePollMilliseconds=pollMilliseconds;
 let stopping=false;
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{stopping=true;});
 while(!stopping){
   const jobs=await adapter.repository.claim(workerId,claimLimit,leaseSeconds);
   await Promise.all(jobs.map((job)=>processClaimedJob(adapter.repository,workerId,job,adapter.handlers)));
-  if(jobs.length===0)await new Promise((resolve)=>setTimeout(resolve,pollMilliseconds));
+  if(jobs.length===0){
+    // Jitter keeps a restarted fleet from re-synchronising into a thundering herd.
+    const jittered=idlePollMilliseconds*(0.8+Math.random()*0.4);
+    await new Promise((resolve)=>setTimeout(resolve,Math.round(jittered)));
+    idlePollMilliseconds=Math.min(idlePollMilliseconds*pollBackoffFactor,maximumPollMilliseconds);
+  } else {
+    idlePollMilliseconds=pollMilliseconds;
+  }
 }
 await adapter.close?.();

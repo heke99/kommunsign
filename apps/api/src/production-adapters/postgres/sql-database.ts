@@ -15,7 +15,24 @@ export interface PostgresDatabase extends SqlDatabase {
   readonly healthCheck: () => Promise<void>;
 }
 
-export async function createPostgresDatabase(connectionUrl: string, applicationName: string): Promise<PostgresDatabase> {
+export interface PostgresPoolOptions {
+  /** Maximum pooled connections. Right-size this: a pool that only enqueues does not need 20. */
+  readonly maximumConnections?: number;
+  /** Seconds an idle connection is kept. Too low and every poll re-authenticates against the pooler. */
+  readonly idleTimeoutSeconds?: number;
+}
+
+function boundedOption(value: number | undefined, fallback: number, minimum: number, maximum: number): number {
+  if (value === undefined) return fallback;
+  if (!Number.isInteger(value) || value < minimum || value > maximum) throw new Error('POSTGRES_POOL_OPTION_INVALID');
+  return value;
+}
+
+export async function createPostgresDatabase(
+  connectionUrl: string,
+  applicationName: string,
+  poolOptions: PostgresPoolOptions = {},
+): Promise<PostgresDatabase> {
   if (!/^postgres(?:ql)?:\/\//.test(connectionUrl)) throw new Error('POSTGRES_CONNECTION_URL_INVALID');
   const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<{ readonly default?: PostgresFactory }>;
   let factory: PostgresFactory;
@@ -27,8 +44,11 @@ export async function createPostgresDatabase(connectionUrl: string, applicationN
     throw new Error('POSTGRES_DRIVER_NOT_INSTALLED', { cause });
   }
   const client = factory(connectionUrl, {
-    max: 20,
-    idle_timeout: 20,
+    max: boundedOption(poolOptions.maximumConnections, 20, 1, 100),
+    // A 20 second idle timeout meant connections were continuously dropped and re-established,
+    // which is what produced 77k pgbouncer.get_auth calls per database in production. Holding
+    // them for five minutes keeps the pool warm without outliving max_lifetime credential rotation.
+    idle_timeout: boundedOption(poolOptions.idleTimeoutSeconds, 300, 5, 1800),
     connect_timeout: 15,
     max_lifetime: 60 * 30,
     application_name: applicationName,

@@ -37,8 +37,13 @@ interface DurableJobRow {
 export async function createProductionWorkerAdapter(
   configuration: Readonly<Record<string, string>>,
 ): Promise<AdapterResult> {
-  const controlDatabase = await createPostgresDatabase(required(configuration, 'CONTROL_DATABASE_URL'), 'kommunsign-control-worker');
-  const dataDatabase = await createPostgresDatabase(required(configuration, 'DATA_DATABASE_URL'), 'kommunsign-data-worker');
+  // A worker processes a bounded number of jobs at a time; it does not need an API-sized pool.
+  const controlDatabase = await createPostgresDatabase(
+    required(configuration, 'CONTROL_DATABASE_URL'), 'kommunsign-control-worker', { maximumConnections: 5 },
+  );
+  const dataDatabase = await createPostgresDatabase(
+    required(configuration, 'DATA_DATABASE_URL'), 'kommunsign-data-worker', { maximumConnections: 5 },
+  );
   try {
     const infrastructure = await loadProductionInfrastructure(configuration);
     const provisioning = createProvisioningRepository(controlDatabase, dataDatabase, infrastructure, {

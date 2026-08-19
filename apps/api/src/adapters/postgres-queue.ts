@@ -6,7 +6,13 @@ import { createPostgresDatabase } from '../production-adapters/postgres/sql-data
 export async function createQueueAdapter(
   configuration: Readonly<Record<string, string>>,
 ): Promise<QueueAdapter> {
-  const database = await createPostgresDatabase(required(configuration, 'DATA_DATABASE_URL'), 'kommunsign-api-queue');
+  // This pool only ever enqueues durable jobs, so it does not need a full-size pool of its own
+  // alongside the API's control and data pools.
+  const database = await createPostgresDatabase(
+    required(configuration, 'DATA_DATABASE_URL'),
+    'kommunsign-api-queue',
+    { maximumConnections: 4 },
+  );
   return {
     async enqueue(input) {
       if (!/^[A-Za-z0-9._:-]{3,100}$/.test(input.jobType)) throw new Error('QUEUE_JOB_TYPE_INVALID');
