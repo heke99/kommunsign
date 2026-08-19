@@ -54,7 +54,27 @@ export async function handleFederationRequest(
 
     const acsMatch = /^\/auth\/federation\/([^/]+)\/acs$/.exec(url.pathname);
     if (acsMatch && request.method === 'POST') {
-      return await consumeAssertion(dependencies, federation, validation, providerKey(acsMatch[1] ?? ''), request, requestId);
+      const form = await readForm(request);
+      return await consumeAssertion(dependencies, federation, validation, providerKey(acsMatch[1] ?? ''), {
+        kind: 'SAML2',
+        // RelayState carries our own request id back. It is the only thing that
+        // can identify the login before the assertion is parsed.
+        loginReference: form.get('RelayState'),
+        payload: form.get('SAMLResponse'),
+      }, requestId);
+    }
+
+    const callbackMatch = /^\/auth\/federation\/([^/]+)\/callback$/.exec(url.pathname);
+    if (callbackMatch && (request.method === 'GET' || request.method === 'POST')) {
+      const parameters = request.method === 'GET'
+        ? new Map([...url.searchParams].map(([key, value]) => [key, value] as const))
+        : await readForm(request);
+      // `state` plays the same role for OIDC that RelayState plays for SAML.
+      return await consumeAssertion(dependencies, federation, validation, providerKey(callbackMatch[1] ?? ''), {
+        kind: 'OIDC',
+        loginReference: parameters.get('state') ?? null,
+        payload: parameters.get('id_token') ?? null,
+      }, requestId);
     }
 
     throw new FederationRouteError('FEDERATION_ROUTE_NOT_FOUND', 'No such federation endpoint', 404);
@@ -125,30 +145,33 @@ async function startLogin(
  * certificate apply. Reading anything from the assertion before that would mean
  * choosing a tenant based on attacker-supplied bytes.
  */
+interface PresentedAssertion {
+  readonly kind: 'SAML2' | 'OIDC';
+  readonly loginReference: string | null | undefined;
+  readonly payload: string | null | undefined;
+}
+
 async function consumeAssertion(
   dependencies: ApiDependencies,
   federation: NonNullable<ApiDependencies['federation']>,
   validation: NonNullable<ApiDependencies['federationValidation']>,
   provider: string,
-  request: Request,
+  presented: PresentedAssertion,
   requestId: string,
 ): Promise<Response> {
-  const form = await readForm(request);
-  const samlResponse = form.get('SAMLResponse');
-  const relayState = form.get('RelayState');
-  if (typeof samlResponse !== 'string' || samlResponse.length === 0) {
+  const payload = presented.payload;
+  const loginReference = presented.loginReference;
+  if (typeof payload !== 'string' || payload.length === 0) {
     throw new FederationRouteError('FEDERATION_ASSERTION_MISSING', 'No assertion was presented', 400);
   }
-  if (samlResponse.length > MAX_ASSERTION_BYTES) {
+  if (payload.length > MAX_ASSERTION_BYTES) {
     throw new FederationRouteError('FEDERATION_ASSERTION_TOO_LARGE', 'The assertion is too large', 413);
   }
-  // RelayState carries our own request id back. It is the only thing that can
-  // identify the login before the assertion is parsed.
-  if (typeof relayState !== 'string' || !/^_[A-Za-z0-9_-]{16,255}$/.test(relayState)) {
+  if (typeof loginReference !== 'string' || !/^_[A-Za-z0-9_-]{16,255}$/.test(loginReference)) {
     throw new FederationRouteError('FEDERATION_RELAY_STATE_INVALID', 'The assertion does not identify a login we started', 400);
   }
 
-  const login = await federation.consumeLogin(relayState, new Date());
+  const login = await federation.consumeLogin(loginReference, new Date());
   // Unknown, expired and already-answered are one response. Telling them apart
   // would confirm which request ids existed.
   if (!login) throw new FederationRouteError('FEDERATION_LOGIN_REQUEST_INVALID', 'The assertion does not answer a login we started', 401);
@@ -166,19 +189,40 @@ async function consumeAssertion(
     throw new FederationRouteError('FEDERATION_TRUST_NOT_CONFIGURED', 'No IdP signing certificate is configured for this tenant', 503);
   }
 
-  const report = await validation.validateSaml({
-    responseXmlBase64: samlResponse,
-    trustedCertificateBase64,
-    expectedAudience: config.audience,
-    expectedDestination: config.destination,
-  });
+  // The protocol comes from the tenant's configuration, not from which endpoint
+  // was called. A tenant configured for SAML must not be able to log in with an
+  // id_token by posting to the callback instead.
+  if (config.protocol !== presented.kind) {
+    throw new FederationRouteError('FEDERATION_PROTOCOL_MISMATCH', 'That endpoint is not the one this tenant is configured for', 400);
+  }
+
+  const report = presented.kind === 'SAML2'
+    ? await validation.validateSaml({
+        responseXmlBase64: payload,
+        trustedCertificateBase64,
+        expectedAudience: config.audience,
+        expectedDestination: config.destination,
+      })
+    : await validation.validateOidc({
+        idToken: payload,
+        trustedCertificateBase64,
+        expectedIssuer: config.issuer,
+        expectedAudience: config.audience,
+        // The nonce must equal the login we started. Supplying it here means the
+        // validator reports the comparison, and the decision layer enforces it
+        // through the same InResponseTo check SAML uses.
+        expectedNonce: login.requestId,
+      });
 
   const binding: FederationRequestBinding = {
     requestId: login.requestId,
     tenantId: login.tenantId,
     redirectUri: login.redirectUri,
   };
-  const assertion = toWorkforceAssertion(report, config);
+  // An id_token carries no destination claim, so the endpoint that received it
+  // is what the decision layer compares — and it is our own recorded value, not
+  // anything the token said.
+  const assertion = toWorkforceAssertion(report, config, login.redirectUri);
 
   // The full decision, in one call, against the durable replay ledger.
   await verifyWorkforceAssertion(assertion, config, binding, federation.ledgerFor(login.tenantId), new Date());
@@ -211,6 +255,7 @@ function toWorkforceAssertion(
             readonly authnContext?: string | null; readonly subject?: string;
             readonly attributes?: Readonly<Record<string, readonly string[]>> },
   config: FederationConfig,
+  receivedAt: string,
 ): WorkforceAssertion {
   if (report.result !== 'PASS' || !report.signatureVerified) {
     throw new FederationError('FEDERATION_SIGNATURE_NOT_VERIFIED', 'Assertion signature was not verified');
@@ -226,7 +271,7 @@ function toWorkforceAssertion(
     signatureVerified: report.signatureVerified,
     issuer: report.issuer ?? '',
     audience: report.audience ?? '',
-    destination: report.destination ?? '',
+    destination: report.destination ?? receivedAt,
     assertionId: report.assertionId,
     inResponseTo: report.inResponseTo ?? null,
     notBefore: report.notBefore ?? null,

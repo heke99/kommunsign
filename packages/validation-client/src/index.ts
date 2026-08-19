@@ -84,11 +84,18 @@ export interface SamlValidationRequest {
   readonly expectedAudience: string;
   readonly expectedDestination: string;
 }
+export interface OidcValidationRequest {
+  readonly idToken: string;
+  readonly trustedCertificateBase64: string;
+  readonly expectedIssuer: string;
+  readonly expectedAudience: string;
+  readonly expectedNonce: string;
+}
 export interface SamlValidationReport {
   readonly result: 'PASS' | 'FAIL';
   readonly signatureVerified: boolean;
   readonly reason?: string;
-  readonly protocol?: 'SAML2';
+  readonly protocol?: 'SAML2' | 'OIDC';
   readonly assertionId?: string;
   readonly issuer?: string | null;
   readonly audience?: string | null;
@@ -166,6 +173,27 @@ export class ValidationServiceClient {
       }
       // A report claiming PASS without a verified signature is a protocol
       // violation, not a result to act on.
+      if (report.result === 'PASS' && !report.signatureVerified) throw new Error('VALIDATION_SERVICE_PROTOCOL_INVALID');
+      return report;
+    } finally { clearTimeout(timeout); }
+  }
+
+  /** Verifies an OIDC id_token. Same split and same report shape as SAML. */
+  async validateOidc(input: OidcValidationRequest): Promise<SamlValidationReport> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20_000);
+    try {
+      const response = await this.http(`${this.baseUrl}/v1/validate/oidc`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${this.serviceToken}`, 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(input),
+        signal: controller.signal,
+      });
+      if (!response.ok && response.status !== 422) throw new Error(`VALIDATION_SERVICE_FAILED:${response.status}`);
+      const report = await response.json() as SamlValidationReport;
+      if (!report || !['PASS', 'FAIL'].includes(report.result) || typeof report.signatureVerified !== 'boolean') {
+        throw new Error('VALIDATION_SERVICE_PROTOCOL_INVALID');
+      }
       if (report.result === 'PASS' && !report.signatureVerified) throw new Error('VALIDATION_SERVICE_PROTOCOL_INVALID');
       return report;
     } finally { clearTimeout(timeout); }

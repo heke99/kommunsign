@@ -1,4 +1,4 @@
-import type { SamlValidationReport, SamlValidationRequest } from '../../../packages/validation-client/src/index.js';
+import type { OidcValidationRequest, SamlValidationReport, SamlValidationRequest } from '../../../packages/validation-client/src/index.js';
 import type { FederationConfig } from '../../../packages/federation/src/index.js';
 import type { DeliveryRepository } from './production-adapters/postgres/delivery-repository.js';
 import type { FederationRepository } from './production-adapters/postgres/federation-repository.js';
@@ -574,7 +574,10 @@ export interface ApiDependencies {
   /** Optional: a tenant with no IdP configured simply cannot federate. */
   readonly federation?: FederationRepository;
   /** Verifies an assertion's signature. Separate port so the router never verifies crypto itself. */
-  readonly federationValidation?: { validateSaml(input: SamlValidationRequest): Promise<SamlValidationReport> };
+  readonly federationValidation?: {
+    validateSaml(input: SamlValidationRequest): Promise<SamlValidationReport>;
+    validateOidc(input: OidcValidationRequest): Promise<SamlValidationReport>;
+  };
   /**
    * Resolves the tenant's configured IdP signing certificate.
    *

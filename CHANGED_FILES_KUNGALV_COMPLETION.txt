@@ -71,9 +71,12 @@ scripts/build-requirement-matrix.mjs
 scripts/db-verify.sh
 scripts/verify-repository.mjs
 services/commons/pom.xml
+services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java
 services/commons/src/main/java/se/kommunsign/commons/HttpBoundary.java
 services/commons/src/main/java/se/kommunsign/commons/Json.java
+services/identity-service/src/main/java/se/kommunsign/identity/FrejaJwsVerifierSelfTest.java
 services/integration-tests/pom.xml
+services/integration-tests/src/test/java/se/kommunsign/integration/OidcTokenValidatorTest.java
 services/integration-tests/src/test/java/se/kommunsign/integration/SamlAssertionValidatorTest.java
 services/integration-tests/src/test/java/se/kommunsign/integration/SigningChainIntegrationTest.java
 services/integration-tests/src/test/java/se/kommunsign/integration/SigningTestAuthority.java
@@ -93,6 +96,8 @@ services/signservice/src/main/java/se/kommunsign/signservice/TicIdentityBinding.
 services/signservice/src/test/java/se/kommunsign/signservice/SigningEngineFactoryTest.java
 services/signservice/src/test/java/se/kommunsign/signservice/TicIdentityBindingTest.java
 services/validation-service/pom.xml
+services/validation-service/src/main/java/se/kommunsign/validation/OidcTokenRequest.java
+services/validation-service/src/main/java/se/kommunsign/validation/OidcTokenValidator.java
 services/validation-service/src/main/java/se/kommunsign/validation/PadesValidationRequest.java
 services/validation-service/src/main/java/se/kommunsign/validation/PadesValidator.java
 services/validation-service/src/main/java/se/kommunsign/validation/SamlAssertionRequest.java

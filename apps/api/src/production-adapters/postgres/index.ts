@@ -191,7 +191,10 @@ function federationVerification(controlDatabase: SqlDatabase): {
   const client = new ValidationServiceClient(baseUrl, serviceToken);
 
   return {
-    federationValidation: { validateSaml: (input) => client.validateSaml(input) },
+    federationValidation: {
+      validateSaml: (input) => client.validateSaml(input),
+      validateOidc: (input) => client.validateOidc(input),
+    },
     async federationTrust(_config, tenantId) {
       // Read at use rather than cached: rotating an IdP certificate must take
       // effect on the next login, not on the next deploy.

@@ -3752,7 +3752,7 @@ function federationDoubles(overrides = {}) {
     started, consumed, config,
     dependencies: {
       federation,
-      federationValidation: { async validateSaml() { return report; } },
+      federationValidation: { async validateSaml() { return report; }, async validateOidc() { return report; } },
       federationTrust: overrides.noTrust ? async () => null : async () => 'Y2VydA==',
       reportError() {},
     },
@@ -3898,6 +3898,83 @@ test('signature verification lives in the validation service, not in the router'
   assert.match(validator, /SIGNER_IS_CONFIGURED_IDP/);
   assert.match(validator, /EXTERNAL_REFERENCE_FORBIDDEN/);
   assert.match(validator, /disallow-doctype-decl/);
+});
+
+const callbackRequest = (state = FED_REQUEST_ID, idToken = 'header.payload.signature') =>
+  new Request(`https://api.kommunsign.se/auth/federation/GENERIC_OIDC/callback?state=${encodeURIComponent(state)}&id_token=${encodeURIComponent(idToken)}`);
+
+test('OIDC reaches the same decision layer as SAML, and the endpoint cannot pick the protocol', async () => {
+  const oidcConfig = {
+    protocol: 'OIDC',
+    destination: 'https://kungalv.kommunsign.se/auth/federation/GENERIC_OIDC/callback',
+  };
+  const doubles = federationDoubles({
+    config: oidcConfig,
+    report: { protocol: 'OIDC', destination: null },
+  });
+  // The double's consumeLogin returns the SAML redirectUri, so line it up with
+  // the OIDC endpoint the token was actually received at.
+  const original = doubles.dependencies.federation.consumeLogin;
+  doubles.dependencies.federation.consumeLogin = async (requestId) => {
+    const login = await original(requestId);
+    return login ? { ...login, providerKey: 'GENERIC_OIDC', redirectUri: oidcConfig.destination } : null;
+  };
+
+  const accepted = await handleFederationRequest(doubles.dependencies, callbackRequest(), 'r20');
+  assert.equal(accepted.status, 200);
+  const identity = await accepted.json();
+  assert.equal(identity.protocol, 'OIDC');
+  assert.deepEqual(identity.roles, ['document_creator'], 'the same mapping, not a second copy of it');
+  assert.equal(identity.tenantId, FED_ROUTE_TENANT);
+
+  // A tenant configured for SAML must not be able to log in with an id_token by
+  // posting to the callback instead — that would be a second, weaker path into
+  // the same account.
+  const samlTenant = federationDoubles();
+  const samlConsume = samlTenant.dependencies.federation.consumeLogin;
+  samlTenant.dependencies.federation.consumeLogin = async (requestId) => {
+    const login = await samlConsume(requestId);
+    // The provider key lines up with the endpoint, so the earlier
+    // provider check does not fire and the protocol check is what is tested.
+    return login ? { ...login, providerKey: 'GENERIC_OIDC' } : null;
+  };
+  const wrongEndpoint = await handleFederationRequest(samlTenant.dependencies, callbackRequest(), 'r21');
+  assert.equal(wrongEndpoint.status, 400);
+  assert.equal((await wrongEndpoint.json()).error.code, 'FEDERATION_PROTOCOL_MISMATCH');
+
+  // A login started for one provider cannot be answered at another's endpoint
+  // either, which is the check that fires first and is worth keeping distinct.
+  const crossProvider = federationDoubles();
+  const mismatchedProvider = await handleFederationRequest(crossProvider.dependencies, callbackRequest(), 'r22');
+  assert.equal(mismatchedProvider.status, 401);
+  assert.equal((await mismatchedProvider.json()).error.code, 'FEDERATION_LOGIN_REQUEST_INVALID');
+});
+
+test('an id_token with no destination is checked against the endpoint we recorded', async () => {
+  const router = await readFile('apps/api/src/federation-router.ts', 'utf8');
+  // An id_token carries no destination claim. Substituting one the token
+  // supplied would defeat the check; the recorded redirect URI is used instead.
+  assert.match(router, /destination: report\.destination \?\? receivedAt/);
+  assert.match(router, /toWorkforceAssertion\(report, config, login\.redirectUri\)/);
+  // The nonce is bound to the login we started, which is the role
+  // InResponseTo plays for SAML — one rule, enforced once.
+  assert.match(router, /expectedNonce: login\.requestId/);
+
+  const validator = await readFile('services/validation-service/src/main/java/se/kommunsign/validation/OidcTokenValidator.java', 'utf8');
+  // A header naming where to fetch the key is refused before verification.
+  assert.match(validator, /ID_TOKEN_SELECTS_ITS_OWN_KEY/);
+  assert.match(validator, /\\"jku\\"/);
+  // Asymmetric algorithms only: an HMAC alg with an RSA public key is the
+  // classic confusion, and the allow-list is what makes `none` unreachable.
+  assert.match(validator, /ALLOWED_ALGORITHMS = Set\.of\("RS256", "ES256"\)/);
+  // auth_time rather than iat, so a fresh token cannot describe an old session.
+  assert.match(validator, /auth_time/);
+
+  // One verifier, shared. Two copies is two places for `alg: none` to be
+  // forgotten.
+  const shared = await readFile('services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java', 'utf8');
+  assert.match(shared, /class CompactJwsVerifier/);
+  assert.match(validator, /import se\.kommunsign\.commons\.CompactJwsVerifier;/);
 });
 
 let failed = 0;

@@ -113,12 +113,28 @@ FGS-version, och att driftplattformen matar backup-serien.
 Var och en står som BLOCKED_EXTERNAL mot sitt krav i
 `docs/compliance/kungalv/EXTERNAL_EVIDENCE_BLOCKERS.md`, med exakt blockerare.
 
-## Vad som fortfarande är öppet i kod
+## Båda federationsprotokollen
 
-OIDC-callbacken. SAML-vägen är komplett; en tenant som väljer OIDC i stället
-behöver id_token-verifieringen, som återanvänder samma beslutslager. Det står
-som en öppen punkt i `PRODUCTION_GO_LIVE_CHECKLIST.md` snarare än som en
-uppfylld förmåga.
+SAML 2.0 och OIDC går genom **samma** `verifyWorkforceAssertion`. Två
+beslutsvägar hade förr eller senare blivit oense om något — maximal
+sessionsålder, eller om en omappad grupp ger något — och oenigheten hade varit
+osynlig tills en tenant bytte protokoll.
+
+Signaturverifieringen ligger i validation-service. Tre saker där är var för sig
+en fullständig autentiseringsbypass om de görs fel:
+
+- **Certifikatet i meddelandet får aldrig vara det man litar på.** KeyInfo och
+  JWKS-headers är angriparstyrda. Det konfigurerade certifikatet är ett
+  obligatoriskt indata och jämförs innan något läses.
+- **Signaturen måste läsas före innehållet.** Det signerade elementet letas upp
+  ur signaturens egen Reference i stället för att dokumentet parsas först — det
+  är XML signature wrapping.
+- **`alg: none` får inte vara nåbart.** Verifieraren har en allowlist med bara
+  asymmetriska algoritmer, och den delas nu mellan Freja och OIDC i
+  `services/commons`: två kopior av en signaturverifierare är två ställen där
+  `none` kan glömmas.
+
+Elva Java-tester kör mot verkligt signerad XML och verkligt signerade id_token.
 
 ## Filer
 

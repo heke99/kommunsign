@@ -23,7 +23,7 @@ This checklist deliberately separates code completeness from runtime, credential
 - [x] `/metrics` exists and every alert rule watches a series that is either produced or explicitly declared unfed.
 - [x] A finished document is delivered through an authenticated, time-limited link rather than a permanent object URL or an email attachment.
 - [x] The federation ACS route is built. A login is started and its binding recorded durably, the assertion is signature-verified against the tenant's configured certificate in the validation service, and the decision is made by verifyWorkforceAssertion against the durable replay ledger. Requirement 2079 is PASS.
-- [ ] OIDC callback. The SAML path is complete; a tenant choosing OIDC instead needs the id_token verification route, which reuses the same decision layer.
+- [x] OIDC callback. Both protocols reach the same decision layer, so there is one set of tenant rules rather than two that can drift. The endpoint cannot pick the protocol: a tenant configured for SAML is refused at the callback.
 
 ## Runtime configured
 

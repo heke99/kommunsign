@@ -9,7 +9,12 @@
 set -euo pipefail
 rm -rf build/java
 mkdir -p build/java/identity-service build/java/sdk
-javac -d build/java/identity-service $(find services/identity-service/src/main/java -name '*.java' -print)
+# The JWS verifier lives in commons: Freja's signed assertions and an OIDC
+# id_token are the same construction, and two copies of a signature verifier is
+# two places for `alg: none` to be forgotten.
+javac -d build/java/identity-service \
+  $(find services/commons/src/main/java -name 'CompactJwsVerifier.java' -print) \
+  $(find services/identity-service/src/main/java -name '*.java' -print)
 java -cp build/java/identity-service se.kommunsign.identity.FrejaJwsVerifierSelfTest
 javac --release 21 -d build/java/sdk $(find sdks/java/src/main/java -name '*.java' -print)
 echo "java offline services and SDK: OK"

@@ -22,7 +22,7 @@ npm run verify
   verify:accessibility                          OK (6 portals, WCAG 2.2 AA static)
   scan:secrets                                  OK
   verify:java                                   OK (offline javac services and SDK)
-  tests/run.mjs                                 145 tests passed
+  tests/run.mjs                                 147 tests passed
   tests/m365-office.mjs                         OK
   tests/provider-runtime.mjs                    OK
   tests/auth-observability.mjs                  OK
@@ -52,13 +52,19 @@ mvn -B test   (services reactor)
   SigningEngineFactoryTest                      OK
   TicIdentityBindingTest                        OK
   SigningChainIntegrationTest                   6 tests
+  OidcTokenValidatorTest                        6 tests, against really signed tokens:
+                                                alg:none is refused, a header naming
+                                                where to fetch the key (jku) is refused
+                                                before verification, a token from another
+                                                IdP is refused, and an edited payload is
+                                                refused.
   SamlAssertionValidatorTest                    5 tests, against really signed XML:
                                                 a response from an impostor IdP with the
                                                 same issuer string is refused, a genuine
                                                 signature over altered attributes is
                                                 refused, and an unsigned response is
                                                 refused.
-  Total                                         11 tests, BUILD SUCCESS
+  Total                                         17 tests, BUILD SUCCESS
 
 NOT RUN IN THIS ENVIRONMENT
   npm run test:e2e            — Playwright. Requires the full compose stack including
