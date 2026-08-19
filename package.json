@@ -73,7 +73,8 @@
     "verify:env:account-bootstrap": "node --env-file-if-exists=.env.local scripts/check-account-bootstrap-env.mjs",
     "verify:deployment-config": "node scripts/build-vercel-unified.mjs && node scripts/verify-deployment-config.mjs",
     "verify:deployment:live": "node --env-file-if-exists=.env.local scripts/verify-live-deployment.mjs",
-    "verify:accessibility": "node scripts/check-accessibility.mjs"
+    "verify:accessibility": "node scripts/check-accessibility.mjs",
+    "verify:e2e:signing": "bash scripts/e2e-signing-chain.sh"
   },
   "packageManager": "npm@10.9.2",
   "devDependencies": {

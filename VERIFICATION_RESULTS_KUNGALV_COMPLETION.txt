@@ -73,9 +73,13 @@ mvn -B test   (services reactor)
 
 REAL SIGNING CHAIN — RUN, OVER HTTP, AGAINST THE BUILT SERVICES
 
-  SignService and validation-service were built on the host (mvn package) and
-  started as separate processes. A PDF was signed and then independently
-  validated across the real HTTP boundary. Nothing mocked.
+  npm run verify:e2e:signing     (scripts/e2e-signing-chain.sh)
+
+  One command from nothing: generates a test CA and an issued signer credential
+  into build/ (never committed), builds the service jars, starts SignService and
+  validation-service as separate processes, signs a PDFBox-produced PDF and
+  independently validates it over HTTP. Nothing mocked. Added as its own CI job
+  alongside the Maven gate.
 
     signed revision                 20754 bytes from an 837-byte source
     incremental revision            the signed file begins with the exact
