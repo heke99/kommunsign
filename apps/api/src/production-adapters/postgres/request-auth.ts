@@ -84,15 +84,29 @@ export class GatewayRequestAuthenticator {
       readonly hostname: string;
       readonly subject_id: string;
     }>(
-      `update control.host_bound_sessions
-          set last_seen_at=now()
-        where token_hash=decode($1,'hex')
-          and boundary=$2
-          and hostname=$3
-          and revoked_at is null
-          and expires_at>now()
-          and ($4::boolean=false or ($5::text is not null and csrf_token_hash=decode($5,'hex')))
-        returning tenant_id,boundary,hostname,subject_id`,
+      // Validating a session used to be an UPDATE, so every authenticated request wrote a row:
+      // WAL, a dead tuple and vacuum pressure per request, and no possibility of ever serving these
+      // reads from a replica. The matched CTE carries exactly the predicates the UPDATE had -- token,
+      // boundary, hostname, revocation, expiry and the CSRF check on mutating requests -- so the
+      // authentication decision is byte for byte the one it made before. Only the last_seen_at write
+      // changed: it now happens at most once a minute per session rather than on every request.
+      `with matched as (
+         select token_hash,tenant_id,boundary,hostname,subject_id,last_seen_at
+           from control.host_bound_sessions
+          where token_hash=decode($1,'hex')
+            and boundary=$2
+            and hostname=$3
+            and revoked_at is null
+            and expires_at>now()
+            and ($4::boolean=false or ($5::text is not null and csrf_token_hash=decode($5,'hex')))
+       ), touched as (
+         update control.host_bound_sessions s
+            set last_seen_at=now()
+           from matched m
+          where s.token_hash=m.token_hash
+            and (m.last_seen_at is null or m.last_seen_at < now() - interval '60 seconds')
+       )
+       select tenant_id,boundary,hostname,subject_id from matched`,
       [tokenHash, boundary, originHostname, mutating, csrfHash],
     ));
     const row = result.rows[0];
