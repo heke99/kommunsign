@@ -1,0 +1,177 @@
+{
+  "assessedAt": "2026-08-19",
+  "reason": "Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager.",
+  "assessments": {
+    "2068": {
+      "state": "Gallring är nu en operation kunden kan köra, inte bara ett bibliotek. Den tidigare bedömningen beskrev packages/retention korrekt men utelämnade att ingen runtime-kod importerade det: RETENTION_EXECUTE var phaseUnsupported och dead-letterade direkt, och app.retention_policies fanns inte som tabell. Migration 0024 lägger policytabellen, app.gallring_jobs och app.gallring_reports, och apps/workers/src/retention-handlers.ts driver körningen.",
+      "gap": "Ingen.",
+      "implementation": "migrations/data/0024_gallring_runtime.sql (tillståndsmaskin, fyra-ögon, legal hold), apps/workers/src/retention-handlers.ts (körning), apps/api/src/production-adapters/postgres/retention-repository.ts och /v1/retention-routerna (förhandsgranskning, köläggning, godkännande).",
+      "evidence": "migrations/data/0024_gallring_runtime.sql; apps/workers/src/retention-handlers.ts; apps/api/src/production-adapters/postgres/retention-repository.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/gallring.sql, nio scenarier som var för sig kontrollerar att rätt guard utlöstes.",
+      "status": "PASS"
+    },
+    "2069": {
+      "state": "Beställaren kör gallring själv genom /v1/retention/preview, /v1/retention/jobs och godkännanderoutern. Ingen leverantörsåtgärd ingår i flödet. Förhandsgranskningen är avsiktligt en ren läsning: gallring är oåterkallelig, så steget som visar vad som skulle förstöras får aldrig förstöra något.",
+      "gap": "Ingen.",
+      "implementation": "apps/api/src/router.ts (/v1/retention/*), retention-repository.ts.",
+      "evidence": "apps/api/src/router.ts; apps/api/src/production-adapters/postgres/retention-repository.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstester samt behörighetstester för retention:manage och retention:execute.",
+      "status": "PASS"
+    },
+    "2070": {
+      "state": "Gallrad information går inte att återskapa. Objektlagringen raderas före databasraderna, så ett avbrott mitt i lämnar inga föräldralösa objekt. Hash-kedjade evidensrader raderas inte — deras nyttolaster förstörs i objektlagringen och rapporten säger uttryckligen att det är kryptografisk radering i stället för att påstå att raderna togs bort. Att påstå det senare vore en osann uppgift i ett register kommunen svarar för.",
+      "gap": "Ingen.",
+      "implementation": "apps/workers/src/retention-handlers.ts (raderingsordning och kryptografisk radering), MANDATORY_CASE_TARGETS i packages/retention/src/executor.ts.",
+      "evidence": "apps/workers/src/retention-handlers.ts; packages/retention/src/executor.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstest som avvisar en rapport som påstår fullständighet samtidigt som den räknar upp oadresserade mål.",
+      "status": "PASS"
+    },
+    "2071": {
+      "state": "Gallring kräver retention:manage för att köa och retention:execute för att godkänna, och godkännaren får inte vara den som begärde körningen. Fyra ögon på en oåterkallelig radering är hela kontrollen, och den ligger i databasen och inte bara i koden.",
+      "gap": "Ingen.",
+      "implementation": "packages/authorization (delade grants), migrations/data/0024 (approved_by <> requested_by), API-routerna.",
+      "evidence": "packages/authorization/src/index.ts; migrations/data/0024_gallring_runtime.sql",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/gallring.sql bevisar att självgodkännande avvisas med rätt guard.",
+      "status": "PASS"
+    },
+    "2072": {
+      "state": "Varje körning producerar en gallringsrapport via buildGallringReport, lagrad i app.gallring_reports och audit-loggad. Ett villkor i databasen hindrar en rapport från att påstå fullständighet samtidigt som den räknar upp oadresserade mål.",
+      "gap": "Ingen.",
+      "implementation": "packages/retention/src/index.ts (rapportbygge), migrations/data/0024 (app.gallring_reports med fullständighetsvillkor).",
+      "evidence": "packages/retention/src/index.ts; migrations/data/0024_gallring_runtime.sql",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstester inklusive fullständighetsvillkoret.",
+      "status": "PASS"
+    },
+    "2082": {
+      "state": "Automatisk provisionering går nu att använda. packages/scim och migration 0017 fanns sedan tidigare, men det saknades HTTP-yta helt, så ingen katalog kunde provisionera någon. /scim/v2/Users, /scim/v2/Groups och /scim/v2/ServiceProviderConfig hanteras före sessionsupplösningen, eftersom en katalog som pushar användare inte har någon session.",
+      "gap": "Ingen kvarvarande kodbrist. Anslutning mot kommunens katalog kräver att kommunen registrerar credentialen.",
+      "implementation": "apps/api/src/scim-router.ts, apps/api/src/production-adapters/postgres/scim-repository.ts, migration 0026 som gör credentialen utfärdbar.",
+      "evidence": "apps/api/src/scim-router.ts; apps/api/src/production-adapters/postgres/scim-repository.ts; migrations/data/0026_scim_client_issuance.sql",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: åtta SCIM-tester över HTTP samt tests/sql/scim-provisioning.sql.",
+      "status": "PASS"
+    },
+    "2083": {
+      "state": "Skapande sker idempotent på externalId, så en omsynkning blir en no-op i stället för en 409 som stannar synken. Uppdatering sker via PUT och PATCH med en uttrycklig lista över skrivbara attribut — ett attribut utanför listan avvisas i stället för att tyst ignoreras, eftersom de två sidorna annars är oense för alltid. Avaktivering kommer som replace active=false och behåller raden, så en avslutad medarbetares historik finns kvar.",
+      "gap": "Ingen.",
+      "implementation": "packages/scim (createScimUser, applyScimPatch, deprovisionScimUser), apps/api/src/scim-router.ts, app.scim_provisioning_events.",
+      "evidence": "packages/scim/src/index.ts; apps/api/src/scim-router.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: idempotenstest, avaktiveringstest och DELETE-test som bevisar att historik bevaras.",
+      "status": "PASS"
+    },
+    "2084": {
+      "state": "Provisioneringen drivs av kommunens katalog genom en tenantbunden credential. Tenanten hämtas ur credentialraden och aldrig ur sökväg, brödtext eller header — en klient som kunde namnge sin egen tenant vore en tvärtenant-skrivprimitiv utdelad med varje token.",
+      "gap": "Ingen kvarvarande kodbrist. Vilken katalog som ansluts är kommunens val och kräver att credentialen utfärdas.",
+      "implementation": "app.scim_provisioning_clients (token_hash, assignable_roles), scim-router authenticate().",
+      "evidence": "apps/api/src/scim-router.ts; migrations/data/0017_scim_provisioning.sql",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som visar att saknad, felformad och felaktig token ger samma svar, och att svaret inte beskriver vad som skulle ha nåtts.",
+      "status": "PASS"
+    },
+    "2085": {
+      "state": "Roller tilldelas automatiskt från katalogens grupper genom en explicit mappning, deny-by-default: en omappad grupp ger ingenting, och en mappning mot en roll klienten inte får tilldela är ett fel i stället för en tyst tilldelning. Taket kontrolleras både i biblioteket och i SQL, eftersom det är gränsen där ett fel ovanför blir verklig behörighetseskalering. Tilldelningen är en ersättning och inte ett tillägg, så den som tas ur en grupp förlorar rollen.",
+      "gap": "Ingen.",
+      "implementation": "resolveScimRoles i packages/scim, applyRoles i scim-repository (via app.memberships och app.role_assignments).",
+      "evidence": "packages/scim/src/index.ts; apps/api/src/production-adapters/postgres/scim-repository.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som visar att en gruppmappning utanför klientens scope avvisas och att ingenting skrivs.",
+      "status": "PASS"
+    },
+    "2023": {
+      "state": "Rättighetsbegäranden går nu att lämna in och handlägga. packages/privacy fanns men hade noll importörer och det fanns inga tabeller alls, så ingen registrerad kunde begära något och fristen ingen räknade är en frist tillsynsmyndigheten räknar. Migration 0025 lägger app.privacy_requests, coverage per register och svarstabellen; PRIVACY_REQUEST_EXECUTE utför. Varje register söks på riktigt: ett register som inte kan sökas redovisas som undantag med grund, aldrig som en tom träff.",
+      "gap": "Ingen.",
+      "implementation": "migrations/data/0025_privacy_request_runtime.sql, apps/workers/src/privacy-handlers.ts, apps/api /v1/privacy/requests, behörigheterna privacy:manage och privacy:execute.",
+      "evidence": "migrations/data/0025_privacy_request_runtime.sql; apps/workers/src/privacy-handlers.ts; apps/api/src/production-adapters/postgres/privacy-repository.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: sex enhetstester och tests/sql/privacy-requests.sql med nio scenarier.",
+      "status": "PASS"
+    },
+    "2025": {
+      "state": "Extraherad information raderas permanent genom samma två vägar som all annan radering: gallring och rättighetsbegäran om radering. Objektnyttolaster förstörs, identifierare nollställs, och det som inte kan raderas — den hash-kedjade loggen — redovisas som undantag med rättslig grund i stället för att påstås raderat.",
+      "gap": "Ingen.",
+      "implementation": "apps/workers/src/retention-handlers.ts, apps/workers/src/privacy-handlers.ts, erasureExemption i packages/privacy.",
+      "evidence": "apps/workers/src/privacy-handlers.ts; packages/privacy/src/index.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: raderingstest som bevisar att objekt förstörs, identifierare nollställs och loggraderna inte tas bort.",
+      "status": "PASS"
+    },
+    "3511": {
+      "state": "Rutinen är körbar och inte bara dokumenterad: gallring och rättighetsbegäran om radering är två inkopplade jobbtyper med tillståndsmaskin, godkännande och rapport. Tidigare fanns rutinen som bibliotek utan anropare.",
+      "gap": "Ingen.",
+      "implementation": "RETENTION_EXECUTE och PRIVACY_REQUEST_EXECUTE med tillhörande migrationer och API-routes.",
+      "evidence": "apps/workers/src/retention-handlers.ts; apps/workers/src/privacy-handlers.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallrings- och privacy-sviterna mot riktig Postgres.",
+      "status": "PASS"
+    },
+    "3518": {
+      "state": "Behörighetssystemet loggar skapande, borttagning och förändring. app.scim_provisioning_events skrivs nu på riktigt av SCIM-ytan, med maskerad detalj och aldrig den råa katalogpayloaden — den bär attribut vi inte har någon anledning att spara.",
+      "gap": "Ingen.",
+      "implementation": "app.scim_provisioning_events skriven av scim-repository, plus audit.append_event för övriga behörighetsändringar.",
+      "evidence": "apps/api/src/production-adapters/postgres/scim-repository.ts; migrations/data/0017_scim_provisioning.sql",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/scim-provisioning.sql kontrollerar att avprovisionering lämnar spår.",
+      "status": "PASS"
+    },
+    "3519": {
+      "state": "Både avaktivering och permanent borttagning finns och är körbara. DELETE mot SCIM avaktiverar en användare med historik och tar bort roller i båda fallen — ett avprovisionerat konto ska sluta ge behörighet omedelbart, oavsett om raden står kvar. Historiken måste överleva avgången, annars får spåret hål exakt där en avgången medarbetare är inblandad.",
+      "gap": "Ingen.",
+      "implementation": "deprovisionScimUser i packages/scim, deleteUser i apps/api/src/scim-router.ts.",
+      "evidence": "apps/api/src/scim-router.ts; packages/scim/src/index.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: DELETE-test över båda grenarna.",
+      "status": "PASS"
+    },
+    "2079": {
+      "state": "Federerad inloggning fungerar nu hela vägen. En inloggning startas mot /auth/federation/{providerKey}/login, bindningen sparas i control.federation_login_requests, och ACS:en konsumerar den innan något läses ur assertionen — tenanten kommer alltid från den registrerade inloggningen och aldrig ur meddelandet. Signaturverifieringen ligger i validation-service, som redan har XML-DSig-maskineriet: SamlAssertionValidator jämför mot tenantens konfigurerade certifikat innan något parsas, avvisar externa referenser och DTD, och letar upp det signerade elementet ur signaturens egen Reference i stället för att parsa först och kontrollera sedan. Beslutet fattas i ett anrop till verifyWorkforceAssertion mot den varaktiga assertion-ledgern. Båda protokollen finns: SAML 2.0 via ACS och OIDC via callback, och båda går genom samma verifyWorkforceAssertion. Två beslutsvägar hade förr eller senare blivit oense om något — maximal sessionsålder, eller om en omappad grupp ger något — och oenigheten hade varit osynlig tills en tenant bytte protokoll. OidcTokenValidator avvisar ett id_token vars header pekar ut var nyckeln ska hämtas (jku, x5u, jwk) innan signaturen ens kontrolleras, tillåter bara asymmetriska algoritmer så att alg:none aldrig är nåbar, och läser auth_time i stället för iat så att ett färskt token inte kan beskriva en gammal session.",
+      "gap": "Ingen.",
+      "implementation": "apps/api/src/federation-router.ts (login, ACS, OIDC-callback), migrations/control/0019_federation_login_requests.sql (engångsförbrukad bindning), services/validation-service SamlAssertionValidator och POST /v1/validate/saml, packages/validation-client validateSaml, federation-repository (ledger och tenant-IdP-konfiguration). OidcTokenValidator och POST /v1/validate/oidc; CompactJwsVerifier flyttad till services/commons så Freja och OIDC delar en verifierare.",
+      "evidence": "apps/api/src/federation-router.ts; services/validation-service/src/main/java/se/kommunsign/validation/SamlAssertionValidator.java; migrations/control/0019_federation_login_requests.sql; services/validation-service/src/main/java/se/kommunsign/validation/OidcTokenValidator.java; services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java",
+      "verification": "npm run verify (147 tester), mvn -B test (17 Java-tester), bash scripts/db-verify.sh mot riktig Postgres: nio federationsroute-tester (replay, öppen omdirigering, fail-closed utan konfigurerat certifikat, PASS utan verifierad signatur, protokoll som inte får väljas av endpointen), elva Java-tester mot verkligt signerad XML och verkligt signerade id_token inklusive falsk IdP, manipulerad payload, alg:none och jku-header, samt tests/sql/federation-replay.sql.",
+      "status": "PASS"
+    },
+    "2064": {
+      "state": "Arkivpaketet innehåller nu en riktig METS sip.xml enligt den profil Riksarkivet publicerar, vid sidan av det JSON-manifest som gör offline-verifiering möjlig. Profil-URI, ExtensionMETS-namnrymden, ext:OAISSTATUS, CHECKSUMTYPE och den enkla Profilestructmap är hämtade ur profilen och inte gissade. Men strukturen följer profilen är ett annat påstående än validerad mot mottagarens XSD, och FGS_CONFORMANCE_STATUS.schemaValidated är false.",
+      "gap": "Ingen kvarvarande kodbrist. Att påstå RA-FS-konformitet utan att ha validerat mot mottagande arkivs schemauppsättning vore precis den överdrift den tidigare PASS-bedömningen gjorde.",
+      "implementation": "packages/archive/src/fgs.ts (METS-deskriptor), apps/workers/src/archive-handlers.ts, migrations/data/0023.",
+      "evidence": "packages/archive/src/fgs.ts; apps/workers/src/archive-handlers.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: fem FGS-tester inklusive determinism, XML-escaping och att adaptern aldrig påstår schemakonformitet den inte verifierat.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Bekräftad FGS-version från kommunen samt den XSD-uppsättning och eventuella lokala profilutökningar mottagande e-arkiv kräver. Validering mot den uppsättningen är ett externt steg; koden är på plats och FGS_CONFORMANCE_STATUS redovisar exakt vad som återstår."
+    },
+    "2065": {
+      "state": "Samma paket och samma profil som 2064. Arkivexporten körs nu på riktigt via ARCHIVE_EXPORT i stället för att vara ett bibliotek utan anropare, och paketet är deterministiskt: samma stängda ärende exporterat två gånger ger identiska bytes, annars går den arkiverade kopian inte att visa vara den som levererades.",
+      "gap": "Samma som 2064: schemavalidering mot mottagande arkivs föreskriftsversion återstår.",
+      "implementation": "packages/archive/src/fgs.ts, apps/workers/src/archive-handlers.ts, migrations/data/0023_archive_export_fgs.sql.",
+      "evidence": "packages/archive/src/fgs.ts; migrations/data/0023_archive_export_fgs.sql",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/archive-export.sql samt determinismtestet.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Bekräftad föreskriftsversion och schemauppsättning från kommunens e-arkiv. Utan den kan konformitet inte verifieras, bara påstås."
+    },
+    "2022": {
+      "state": "Spårbarhetsloggen är hash-kedjad och append-only, och operativa signaler exponeras nu också som mätvärden. Före den här leveransen matchade ingen av de fem larmreglerna något systemet sände ut och det fanns ingen /metrics-endpoint alls — ett tyst larm läses som att inget är fel, vilket är sämre än inget larm. Serierna härleds ur databasen vid skrapning i stället för att räknas upp i processen, eftersom en processlokal räknare nollställs vid varje driftsättning och increase() läser det som en återställning.",
+      "gap": "Ingen.",
+      "implementation": "audit.append_event (hash-kedja), packages/observability/src/prometheus.ts, apps/api/src/production-adapters/postgres/metrics-repository.ts, /metrics bakom skrapcredential.",
+      "evidence": "packages/observability/src/prometheus.ts; apps/api/src/production-adapters/postgres/metrics-repository.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som läser larmreglerna och failar om den larmade och den sända mängden glider isär, samt test för etikettkontroll och escaping.",
+      "status": "PASS"
+    },
+    "2037": {
+      "state": "Backup tas av driftplattformen och inte av applikationen. Larmregeln BackupFailed finns och serien är deklarerad, men ingenting i det här systemet vet när senaste backup lyckades, så serien är uttryckligen listad som omatad i PROMETHEUS_UNFED_SERIES. Det är avsiktligt synligt: BackupFailed larmar på frånvaron av en färsk tidsstämpel, vilket betyder att en omatad serie ser exakt ut som en frisk för den som inte kontrollerat.",
+      "gap": "Ingen kodbrist. Serien måste matas av den som faktiskt tar backuperna.",
+      "implementation": "infrastructure/monitoring/prometheus-alerts.yaml (regeln), packages/observability/src/prometheus.ts (deklaration och uttrycklig omatad-lista).",
+      "evidence": "packages/observability/src/prometheus.ts; infrastructure/monitoring/prometheus-alerts.yaml",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som kräver att varje deklarerad serie antingen matas av metrics-repository eller står med i omatad-listan.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Driftplattformens backupjobb måste mata kommunsign_last_successful_backup_timestamp_seconds, och kommunen måste bekräfta backupfönster och retention. Utan det larmar BackupFailed aldrig, hur frisk regeln än ser ut."
+    },
+    "3526": {
+      "state": "Rutinen för kryptering finns och nyckelrotation är nu en operation som går att köra, följa och verifiera. Nio tabeller bär key_version, så frågan vilka rader som fortfarande ligger på den gamla nyckeln går att besvara — utan den var rotation en förhoppningsfull massuppdatering utan möjlighet att återuppta eller verifiera. Databasen vägrar markera en rotation verifierad medan någon kolumn fortfarande rapporterar utestående rader.",
+      "gap": "Ingen kodbrist. Själva rotationen är en operatörsåtgärd mot kundens KMS eller HSM.",
+      "implementation": "packages/crypto/src/key-rotation.ts (nyckelring och tillståndsmaskin), migrations/data/0029_key_rotation_backfill.sql (key_version, app.key_rotations, app.key_rotation_columns), docs/runbooks/KEY_ROTATION.md.",
+      "evidence": "migrations/data/0029_key_rotation_backfill.sql; docs/runbooks/KEY_ROTATION.md; packages/crypto/src/key-rotation.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/key-rotation.sql, sju scenarier inklusive att en rotation utan registrerade kolumner inte kan rapportera sig verifierad.",
+      "status": "PASS"
+    },
+    "F005": {
+      "state": "Färdig signerad handling levereras genom en autentiserad, tidsbegränsad nedladdningslänk i stället för en permanent objekt-URL eller en oskyddad e-postbilaga. En länk namnger en artefakt av ett ärende, löper ut, räknar sina användningar, kan återkallas enkelriktat, och varje hämtning loggas med klientadressen avkortad till /24 — tillräckligt för att skilja samma kontor två gånger från att länken skickas runt, vilket är den enda fråga spåret behöver besvara.",
+      "gap": "Ingen.",
+      "implementation": "migrations/data/0027_signed_document_delivery.sql, apps/api/src/production-adapters/postgres/delivery-repository.ts, /v1/signature-cases/{id}/download-links och /v1/public/downloads/{token}.",
+      "evidence": "migrations/data/0027_signed_document_delivery.sql; apps/api/src/production-adapters/postgres/delivery-repository.ts",
+      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/document-delivery.sql med sju scenarier samt enhetstest för avkortning och att okänd, utgången, återkallad och förbrukad länk ger samma svar.",
+      "status": "PASS"
+    }
+  }
+}

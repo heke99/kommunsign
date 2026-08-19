@@ -18,6 +18,13 @@
       "public": false
     },
     {
+      "name": "signservice",
+      "source": "github",
+      "configFile": "/infrastructure/railway/signservice.railway.json",
+      "public": false,
+      "port": 8081
+    },
+    {
       "name": "validation-service",
       "source": "github",
       "configFile": "/infrastructure/railway/validation-service.railway.json",

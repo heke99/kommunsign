@@ -7,6 +7,16 @@ psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -Atc "select count(*) >= 0 from 
 psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/onboarding-control.sql
 psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/control/verify_accounts.sql
 psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/control/verify_organization_creation.sql
+psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/control/verify_platform_jobs.sql
+psql "$CONTROL_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/federation-replay.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/data/verify.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/data/verify_organization_creation.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/tenant-isolation.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/pades-signature-chain.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/webhook-delivery.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/archive-export.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/gallring.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/privacy-requests.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/scim-provisioning.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/document-delivery.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/key-rotation.sql

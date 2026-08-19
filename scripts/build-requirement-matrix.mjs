@@ -6,13 +6,25 @@
  * file may correct an older assessment when a fresh verification disproves it.
  * Requirement text is never overridden.
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 
 const base = 'docs/compliance/kungalv';
 const requirements = JSON.parse(await readFile(`${base}/requirements.json`, 'utf8'));
 const assessmentFile = JSON.parse(await readFile(`${base}/assessments.json`, 'utf8'));
-const currentOverride = JSON.parse(await readFile(`${base}/assessment-overrides-2026-08-11.json`, 'utf8'));
-const assessments = { ...assessmentFile.assessments, ...currentOverride.assessments };
+
+// Every dated override, applied oldest first. Discovered rather than named, so
+// adding a reassessment is one file and not also an edit here — and applied in
+// date order, so the newest verification is the one that stands.
+const overrideNames = (await readdir(base))
+  .filter((name) => /^assessment-overrides-\d{4}-\d{2}-\d{2}\.json$/.test(name))
+  .sort();
+if (overrideNames.length === 0) throw new Error('No dated assessment override found');
+const overrides = [];
+for (const name of overrideNames) overrides.push(JSON.parse(await readFile(`${base}/${name}`, 'utf8')));
+
+const assessments = { ...assessmentFile.assessments };
+for (const override of overrides) Object.assign(assessments, override.assessments);
+const currentOverride = overrides[overrides.length - 1];
 const assessedAt = currentOverride.assessedAt ?? assessmentFile.assessedAt;
 
 const missing = requirements.requirements.filter((requirement) => !assessments[requirement.id]);
@@ -23,10 +35,10 @@ const orphaned = Object.keys(assessments).filter(
   (id) => !requirements.requirements.some((requirement) => requirement.id === id),
 );
 if (orphaned.length > 0) throw new Error(`Assessments without a requirement: ${orphaned.join(', ')}`);
-const overrideOrphans = Object.keys(currentOverride.assessments).filter(
-  (id) => !assessmentFile.assessments[id],
-);
-if (overrideOrphans.length > 0) throw new Error(`Overrides without a historical assessment: ${overrideOrphans.join(', ')}`);
+for (const override of overrides) {
+  const overrideOrphans = Object.keys(override.assessments).filter((id) => !assessmentFile.assessments[id]);
+  if (overrideOrphans.length > 0) throw new Error(`Overrides without a historical assessment: ${overrideOrphans.join(', ')}`);
+}
 
 const allowedStatuses = new Set(['PASS', 'PARTIAL', 'GAP', 'BLOCKED_EXTERNAL']);
 for (const requirement of requirements.requirements) {

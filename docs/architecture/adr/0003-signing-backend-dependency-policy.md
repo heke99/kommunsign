@@ -3,6 +3,7 @@
 Status: accepted
 Date: 2026-08-07
 Supersedes: the blanket "no external dependencies" reading of ADR 0001
+Superseded in part by: ADR 0004, which replaces EU DSS with the Sweden Connect stack. The dependency admission gate below is unchanged and still binding.
 
 ## Context
 

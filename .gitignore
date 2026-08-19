@@ -25,3 +25,6 @@ release/
 *.env.local
 !*.env.example
 !*.env.template
+
+# Maven build output for services/*
+target/

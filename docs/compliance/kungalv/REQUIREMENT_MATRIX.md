@@ -2,9 +2,11 @@
 
 <!-- GENERERAD FIL. Redigera inte för hand.
      Kör `node scripts/build-requirement-matrix.mjs` efter ändring i
-     requirements.json eller assessments.json. -->
+     requirements.json, assessments.json eller daterad assessment override. -->
 
-Bedömningsdatum: 2026-08-07
+Bedömningsdatum: 2026-08-19
+
+Den historiska bedömningen kompletteras med daterade overrides endast när en ny verifiering visar att en äldre status inte längre är korrekt. Kravtexten hämtas alltid oförändrad från källutdraget.
 
 ## Källa
 
@@ -26,7 +28,7 @@ tilldelats lokala ID på formen `F001`. Övriga ID kommer från källan.
 
 | Typ | PASS | PARTIAL | GAP | BLOCKED_EXTERNAL | Summa |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| SKA | 89 | 0 | 0 | 41 | 130 |
+| SKA | 87 | 0 | 0 | 43 | 130 |
 | BÖR | 7 | 0 | 0 | 1 | 8 |
 
 Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
@@ -102,12 +104,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Manuell hantering av signerade dokument. |
 | Typ | SKA |
 | Kategori | Funktion |
-| Nuläge | Uppladdning finns via /v1/uploads och /v1/uploads/{id}/complete med metadatavalidering, samt dokumenttillägg per ärende. |
-| Gap | Ingen känd brist för manuell hantering som sådan. |
-| Lösning | Befintlig uppladdnings- och dokumentkedja. |
-| Kodevidens | apps/api/src/router.ts; packages/uploads/src/index.ts; docs/api/openapi.yaml |
-| Verifiering | tests/security.mjs täcker uppladdningsvalidering. |
+| Nuläge | Färdig signerad handling levereras genom en autentiserad, tidsbegränsad nedladdningslänk i stället för en permanent objekt-URL eller en oskyddad e-postbilaga. En länk namnger en artefakt av ett ärende, löper ut, räknar sina användningar, kan återkallas enkelriktat, och varje hämtning loggas med klientadressen avkortad till /24 — tillräckligt för att skilja samma kontor två gånger från att länken skickas runt, vilket är den enda fråga spåret behöver besvara. |
+| Gap | Ingen. |
+| Lösning | migrations/data/0027_signed_document_delivery.sql, apps/api/src/production-adapters/postgres/delivery-repository.ts, /v1/signature-cases/{id}/download-links och /v1/public/downloads/{token}. |
+| Kodevidens | migrations/data/0027_signed_document_delivery.sql; apps/api/src/production-adapters/postgres/delivery-repository.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/document-delivery.sql med sju scenarier samt enhetstest för avkortning och att okänd, utgången, återkallad och förbrukad länk ger samma svar. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### F006 — PASS
 
@@ -262,11 +265,11 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | Microsoft Office stöd |
-| Nuläge | Office-dokument kan gå in i signeringsflödet utan att användaren konverterar för hand. packages/document-processing/src/office-ingestion.ts tar emot docx, xlsx, pptx, odt, ods och rtf, och konverteringen sker en gång på servern med gotenberg till PDF/A-2b. Makroaktiverade format avvisas, eftersom de är det vanligaste leveranssättet för Office-skadekod och ett dokument som ändå ska planas ut inte har något legitimt behov av makron. Filändelse och MIME-typ måste stämma överens, eftersom en kontroll av bara den ena låter en anropare presentera en makrofil under en godartad typ — och det är konverteringstjänsten som då öppnar den. Endast den konverterade PDF/A-filen signeras: en Office-fil är inte en fast representation av sig själv utan ombryts mellan versioner och löser typsnitt olika på en delad dator än på en personlig, och en signatur över den skulle täcka bytes vars visuella innebörd inte är stabil. |
-| Gap | Ingen. |
-| Lösning | packages/document-processing/src/office-ingestion.ts, gotenberg i dokumentpipelinen. |
-| Kodevidens | packages/document-processing/src/office-ingestion.ts; docker-compose.yml; docs/architecture/document-processing-pipeline.md |
-| Verifiering | tests/run.mjs: test att Office-dokument konverteras före signering och att endast PDF/A signeras, inklusive makroavvisning och MIME-matchning. |
+| Nuläge | Kommunsign accepterar nu Word-, Excel- och PowerPoint-filer i deras normala Microsoft 365-format som källdokument i det ordinarie tenant-isolerade signeringsflödet. På personlig dator kan användaren redigera filen i Microsoft 365 online eller i installerad Word, Excel eller PowerPoint, spara den ordinarie Office-filen och lämna den till Kommunsign utan lokal PDF-konvertering. Källfilen går via privat karantän, SHA-256-bindning, MIME-/filändelsekontroll, magic-byte-kontroll, ClamAV, serverbaserad LibreOffice-konvertering, qpdf och veraPDF. Endast den verifierade PDF/A-2b-versionen blir signeringsunderlag. |
+| Gap | Inget kvarvarande tekniskt gap för det efterfrågade filbaserade Microsoft 365 online/desktop-arbetsflödet. Lösningen bäddar inte in Microsofts editor och gör därför inget påstående om WOPI/live co-authoring inne i Kommunsign. |
+| Lösning | Native .docx/.xlsx/.pptx stöds genom samma autentiserade upload-gräns, tenantkontroll och idempotens som PDF. Makroaktiverade Office-format och MIME-/filändelsemismatch avvisas. Office-jobb använder en separat worker-väg som återanvänder befintlig dokumentmodell och lämnar PDF-vägen oförändrad; efter verifierad konvertering fortsätter dokumentet som canonical PDF/A-2b i befintligt signeringsflöde. |
+| Kodevidens | packages/uploads/src/index.ts; packages/document-processing/src/office-ingestion.ts; packages/document-processing/src/office-production.ts; apps/api/src/router.ts; apps/api/src/production-adapters/postgres/signing-source-upload-repository.ts; apps/workers/src/office-document-handlers.ts; apps/workers/src/postgres-production-adapter.ts; apps/tenant-portal/public/index.html; apps/tenant-portal/public/office-upload.js; tests/m365-office.mjs; tests/browser-e2e.mjs |
+| Verifiering | 2026-08-11: CI #72 och browser-e2e #31 var gröna på head 8413140ca70be448dace98fe5abb36c5855b186f. Browser-E2E laddar native .docx via verksamhetsportalen i Chromium, Firefox och WebKit och verifierar serverauktoritativt tillstånd efter refresh och separat browser context. m365-office-gaten verifierar .docx/.xlsx/.pptx, Gotenberg LibreOffice-route, PDF/A-2b-parametrar, API-MIME och negativa Office-säkerhetsregler; de sistnämnda negativa testerna lades därefter till explicit och verifieras på aktuell PR-head innan merge. |
 | Status | PASS |
 
 ### 2006 — PASS
@@ -277,11 +280,11 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 01 - Allmänna IT-krav |
 | Område | Microsoft Office stöd |
-| Nuläge | Samma väg som krav 2005, och den fungerar likadant på gemensam dator eftersom konverteringen sker på servern och inte i klienten. Det är just därför konverteringen är serverside: en klientkonvertering skulle ge olika resultat beroende på vilka typsnitt och vilken Office-version den delade datorn råkar ha, och den skillnaden skulle följa med in i det som signeras. |
-| Gap | Ingen. |
-| Lösning | packages/document-processing/src/office-ingestion.ts, gotenberg i dokumentpipelinen. |
-| Kodevidens | packages/document-processing/src/office-ingestion.ts; docker-compose.yml |
-| Verifiering | tests/run.mjs: samma ingestionstest. Ingen klientprogramvara krävs, vilket verifieras av att portalerna är statiska. |
+| Nuläge | Kommunsigns verksamhetsportal stödjer ett browserbaserat flöde för delad dator: användaren kan arbeta i Microsoft 365 online, spara eller hämta den normala Office-filen via webbläsaren och ladda upp den till Kommunsign. Ingen lokal Word-, Excel-, PowerPoint- eller PDF-konverteringsinstallation krävs på den delade datorn. All konvertering och validering sker server-side innan filen kan signeras. |
+| Gap | Inget kvarvarande tekniskt gap för det efterfrågade Microsoft 365 online-scenariot på gemensam dator inom den filbaserade integrationsgränsen. Kommunsign lagrar inte Microsoft 365-sessionen och kräver inte att Office-kontot kopplas till signeringssessionen. |
+| Lösning | Tenantportalen accepterar native Office-filer direkt från browsern och visar explicit arbetsflöde för Microsoft 365 online på delad dator. Källan behandlas i privat karantän och konverteras server-side till verifierad PDF/A-2b; signeringsversionen är därmed frikopplad från den delade datorns lokala programvara och browser-session efter uppladdningen. |
+| Kodevidens | apps/tenant-portal/public/index.html; apps/tenant-portal/public/office-upload.js; apps/api/src/router.ts; apps/api/src/production-adapters/postgres/signing-source-upload-repository.ts; apps/workers/src/office-document-handlers.ts; packages/document-processing/src/office-production.ts; tests/m365-office.mjs; tests/browser-e2e.mjs |
+| Verifiering | 2026-08-11: CI #72 och browser-e2e #31 var gröna på head 8413140ca70be448dace98fe5abb36c5855b186f. Samma browser-E2E kör Office-uppladdningen i Chromium, Firefox och WebKit utan lokal Office-klient. Efter den explicita negativa testhärdningen verifieras även slutlig PR-head på nytt innan merge. |
 | Status | PASS |
 
 ### 2007 — PASS
@@ -457,12 +460,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | Loggning |
-| Nuläge | Loggning är strukturerad och spårbar. Varje post bär requestId och correlationId som separata fält: en request är ett HTTP-anrop, en korrelation spänner över hela affärsoperationen inklusive de workerjobb den startar, och utan den andra blir spårningen av ett ärende som aldrig blev klart en fråga om att joina på tidsstämpel och hoppas. Posterna bär även tenant, aktör, ärende, signeringsintent, jobb, händelse, utfall och varaktighet. Maskeringen sker på väg in i stället för att förlita sig på anropsstället, eftersom en loggrad är en utflödeskanal som skickas från maskinen, sparas i fem år och läses av personer som inte är personuppgiftsansvariga. |
+| Nuläge | Spårbarhetsloggen är hash-kedjad och append-only, och operativa signaler exponeras nu också som mätvärden. Före den här leveransen matchade ingen av de fem larmreglerna något systemet sände ut och det fanns ingen /metrics-endpoint alls — ett tyst larm läses som att inget är fel, vilket är sämre än inget larm. Serierna härleds ur databasen vid skrapning i stället för att räknas upp i processen, eftersom en processlokal räknare nollställs vid varje driftsättning och increase() läser det som en återställning. |
 | Gap | Ingen. |
-| Lösning | packages/observability: buildLogRecord, sanitiseLogPayload, LogContext. |
-| Kodevidens | packages/observability/src/index.ts; packages/audit/src/index.ts |
-| Verifiering | tests/run.mjs: två loggtester (maskering av hemligheter och personnummer, spårbarhet för säkerhetshändelser). |
+| Lösning | audit.append_event (hash-kedja), packages/observability/src/prometheus.ts, apps/api/src/production-adapters/postgres/metrics-repository.ts, /metrics bakom skrapcredential. |
+| Kodevidens | packages/observability/src/prometheus.ts; apps/api/src/production-adapters/postgres/metrics-repository.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som läser larmreglerna och failar om den larmade och den sända mängden glider isär, samt test för etikettkontroll och escaping. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2023 — PASS
 
@@ -472,12 +476,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | GDPR |
-| Nuläge | GDPR-hanteringen är komplett i två skikt. packages/privacy/src/index.ts avgör vad ett svar måste täcka: varje register (CONTROL, DATA, OBJECT_STORAGE, AUDIT_LOG, BACKUP) måste vara antingen genomsökt eller uttryckligen undantaget med rättslig grund, annars vägrar modulen bygga svaret. packages/privacy/src/executor.ts driver livscykeln mottagen → identitet verifierad → under handläggning → åtgärdad → levererad, med avslag som egen väg. Ingen åtgärd kan påbörjas före verifierad identitet, och utlämnande eller ändring av personuppgifter kräver stark identitet — en rättighetsbegäran är annars den enklaste vägen till någon annans registerutdrag. Legal hold och begränsning enligt artikel 18 omprövas vid utförandet och inte bara vid mottagandet. Fristen räknas från mottagandet enligt PUB-avtalet 10.1, och overdueRequests gör försenade ärenden synliga som öppna ärenden i stället för ett datum som passerat obemärkt. |
-| Gap | Ingen. Rättigheterna åtkomst, rättelse, begränsning, radering och dataportabilitet stöds alla. |
-| Lösning | packages/privacy (beslut + exekvering), packages/retention (gallring vid radering), app.legal_holds. |
-| Kodevidens | packages/privacy/src/index.ts; packages/privacy/src/executor.ts; packages/retention/src/executor.ts |
-| Verifiering | tests/run.mjs: fem integritetstester (registertäckning, undantag och legal hold, identitetsverifiering, omprövning vid utförande, frist och förseningar). |
+| Nuläge | Rättighetsbegäranden går nu att lämna in och handlägga. packages/privacy fanns men hade noll importörer och det fanns inga tabeller alls, så ingen registrerad kunde begära något och fristen ingen räknade är en frist tillsynsmyndigheten räknar. Migration 0025 lägger app.privacy_requests, coverage per register och svarstabellen; PRIVACY_REQUEST_EXECUTE utför. Varje register söks på riktigt: ett register som inte kan sökas redovisas som undantag med grund, aldrig som en tom träff. |
+| Gap | Ingen. |
+| Lösning | migrations/data/0025_privacy_request_runtime.sql, apps/workers/src/privacy-handlers.ts, apps/api /v1/privacy/requests, behörigheterna privacy:manage och privacy:execute. |
+| Kodevidens | migrations/data/0025_privacy_request_runtime.sql; apps/workers/src/privacy-handlers.ts; apps/api/src/production-adapters/postgres/privacy-repository.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: sex enhetstester och tests/sql/privacy-requests.sql med nio scenarier. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2024 — PASS
 
@@ -502,12 +507,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 02 - Informationssäkerhet |
 | Område | Support |
-| Nuläge | Permanent radering av extraherad information hanteras av samma gallringsexekvering. Planen täcker alla kopior inklusive objektlagring, härledda renderingar, sökindex och cache, och varje mål måste bekräftas raderat innan körningen får rapporteras. Legal hold vinner alltid, och beslutet omprövas omedelbart före radering så att ett hold som lagts efter köläggningen stoppar körningen. |
-| Gap | Ingen kodbrist. Den avtalsmässiga utfästelsen att radera under avtalsperioden är en avtalsfråga, men den tekniska funktionen finns och är verifierad. |
-| Lösning | packages/retention/src/executor.ts. |
-| Kodevidens | packages/retention/src/executor.ts; packages/retention/src/index.ts |
-| Verifiering | tests/run.mjs: tre exekveringstester, inklusive att ett förfallet beslut omprövas före radering. |
+| Nuläge | Extraherad information raderas permanent genom samma två vägar som all annan radering: gallring och rättighetsbegäran om radering. Objektnyttolaster förstörs, identifierare nollställs, och det som inte kan raderas — den hash-kedjade loggen — redovisas som undantag med rättslig grund i stället för att påstås raderat. |
+| Gap | Ingen. |
+| Lösning | apps/workers/src/retention-handlers.ts, apps/workers/src/privacy-handlers.ts, erasureExemption i packages/privacy. |
+| Kodevidens | apps/workers/src/privacy-handlers.ts; packages/privacy/src/index.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: raderingstest som bevisar att objekt förstörs, identifierare nollställs och loggraderna inte tas bort. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2026 — BLOCKED_EXTERNAL
 
@@ -688,13 +694,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 03 - Tillgänglighet och Support |
 | Område | Backup |
-| Nuläge | docs/operations/backup-and-restore.md finns. |
-| Gap | Backup utan nedstängning är hostingleverantörens funktion och är inte styrkt. Ingen genomförd restore-övning. |
-| Lösning | Verifiera leverantörens backupfunktion för både CONTROL och DATA och genomför restore-drill. |
-| Kodevidens | docs/operations/backup-and-restore.md |
-| Verifiering | Ingen. Att backup finns är inte bevis för att återställning fungerar. |
+| Nuläge | Backup tas av driftplattformen och inte av applikationen. Larmregeln BackupFailed finns och serien är deklarerad, men ingenting i det här systemet vet när senaste backup lyckades, så serien är uttryckligen listad som omatad i PROMETHEUS_UNFED_SERIES. Det är avsiktligt synligt: BackupFailed larmar på frånvaron av en färsk tidsstämpel, vilket betyder att en omatad serie ser exakt ut som en frisk för den som inte kontrollerat. |
+| Gap | Ingen kodbrist. Serien måste matas av den som faktiskt tar backuperna. |
+| Lösning | infrastructure/monitoring/prometheus-alerts.yaml (regeln), packages/observability/src/prometheus.ts (deklaration och uttrycklig omatad-lista). |
+| Kodevidens | packages/observability/src/prometheus.ts; infrastructure/monitoring/prometheus-alerts.yaml |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som kräver att varje deklarerad serie antingen matas av metrics-repository eller står med i omatad-listan. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Leverantörsevidens och genomförd restore-övning. |
+| Blockerare | Driftplattformens backupjobb måste mata kommunsign_last_successful_backup_timestamp_seconds, och kommunen måste bekräfta backupfönster och retention. Utan det larmar BackupFailed aldrig, hur frisk regeln än ser ut. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2038 — PASS
 
@@ -1003,7 +1010,7 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Verifiering | npm run verify:requirements misslyckas vid krav utan bedömning eller bedömning utan krav. |
 | Status | PASS |
 
-### 2064 — PASS
+### 2064 — BLOCKED_EXTERNAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1011,14 +1018,16 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 07 - Digitalt bevarande |
 | Område | Digitalt bevarande |
-| Nuläge | packages/archive producerar ett FGS-format leveranspaket enligt RA-FS 2009:2 med innehåll under content/, beskrivande metadata under metadata/ och bevis under evidence/. Manifestet anger uttryckligen vilken föreskrift paketet producerats mot, så att en framtida läsare inte behöver gissa. assertArchivable vägrar bygga ett paket som skulle beskriva sig fel: endast avslutat ärende, endast dokument med verifierad PDF/A-profil, elektronisk signatur måste bära signaturartefakt och valideringsrapport, varje signatur måste ha identitetsbevis, och audittrailens hash måste finnas. |
-| Gap | Ingen. Överföringsformatet följer RA-FS 2009:2 och är verifierbart offline. |
-| Lösning | packages/archive (paketbyggnad, fullständighetskontroll, offline-verifiering), packages/evidence (deterministisk ZIP), app.archive_exports. |
-| Kodevidens | packages/archive/src/index.ts; packages/evidence/src/zip.ts; migrations/data/0004_audit_outbox_webhooks_archive.sql |
-| Verifiering | tests/run.mjs: två arkivtester (fullständighetsvägran inklusive PDF/A och bevisbindning, samt determinism och offline-verifiering). |
-| Status | PASS |
+| Nuläge | Arkivpaketet innehåller nu en riktig METS sip.xml enligt den profil Riksarkivet publicerar, vid sidan av det JSON-manifest som gör offline-verifiering möjlig. Profil-URI, ExtensionMETS-namnrymden, ext:OAISSTATUS, CHECKSUMTYPE och den enkla Profilestructmap är hämtade ur profilen och inte gissade. Men strukturen följer profilen är ett annat påstående än validerad mot mottagarens XSD, och FGS_CONFORMANCE_STATUS.schemaValidated är false. |
+| Gap | Ingen kvarvarande kodbrist. Att påstå RA-FS-konformitet utan att ha validerat mot mottagande arkivs schemauppsättning vore precis den överdrift den tidigare PASS-bedömningen gjorde. |
+| Lösning | packages/archive/src/fgs.ts (METS-deskriptor), apps/workers/src/archive-handlers.ts, migrations/data/0023. |
+| Kodevidens | packages/archive/src/fgs.ts; apps/workers/src/archive-handlers.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: fem FGS-tester inklusive determinism, XML-escaping och att adaptern aldrig påstår schemakonformitet den inte verifierat. |
+| Status | BLOCKED_EXTERNAL |
+| Blockerare | Bekräftad FGS-version från kommunen samt den XSD-uppsättning och eventuella lokala profilutökningar mottagande e-arkiv kräver. Validering mot den uppsättningen är ett externt steg; koden är på plats och FGS_CONFORMANCE_STATUS redovisar exakt vad som återstår. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
-### 2065 — PASS
+### 2065 — BLOCKED_EXTERNAL
 
 | Fält | Innehåll |
 | --- | --- |
@@ -1026,12 +1035,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 07 - Digitalt bevarande |
 | Område | Digitalt bevarande |
-| Nuläge | Lagring och överföring följer samma paketprofil. Dokument får bara ingå med en av dokumentprocessorn verifierad PDF/A-profil, inte med en påstådd. Slutliga signerade dokument är immutabla enligt migrations/data/0010, och gallring respekterar legal hold enligt packages/retention. Paketet innehåller checksummor för varje fil och en manifesthash som levereras utanför manifestet. |
-| Gap | Ingen kodbrist. |
-| Lösning | packages/archive, packages/document-processing, migrations/data/0010_immutability_and_evidence_states.sql. |
-| Kodevidens | packages/archive/src/index.ts; migrations/data/0010_immutability_and_evidence_states.sql |
-| Verifiering | tests/run.mjs: två arkivtester samt evidence-manifest- och ZIP-tester. |
-| Status | PASS |
+| Nuläge | Samma paket och samma profil som 2064. Arkivexporten körs nu på riktigt via ARCHIVE_EXPORT i stället för att vara ett bibliotek utan anropare, och paketet är deterministiskt: samma stängda ärende exporterat två gånger ger identiska bytes, annars går den arkiverade kopian inte att visa vara den som levererades. |
+| Gap | Samma som 2064: schemavalidering mot mottagande arkivs föreskriftsversion återstår. |
+| Lösning | packages/archive/src/fgs.ts, apps/workers/src/archive-handlers.ts, migrations/data/0023_archive_export_fgs.sql. |
+| Kodevidens | packages/archive/src/fgs.ts; migrations/data/0023_archive_export_fgs.sql |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/archive-export.sql samt determinismtestet. |
+| Status | BLOCKED_EXTERNAL |
+| Blockerare | Bekräftad föreskriftsversion och schemauppsättning från kommunens e-arkiv. Utan den kan konformitet inte verifieras, bara påstås. |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2066 — PASS
 
@@ -1071,12 +1082,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Gallringsfunktionen är komplett: packages/retention/src/index.ts avgör vad som får gallras och när, och packages/retention/src/executor.ts driver livscykeln kö → plan → godkännande → körning → verifiering → rapport. selectDueCases plockar bara ärenden som beslutsskiktet faktiskt bedömt som förfallna. |
+| Nuläge | Gallring är nu en operation kunden kan köra, inte bara ett bibliotek. Den tidigare bedömningen beskrev packages/retention korrekt men utelämnade att ingen runtime-kod importerade det: RETENTION_EXECUTE var phaseUnsupported och dead-letterade direkt, och app.retention_policies fanns inte som tabell. Migration 0024 lägger policytabellen, app.gallring_jobs och app.gallring_reports, och apps/workers/src/retention-handlers.ts driver körningen. |
 | Gap | Ingen. |
-| Lösning | packages/retention (beslut + exekvering), control.tenant_retention_policies. |
-| Kodevidens | packages/retention/src/index.ts; packages/retention/src/executor.ts |
-| Verifiering | tests/run.mjs: åtta gallringstester (fyra beslutstester, tre exekveringstester och rapportbygget). |
+| Lösning | migrations/data/0024_gallring_runtime.sql (tillståndsmaskin, fyra-ögon, legal hold), apps/workers/src/retention-handlers.ts (körning), apps/api/src/production-adapters/postgres/retention-repository.ts och /v1/retention-routerna (förhandsgranskning, köläggning, godkännande). |
+| Kodevidens | migrations/data/0024_gallring_runtime.sql; apps/workers/src/retention-handlers.ts; apps/api/src/production-adapters/postgres/retention-repository.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/gallring.sql, nio scenarier som var för sig kontrollerar att rätt guard utlöstes. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2069 — PASS
 
@@ -1086,12 +1098,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | approveGallring avvisar plattformspersonal även när behörighetsbiten är satt. Kravet läses åt båda hållen: att kunden kan gallra utan leverantören betyder också att leverantören inte får gallra utan kunden. Dessutom är godkännande skilt från begäran, eftersom gallring är oåterkallelig och ett enskilt komprometterat eller misstaget konto inte ska kunna både föreslå och genomföra en oåterkallelig radering. |
+| Nuläge | Beställaren kör gallring själv genom /v1/retention/preview, /v1/retention/jobs och godkännanderoutern. Ingen leverantörsåtgärd ingår i flödet. Förhandsgranskningen är avsiktligt en ren läsning: gallring är oåterkallelig, så steget som visar vad som skulle förstöras får aldrig förstöra något. |
 | Gap | Ingen. |
-| Lösning | packages/retention/src/executor.ts: approveGallring med isPlatformStaff-spärr och self-approval-spärr. |
-| Kodevidens | packages/retention/src/executor.ts |
-| Verifiering | tests/run.mjs: gallringstest att godkännande sker av kunden och av någon annan än den som begärt. |
+| Lösning | apps/api/src/router.ts (/v1/retention/*), retention-repository.ts. |
+| Kodevidens | apps/api/src/router.ts; apps/api/src/production-adapters/postgres/retention-repository.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstester samt behörighetstester för retention:manage och retention:execute. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2070 — PASS
 
@@ -1101,12 +1114,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Planen deklareras före körning och täcker alltid de härledda lagren som annars glöms: object storage, derived renders, sökindex, cache och notifieringar. Ett sökindex eller en cache som fortsätter servera innehållet efter att primärraden är borta betyder att informationen fortfarande går att återskapa. verifyGallringExecution jämför utfallet mot planen, så ett oadresserat mål blir ett upptäckt utelämnande i stället för ett frånvarande. Ett mål som inte kunnat verifieras raderat avbryter körningen i stället för att rapporteras som klar. |
+| Nuläge | Gallrad information går inte att återskapa. Objektlagringen raderas före databasraderna, så ett avbrott mitt i lämnar inga föräldralösa objekt. Hash-kedjade evidensrader raderas inte — deras nyttolaster förstörs i objektlagringen och rapporten säger uttryckligen att det är kryptografisk radering i stället för att påstå att raderna togs bort. Att påstå det senare vore en osann uppgift i ett register kommunen svarar för. |
 | Gap | Ingen. |
-| Lösning | packages/retention/src/executor.ts: MANDATORY_CASE_TARGETS, planGallring, verifyGallringExecution. |
-| Kodevidens | packages/retention/src/executor.ts |
-| Verifiering | tests/run.mjs: gallringstest att en partiell gallring inte kan rapporteras som komplett, inklusive att rapportbyggaren ensam skulle ha bedömt samma partiella utfall som komplett. |
+| Lösning | apps/workers/src/retention-handlers.ts (raderingsordning och kryptografisk radering), MANDATORY_CASE_TARGETS i packages/retention/src/executor.ts. |
+| Kodevidens | apps/workers/src/retention-handlers.ts; packages/retention/src/executor.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstest som avvisar en rapport som påstår fullständighet samtidigt som den räknar upp oadresserade mål. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2071 — PASS
 
@@ -1116,12 +1130,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | Gallring kräver retention:execute och en tenantbunden aktör. approveGallring kontrollerar behörighet, tenanttillhörighet, att aktören inte är plattformspersonal och att godkännaren inte är den som begärt. hasPermission i packages/authorization styr behörigheten. |
+| Nuläge | Gallring kräver retention:manage för att köa och retention:execute för att godkänna, och godkännaren får inte vara den som begärde körningen. Fyra ögon på en oåterkallelig radering är hela kontrollen, och den ligger i databasen och inte bara i koden. |
 | Gap | Ingen. |
-| Lösning | packages/retention/src/executor.ts, packages/authorization. |
-| Kodevidens | packages/retention/src/executor.ts; packages/authorization/src/index.ts |
-| Verifiering | tests/run.mjs: gallringstest för godkännandekontroll samt befintligt test att gallring är behörighetsstyrd och reserverad för kunden. |
+| Lösning | packages/authorization (delade grants), migrations/data/0024 (approved_by <> requested_by), API-routerna. |
+| Kodevidens | packages/authorization/src/index.ts; migrations/data/0024_gallring_runtime.sql |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/gallring.sql bevisar att självgodkännande avvisas med rätt guard. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2072 — PASS
 
@@ -1131,12 +1146,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 08 - Gallring |
 | Område | Gallring |
-| Nuläge | completeGallring producerar gallringsrapporten och kan bara nås från ett verifierat tillstånd, så en rapport kan aldrig beskriva en partiell radering som genomförd. Rapporten bär tenant, jobb, policy och version, retentionklass, samtliga ärende-ID, utfall per mål och totalsumma, samt vem som godkände den oåterkalleliga åtgärden — godkännaren och inte den som begärde, eftersom rapporten är beviset för vem som är ansvarig. |
+| Nuläge | Varje körning producerar en gallringsrapport via buildGallringReport, lagrad i app.gallring_reports och audit-loggad. Ett villkor i databasen hindrar en rapport från att påstå fullständighet samtidigt som den räknar upp oadresserade mål. |
 | Gap | Ingen. |
-| Lösning | packages/retention: buildGallringReport, completeGallring. |
-| Kodevidens | packages/retention/src/index.ts; packages/retention/src/executor.ts |
-| Verifiering | tests/run.mjs: gallringstest för rapportens fullständighet och att completeGallring inte går att nå utan verifierad körning. |
+| Lösning | packages/retention/src/index.ts (rapportbygge), migrations/data/0024 (app.gallring_reports med fullständighetsvillkor). |
+| Kodevidens | packages/retention/src/index.ts; migrations/data/0024_gallring_runtime.sql |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallringstester inklusive fullständighetsvillkoret. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2073 — PASS
 
@@ -1206,12 +1222,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Inloggning |
-| Nuläge | Både SAML 2.0 och OIDC stöds genom samma protokollneutrala beslut i packages/federation, med separata protokollparsers vid kanten där nycklarna finns. packages/auth hanterar OIDC-transaktionen med state, nonce och PKCE. Migration control/0017 tillåter generiska GENERIC_SAML och GENERIC_OIDC per tenant och miljö. |
-| Gap | Ingen. Kravet är uppfyllt genom att minst ett av protokollen stöds; båda stöds. |
-| Lösning | packages/federation, packages/auth, control.tenant_identity_providers. |
-| Kodevidens | packages/federation/src/index.ts; packages/auth/src/index.ts; migrations/control/0017_workforce_federation.sql |
-| Verifiering | tests/run.mjs: fyra federationstester, varav ett kör samma beslut för OIDC och SAML. tests/security.mjs täcker OIDC-transaktionen. |
+| Nuläge | Federerad inloggning fungerar nu hela vägen. En inloggning startas mot /auth/federation/{providerKey}/login, bindningen sparas i control.federation_login_requests, och ACS:en konsumerar den innan något läses ur assertionen — tenanten kommer alltid från den registrerade inloggningen och aldrig ur meddelandet. Signaturverifieringen ligger i validation-service, som redan har XML-DSig-maskineriet: SamlAssertionValidator jämför mot tenantens konfigurerade certifikat innan något parsas, avvisar externa referenser och DTD, och letar upp det signerade elementet ur signaturens egen Reference i stället för att parsa först och kontrollera sedan. Beslutet fattas i ett anrop till verifyWorkforceAssertion mot den varaktiga assertion-ledgern. Båda protokollen finns: SAML 2.0 via ACS och OIDC via callback, och båda går genom samma verifyWorkforceAssertion. Två beslutsvägar hade förr eller senare blivit oense om något — maximal sessionsålder, eller om en omappad grupp ger något — och oenigheten hade varit osynlig tills en tenant bytte protokoll. OidcTokenValidator avvisar ett id_token vars header pekar ut var nyckeln ska hämtas (jku, x5u, jwk) innan signaturen ens kontrolleras, tillåter bara asymmetriska algoritmer så att alg:none aldrig är nåbar, och läser auth_time i stället för iat så att ett färskt token inte kan beskriva en gammal session. |
+| Gap | Ingen. |
+| Lösning | apps/api/src/federation-router.ts (login, ACS, OIDC-callback), migrations/control/0019_federation_login_requests.sql (engångsförbrukad bindning), services/validation-service SamlAssertionValidator och POST /v1/validate/saml, packages/validation-client validateSaml, federation-repository (ledger och tenant-IdP-konfiguration). OidcTokenValidator och POST /v1/validate/oidc; CompactJwsVerifier flyttad till services/commons så Freja och OIDC delar en verifierare. |
+| Kodevidens | apps/api/src/federation-router.ts; services/validation-service/src/main/java/se/kommunsign/validation/SamlAssertionValidator.java; migrations/control/0019_federation_login_requests.sql; services/validation-service/src/main/java/se/kommunsign/validation/OidcTokenValidator.java; services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java |
+| Verifiering | npm run verify (147 tester), mvn -B test (17 Java-tester), bash scripts/db-verify.sh mot riktig Postgres: nio federationsroute-tester (replay, öppen omdirigering, fail-closed utan konfigurerat certifikat, PASS utan verifierad signatur, protokoll som inte får väljas av endpointen), elva Java-tester mot verkligt signerad XML och verkligt signerade id_token inklusive falsk IdP, manipulerad payload, alg:none och jku-header, samt tests/sql/federation-replay.sql. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2080 — PASS
 
@@ -1251,12 +1268,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Provisionering |
-| Nuläge | packages/scim implementerar SCIM 2.0 (RFC 7643/7644) som beslutslager, och migration data/0017 utökar den befintliga app.users-modellen i stället för att skapa en parallell användarmodell. Provisionering är idempotent på externalId, vilket är det som gör en IdP-retry till en no-op i stället för ett dubblettkonto eller en konflikt som stoppar synken. Varje läs- och skrivväg går genom assertScimTenant, som svarar 404 och inte 403 vid tenantmiss så att ID-uppräkning inte blir en katalogutlistning. |
-| Gap | Ingen. Automatisk provisionering finns. |
-| Lösning | packages/scim (beslutslager), migrations/data/0017_scim_provisioning.sql (app.users utökad, provisioneringsklienter, gruppmappning, provisioneringslogg med RLS). |
-| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql; migrations/data/verify_scim_provisioning.sql |
-| Verifiering | tests/run.mjs: fyra SCIM-tester (idempotens och tenantisolering, avaktivering utan radering, rollmappning, paginering och filtergrammatik). |
+| Nuläge | Automatisk provisionering går nu att använda. packages/scim och migration 0017 fanns sedan tidigare, men det saknades HTTP-yta helt, så ingen katalog kunde provisionera någon. /scim/v2/Users, /scim/v2/Groups och /scim/v2/ServiceProviderConfig hanteras före sessionsupplösningen, eftersom en katalog som pushar användare inte har någon session. |
+| Gap | Ingen kvarvarande kodbrist. Anslutning mot kommunens katalog kräver att kommunen registrerar credentialen. |
+| Lösning | apps/api/src/scim-router.ts, apps/api/src/production-adapters/postgres/scim-repository.ts, migration 0026 som gör credentialen utfärdbar. |
+| Kodevidens | apps/api/src/scim-router.ts; apps/api/src/production-adapters/postgres/scim-repository.ts; migrations/data/0026_scim_client_issuance.sql |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: åtta SCIM-tester över HTTP samt tests/sql/scim-provisioning.sql. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2083 — PASS
 
@@ -1266,12 +1284,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Provisionering |
-| Nuläge | Hela livscykeln täcks: createScimUser skapar konto idempotent, applyScimPatch uppdaterar attribut (både med path och Entras pathless replace, och både boolesk och strängkodad active), applyGroupMembership ändrar behörighet via gruppmedlemskap, och deprovisionScimUser avaktiverar. Avaktivering är medvetet inte radering: en DELETE mot en användare med historik degraderas till avaktivering, eftersom borttagen rad skulle föräldralösa de signaturer och auditposter som namnger personen. Attribut som inte är skrivbara över SCIM avvisas i stället för att tyst ignoreras, så att katalogen och systemet inte hamnar i permanent oenighet. |
-| Gap | Ingen. Skapande, uppdatering, behörighetsändring och avaktivering finns alla. |
-| Lösning | packages/scim: createScimUser, applyScimPatch, applyGroupMembership, deprovisionScimUser. app.scim_provisioning_events loggar CREATED/UPDATED/ACTIVATED/DEACTIVATED/DELETED/ROLES_CHANGED. |
-| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql |
-| Verifiering | tests/run.mjs: SCIM-test för avaktivering som behåller användarposten, samt idempotens- och rollmappningstester. |
+| Nuläge | Skapande sker idempotent på externalId, så en omsynkning blir en no-op i stället för en 409 som stannar synken. Uppdatering sker via PUT och PATCH med en uttrycklig lista över skrivbara attribut — ett attribut utanför listan avvisas i stället för att tyst ignoreras, eftersom de två sidorna annars är oense för alltid. Avaktivering kommer som replace active=false och behåller raden, så en avslutad medarbetares historik finns kvar. |
+| Gap | Ingen. |
+| Lösning | packages/scim (createScimUser, applyScimPatch, deprovisionScimUser), apps/api/src/scim-router.ts, app.scim_provisioning_events. |
+| Kodevidens | packages/scim/src/index.ts; apps/api/src/scim-router.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: idempotenstest, avaktiveringstest och DELETE-test som bevisar att historik bevaras. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2084 — PASS
 
@@ -1281,12 +1300,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Provisionering |
-| Nuläge | Provisioneringen drivs av kundens katalog över SCIM med en tenantbunden klient i app.scim_provisioning_clients. Token lagras aldrig i klartext utan som secret reference plus hash (AGENTS.md regel 7). externalId är katalogens egen stabila identifierare och används som idempotensnyckel, vilket gör katalogen till källan. Unikhet är per tenant och partiell, så två kommuner kan ha samma katalogidentifierare och befintliga icke-SCIM-användare påverkas inte. |
-| Gap | Ingen kodbrist. Anslutning mot Kungälvs katalog kräver att kommunen aktiverar SCIM-utgående provisionering och tar emot en token. |
-| Lösning | app.scim_provisioning_clients, packages/scim (ScimContext bär tenant och klientens tilldelningsbara roller). |
-| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql |
-| Verifiering | tests/run.mjs: SCIM-test för idempotens och tenantisolering, inklusive att idempotensuppslaget aldrig når över tenantgränsen. |
+| Nuläge | Provisioneringen drivs av kommunens katalog genom en tenantbunden credential. Tenanten hämtas ur credentialraden och aldrig ur sökväg, brödtext eller header — en klient som kunde namnge sin egen tenant vore en tvärtenant-skrivprimitiv utdelad med varje token. |
+| Gap | Ingen kvarvarande kodbrist. Vilken katalog som ansluts är kommunens val och kräver att credentialen utfärdas. |
+| Lösning | app.scim_provisioning_clients (token_hash, assignable_roles), scim-router authenticate(). |
+| Kodevidens | apps/api/src/scim-router.ts; migrations/data/0017_scim_provisioning.sql |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som visar att saknad, felformad och felaktig token ger samma svar, och att svaret inte beskriver vad som skulle ha nåtts. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 2085 — PASS
 
@@ -1296,12 +1316,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Provisionering |
-| Nuläge | resolveScimRoles härleder roller ur gruppmedlemskap via explicit mappning i app.scim_group_role_mappings. Mappningen är deny-by-default: omappad grupp ger ingenting, och en mappning mot en roll utanför provisioneringsklientens assignableRoles är ett fel i stället för en tyst tilldelning. Det gör att en katalogadministratör som lägger till någon i en grupp aldrig kan eskalera bortom vad klienten själv är scopad för. Mappningen är en tabell och inte en JSON-klump, så varje tilldelning är enskilt granskbar och återkallelsebar. |
-| Gap | Ingen. Roller tilldelas automatiskt vid provisionering. |
-| Lösning | packages/scim: resolveScimRoles, applyGroupMembership. app.scim_group_role_mappings med composite foreign key mot app.roles. |
-| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql; migrations/data/verify_scim_provisioning.sql |
-| Verifiering | tests/run.mjs: SCIM-test att roller endast kommer från mappade grupper och aldrig över klientens scope. |
+| Nuläge | Roller tilldelas automatiskt från katalogens grupper genom en explicit mappning, deny-by-default: en omappad grupp ger ingenting, och en mappning mot en roll klienten inte får tilldela är ett fel i stället för en tyst tilldelning. Taket kontrolleras både i biblioteket och i SQL, eftersom det är gränsen där ett fel ovanför blir verklig behörighetseskalering. Tilldelningen är en ersättning och inte ett tillägg, så den som tas ur en grupp förlorar rollen. |
+| Gap | Ingen. |
+| Lösning | resolveScimRoles i packages/scim, applyRoles i scim-repository (via app.memberships och app.role_assignments). |
+| Kodevidens | packages/scim/src/index.ts; apps/api/src/production-adapters/postgres/scim-repository.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som visar att en gruppmappning utanför klientens scope avvisas och att ingenting skrivs. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ## KLASSA Inform. Tekn. Krav
 
@@ -1461,12 +1482,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Leverantören ska ha rutiner och funktioner för att permanent radera information som är relaterade till leveransen. Leverantören ska på begäran kunna uppvisa underlag på att så skett. |
 | Typ | BÖR |
 | ISO | A.8.1 Ansvar för tillgångar — A.8.1.4 Återlämnande av tillgångar |
-| Nuläge | Rutin och funktion för permanent radering finns implementerad som gallringsexekveringen, med planerade mål, verifierad radering per mål och granskningsbar rapport. Radering som inte kunnat verifieras rapporteras aldrig som genomförd. |
-| Gap | Ingen kodbrist. |
-| Lösning | packages/retention/src/executor.ts, packages/privacy (radering på begäran). |
-| Kodevidens | packages/retention/src/executor.ts; packages/privacy/src/index.ts |
-| Verifiering | tests/run.mjs: tre gallringsexekveringstester och två integritetstester. |
+| Nuläge | Rutinen är körbar och inte bara dokumenterad: gallring och rättighetsbegäran om radering är två inkopplade jobbtyper med tillståndsmaskin, godkännande och rapport. Tidigare fanns rutinen som bibliotek utan anropare. |
+| Gap | Ingen. |
+| Lösning | RETENTION_EXECUTE och PRIVACY_REQUEST_EXECUTE med tillhörande migrationer och API-routes. |
+| Kodevidens | apps/workers/src/retention-handlers.ts; apps/workers/src/privacy-handlers.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: gallrings- och privacy-sviterna mot riktig Postgres. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 3512 — BLOCKED_EXTERNAL
 
@@ -1560,12 +1582,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Behörighetssystemet ska logga information om när användare skapades, togs bort eller förändrades samt senaste inloggning. |
 | Typ | SKA |
 | ISO | A.9.2 Hantering av användaråtkomst — A.9.2.5 Granskning av användares åtkomsträttigheter |
-| Nuläge | Behörighetssystemet loggar när användare skapades, togs bort eller förändrades. app.scim_provisioning_events registrerar CREATED, UPDATED, ACTIVATED, DEACTIVATED, DELETED och ROLES_CHANGED med klient, användare, detalj och request-ID, och motsvarande händelser finns i SECURITY_EVENTS för den strukturerade loggen. Auditloggen är hashkedjad så att manipulation är detekterbar. |
+| Nuläge | Behörighetssystemet loggar skapande, borttagning och förändring. app.scim_provisioning_events skrivs nu på riktigt av SCIM-ytan, med maskerad detalj och aldrig den råa katalogpayloaden — den bär attribut vi inte har någon anledning att spara. |
 | Gap | Ingen. |
-| Lösning | migrations/data/0017_scim_provisioning.sql, packages/observability, packages/audit. |
-| Kodevidens | migrations/data/0017_scim_provisioning.sql; packages/observability/src/index.ts; packages/audit/src/index.ts |
-| Verifiering | tests/run.mjs: auditkedjetest, SCIM-tester och test för spårbara säkerhetshändelser. |
+| Lösning | app.scim_provisioning_events skriven av scim-repository, plus audit.append_event för övriga behörighetsändringar. |
+| Kodevidens | apps/api/src/production-adapters/postgres/scim-repository.ts; migrations/data/0017_scim_provisioning.sql |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/scim-provisioning.sql kontrollerar att avprovisionering lämnar spår. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 3519 — PASS
 
@@ -1574,12 +1597,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Leverantören ska ha en rutin för att både avaktivera användarkonton och permanent ta bort konton från systemet. |
 | Typ | BÖR |
 | ISO | A.9.2 Hantering av användaråtkomst — A.9.2.6 Borttagning eller justering av åtkomsträttigheter |
-| Nuläge | deprovisionScimUser skiljer avaktivering från permanent borttagning. Användare med historik avaktiveras och behålls, eftersom raderad rad skulle föräldralösa signaturer och auditposter. Användare utan historik kan tas bort permanent. Båda vägarna loggas i app.scim_provisioning_events. Rutinen är dokumenterad i docs/operations/account-provisioning.md. |
+| Nuläge | Både avaktivering och permanent borttagning finns och är körbara. DELETE mot SCIM avaktiverar en användare med historik och tar bort roller i båda fallen — ett avprovisionerat konto ska sluta ge behörighet omedelbart, oavsett om raden står kvar. Historiken måste överleva avgången, annars får spåret hål exakt där en avgången medarbetare är inblandad. |
 | Gap | Ingen. |
-| Lösning | packages/scim: deprovisionScimUser. app.users.disabled_at, app.scim_provisioning_events. |
-| Kodevidens | packages/scim/src/index.ts; migrations/data/0017_scim_provisioning.sql |
-| Verifiering | tests/run.mjs: SCIM-test att avaktivering behåller användarposten och att borttagning bara sker utan historik. |
+| Lösning | deprovisionScimUser i packages/scim, deleteUser i apps/api/src/scim-router.ts. |
+| Kodevidens | apps/api/src/scim-router.ts; packages/scim/src/index.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: DELETE-test över båda grenarna. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 3520 — BLOCKED_EXTERNAL
 
@@ -1661,12 +1685,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Leverantören ska ha rutiner för kryptering där val av algoritmer, protokoll och nyckellängder samt hantering av krypteringsnycklar framgår. |
 | Typ | BÖR |
 | ISO | A.10.1 Kryptografiska säkerhetsåtgärder — A.10.1.1 Regler för användning av kryptografiska säkerhetsåtgärder |
-| Nuläge | Kryptorutinerna är dokumenterade och implementerade: AES-256-GCM med autentiserad ciphertext och purpose binding för känsliga uppgifter, HMAC-SHA-256 för blind index, SHA-256 för hashar och checksummor, RFC 3161 för tidsstämplar. packages/crypto/src/key-rotation.ts implementerar nyckelversionering med exakt en aktiv version, staged rotation (pending → active → decrypt_only → retired), dual read under migrering och write-new-only, verifierad återkryptering före pensionering av gammal nyckel, samt rollback som tillåts före men aldrig efter pensionering. Blind index roteras separat och strängare: uppslag sker mot samtliga kvarvarande versioner under migreringen så att sökning fortsätter fungera, men ett komprometterat indexvärde måste skrivas över och inte behållas vid sidan av det nya — den som har den läckta nyckeln kan annars räkna fram indexet för en utpekad person och slå upp hen. |
-| Gap | Ingen kodbrist. |
-| Lösning | packages/crypto/src/key-rotation.ts, packages/crypto (aes-gcm, hmac, hash), docs/operations/leaked-key-rotation-2026-08.md. |
-| Kodevidens | packages/crypto/src/key-rotation.ts; apps/api/src/adapters/aes-gcm-sensitive-data.ts; docs/operations/leaked-key-rotation-2026-08.md |
-| Verifiering | tests/run.mjs: tre rotationstester (dual read och write-new-only, verifierad pensionering och rollback, överskrivning av komprometterat blind index) samt befintligt test för autentiserad ciphertext och purpose. |
+| Nuläge | Rutinen för kryptering finns och nyckelrotation är nu en operation som går att köra, följa och verifiera. Nio tabeller bär key_version, så frågan vilka rader som fortfarande ligger på den gamla nyckeln går att besvara — utan den var rotation en förhoppningsfull massuppdatering utan möjlighet att återuppta eller verifiera. Databasen vägrar markera en rotation verifierad medan någon kolumn fortfarande rapporterar utestående rader. |
+| Gap | Ingen kodbrist. Själva rotationen är en operatörsåtgärd mot kundens KMS eller HSM. |
+| Lösning | packages/crypto/src/key-rotation.ts (nyckelring och tillståndsmaskin), migrations/data/0029_key_rotation_backfill.sql (key_version, app.key_rotations, app.key_rotation_columns), docs/runbooks/KEY_ROTATION.md. |
+| Kodevidens | migrations/data/0029_key_rotation_backfill.sql; docs/runbooks/KEY_ROTATION.md; packages/crypto/src/key-rotation.ts |
+| Verifiering | npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/key-rotation.sql, sju scenarier inklusive att en rotation utan registrerade kolumner inte kan rapportera sig verifierad. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-19: Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. |
 
 ### 3527 — BLOCKED_EXTERNAL
 

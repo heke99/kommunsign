@@ -1,4 +1,4 @@
-package se.kommunsign.identity;
+package se.kommunsign.commons;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
@@ -10,10 +10,25 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Fail-closed compact JWS verification boundary. The signed payload still has to be
- * schema-validated and bound to tenant, transaction, signer, document digest, nonce and policy.
+ * Fail-closed compact JWS verification.
+ *
+ * Shared rather than duplicated: Freja's signed assertions and an OIDC id_token
+ * are the same construction, and two copies of a signature verifier is two
+ * places for `alg: none` to be forgotten. It lives in commons for that reason
+ * and for no other.
+ *
+ * Fail-closed in the ways that matter, each of which is a full bypass when got
+ * wrong: the algorithm must be one the caller named (so `none` is never
+ * reachable), the key type must match the algorithm (so an RSA public key
+ * cannot be used as an HMAC secret), `crit` is refused because an extension we
+ * do not understand may change what the signature means, and `b64: false` is
+ * refused because it changes what bytes were signed.
+ *
+ * Verifying the signature is necessary and not sufficient. The payload still has
+ * to be schema-validated and bound to tenant, transaction, signer, document
+ * digest, nonce and policy by the caller.
  */
-public final class FrejaJwsVerifier {
+public final class CompactJwsVerifier {
     private static final Pattern ALG_PATTERN = Pattern.compile("\\\"alg\\\"\\s*:\\s*\\\"([A-Za-z0-9_-]+)\\\"");
 
     public boolean verifyCompactJws(String compactJws, PublicKey verificationKey, String expectedAlgorithm) {

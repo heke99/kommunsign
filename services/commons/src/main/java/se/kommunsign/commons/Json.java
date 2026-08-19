@@ -1,17 +1,29 @@
-package se.kommunsign.validation;
+package se.kommunsign.commons;
 
 import java.util.*;
 
-final class TinyJson {
-    private TinyJson() {}
-    static Map<String,Object> parseObject(String input) {
+/**
+ * A small, strict JSON reader and writer.
+ *
+ * Deliberately hand-written and deliberately shared. Hand-written because the
+ * boundary services parse untrusted input and a full object-mapper drags in
+ * reflective binding we would then have to reason about; shared because two
+ * services with two slightly different parsers is two different ideas of what
+ * counts as valid input, which is where boundary bugs live.
+ *
+ * Strictness is the feature: duplicate keys, control characters in strings and
+ * trailing content are all rejected rather than silently tolerated.
+ */
+public final class Json {
+    private Json() {}
+    public static Map<String,Object> parseObject(String input) {
         Object parsed = new Parser(input).parse();
         if (!(parsed instanceof Map<?,?> map)) throw new IllegalArgumentException("JSON object required");
         Map<String,Object> result = new LinkedHashMap<>();
         for (var entry : map.entrySet()) result.put((String) entry.getKey(), entry.getValue());
         return result;
     }
-    static String stringify(Object value) {
+    public static String stringify(Object value) {
         if (value == null) return "null";
         if (value instanceof String string) return quote(string);
         if (value instanceof Boolean || value instanceof Number) return value.toString();
@@ -23,8 +35,33 @@ final class TinyJson {
         if (value instanceof Iterable<?> values) { StringBuilder out=new StringBuilder("["); boolean first=true; for (Object item:values){if(!first)out.append(',');first=false;out.append(stringify(item));} return out.append(']').toString(); }
         throw new IllegalArgumentException("Unsupported JSON type");
     }
-    static String string(Map<String,Object> object, String key, boolean required) {
+    public static String string(Map<String,Object> object, String key, boolean required) {
         Object value=object.get(key); if (value==null && !required) return null; if (!(value instanceof String string)) throw new IllegalArgumentException(key+" must be a string"); return string;
+    }
+
+    public static List<Object> list(Map<String,Object> object, String key, boolean required) {
+        Object value = object.get(key);
+        if (value == null && !required) return null;
+        if (!(value instanceof List<?> list)) throw new IllegalArgumentException(key + " must be an array");
+        return new ArrayList<>(list);
+    }
+
+    public static List<String> stringList(Map<String,Object> object, String key, boolean required) {
+        List<Object> values = list(object, key, required);
+        if (values == null) return null;
+        List<String> result = new ArrayList<>(values.size());
+        for (Object item : values) {
+            if (!(item instanceof String string)) throw new IllegalArgumentException(key + " must contain only strings");
+            result.add(string);
+        }
+        return result;
+    }
+
+    public static boolean bool(Map<String,Object> object, String key, boolean fallback) {
+        Object value = object.get(key);
+        if (value == null) return fallback;
+        if (!(value instanceof Boolean flag)) throw new IllegalArgumentException(key + " must be a boolean");
+        return flag;
     }
     private static String quote(String input) { StringBuilder out=new StringBuilder("\""); for(char c:input.toCharArray()){switch(c){case '"'->out.append("\\\"");case '\\'->out.append("\\\\");case '\b'->out.append("\\b");case '\f'->out.append("\\f");case '\n'->out.append("\\n");case '\r'->out.append("\\r");case '\t'->out.append("\\t");default->{if(c<0x20)out.append(String.format("\\u%04x",(int)c));else out.append(c);}}}return out.append('"').toString(); }
     private static final class Parser {

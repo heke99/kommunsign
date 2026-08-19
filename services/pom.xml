@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Kommunsign Java boundary services.
+
+  ADR 0004 supersedes ADR 0003's choice of EU DSS as the signing backend with the
+  Sweden Connect stack. ADR 0003's dependency admission gate is unchanged and
+  every artifact below satisfies it: exact version, no ranges, no SNAPSHOT,
+  recorded in SBOM.cdx.json and THIRD_PARTY_NOTICES.md, and reached only through
+  these boundary services rather than linked into the core.
+
+  Versions are declared once here in dependencyManagement. BOM imports are
+  deliberately avoided: an imported BOM can move a transitive version without the
+  change being visible in this file, and "which exact version signs a municipal
+  document" is the one thing that must never move silently.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>se.kommunsign</groupId>
+  <artifactId>kommunsign-services</artifactId>
+  <version>0.2.0</version>
+  <packaging>pom</packaging>
+  <name>Kommunsign boundary services</name>
+
+  <modules>
+    <module>commons</module>
+    <module>signservice</module>
+    <module>validation-service</module>
+    <module>integration-tests</module>
+  </modules>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>21</maven.compiler.release>
+
+    <signservice.version>1.1.3</signservice.version>
+    <signservice.integration.version>2.3.2</signservice.integration.version>
+    <signservice.integration.api.version>2.3.1</signservice.integration.api.version>
+    <signservice.commons.version>2.2.1</signservice.commons.version>
+    <sigval.version>1.3.0</sigval.version>
+    <credentials.version>2.0.4</credentials.version>
+    <slf4j.version>2.0.16</slf4j.version>
+    <log4j.version>2.24.3</log4j.version>
+    <junit.version>5.11.4</junit.version>
+
+    <maven.compiler.plugin.version>3.13.0</maven.compiler.plugin.version>
+    <maven.surefire.plugin.version>3.5.2</maven.surefire.plugin.version>
+    <maven.jar.plugin.version>3.4.2</maven.jar.plugin.version>
+    <maven.dependency.plugin.version>3.8.1</maven.dependency.plugin.version>
+    <maven.enforcer.plugin.version>3.5.0</maven.enforcer.plugin.version>
+    <maven.clean.plugin.version>3.4.0</maven.clean.plugin.version>
+    <maven.install.plugin.version>3.1.3</maven.install.plugin.version>
+    <maven.deploy.plugin.version>3.1.3</maven.deploy.plugin.version>
+    <maven.site.plugin.version>3.21.0</maven.site.plugin.version>
+    <maven.resources.plugin.version>3.3.1</maven.resources.plugin.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>se.kommunsign</groupId>
+        <artifactId>kommunsign-service-commons</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <!-- PAdES creation: DefaultPDFSigner over PDFBox, with PAdES-BES/EPES profiles. -->
+      <dependency>
+        <groupId>se.idsec.signservice.commons</groupId>
+        <artifactId>signservice-pdf-commons</artifactId>
+        <version>${signservice.commons.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>se.idsec.signservice.commons</groupId>
+        <artifactId>signservice-commons</artifactId>
+        <version>${signservice.commons.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>se.idsec.signservice.integration</groupId>
+        <artifactId>signservice-integration-pdf</artifactId>
+        <version>${signservice.integration.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>se.idsec.signservice.integration</groupId>
+        <artifactId>signservice-integration-api</artifactId>
+        <version>${signservice.integration.api.version}</version>
+      </dependency>
+
+      <!-- The Sweden Connect SignService authentication boundary. -->
+      <dependency>
+        <groupId>se.swedenconnect.signservice</groupId>
+        <artifactId>signservice-authn-base</artifactId>
+        <version>${signservice.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>se.swedenconnect.signservice</groupId>
+        <artifactId>signservice-core</artifactId>
+        <version>${signservice.version}</version>
+      </dependency>
+
+      <!-- Key protection: software, HSM/PKCS#11 or remote QSCD, behind one API. -->
+      <dependency>
+        <groupId>se.swedenconnect.security</groupId>
+        <artifactId>credentials-support</artifactId>
+        <version>${credentials.version}</version>
+      </dependency>
+
+      <!-- Independent PAdES validation: certificate path, revocation, timestamps. -->
+      <dependency>
+        <groupId>se.swedenconnect.sigval</groupId>
+        <artifactId>sigval-pdf</artifactId>
+        <version>${sigval.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>se.swedenconnect.sigval</groupId>
+        <artifactId>sigval-commons</artifactId>
+        <version>${sigval.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>se.swedenconnect.sigval</groupId>
+        <artifactId>cert-validation</artifactId>
+        <version>${sigval.version}</version>
+      </dependency>
+
+      <!-- Logging providers. Without these the stack writes an ERROR line about a
+           missing provider on every start, which is noise that hides real errors. -->
+      <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-simple</artifactId>
+        <version>${slf4j.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.logging.log4j</groupId>
+        <artifactId>log4j-to-slf4j</artifactId>
+        <version>${log4j.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>org.junit.jupiter</groupId>
+        <artifactId>junit-jupiter</artifactId>
+        <version>${junit.version}</version>
+        <scope>test</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>${maven.compiler.plugin.version}</version>
+          <configuration>
+            <release>${maven.compiler.release}</release>
+            <proc>none</proc>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>${maven.surefire.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>${maven.jar.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <version>${maven.dependency.plugin.version}</version>
+        </plugin>
+        <!-- Pinned so the enforcer's requirePluginVersions rule has nothing left
+             resolving through Maven's own defaults, which move between Maven releases. -->
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-clean-plugin</artifactId>
+          <version>${maven.clean.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-install-plugin</artifactId>
+          <version>${maven.install.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-deploy-plugin</artifactId>
+          <version>${maven.deploy.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-site-plugin</artifactId>
+          <version>${maven.site.plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>${maven.resources.plugin.version}</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <!-- No SNAPSHOT may ever reach a build that signs municipal documents. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${maven.enforcer.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>no-snapshots-and-pinned-versions</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <requireReleaseDeps>
+                  <message>SNAPSHOT dependencies are forbidden in Kommunsign services.</message>
+                </requireReleaseDeps>
+                <requirePluginVersions>
+                  <message>Every Maven plugin must be pinned to an exact version.</message>
+                </requirePluginVersions>
+                <requireMavenVersion><version>[3.9.0,)</version></requireMavenVersion>
+                <requireJavaVersion><version>[21,)</version></requireJavaVersion>
+              </rules>
+              <fail>true</fail>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

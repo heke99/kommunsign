@@ -28,7 +28,12 @@ export type Permission =
   | 'audit:read' | 'archive:manage' | 'tenant:manage'
   // Gallring is split so that configuring a retention policy and actually
   // destroying data are separate grants (krav 2071).
-  | 'retention:manage' | 'retention:execute';
+  | 'retention:manage' | 'retention:execute'
+  // Rights requests are split for the same reason gallring is: handling a
+  // request and actually erasing someone's data are different acts, and the
+  // person who logs the request should not be the one who can silently destroy
+  // the record behind it.
+  | 'privacy:manage' | 'privacy:execute';
 
 const permissions: Readonly<Record<TenantRole, readonly Permission[]>> = {
   tenant_admin: [
@@ -37,8 +42,9 @@ const permissions: Readonly<Record<TenantRole, readonly Permission[]>> = {
     'validation:read', 'evidence:download', 'policy:manage', 'integration:manage',
     'webhook:manage', 'event:read', 'template:read', 'template:manage',
     'audit:read', 'archive:manage', 'tenant:manage', 'retention:manage', 'retention:execute',
+    'privacy:manage', 'privacy:execute',
   ],
-  tenant_security_admin: ['case:read', 'validation:read', 'policy:manage', 'audit:read', 'event:read', 'integration:manage', 'retention:manage'],
+  tenant_security_admin: ['case:read', 'validation:read', 'policy:manage', 'audit:read', 'event:read', 'integration:manage', 'retention:manage', 'privacy:manage', 'privacy:execute'],
   tenant_integration_admin: ['case:create', 'case:read', 'document:add', 'signer:add', 'upload:create', 'integration:manage', 'webhook:manage', 'event:read', 'template:read'],
   tenant_archive_admin: ['case:read', 'document:download', 'validation:read', 'evidence:download', 'archive:manage', 'audit:read', 'event:read', 'retention:manage', 'retention:execute'],
   department_admin: ['case:create', 'case:send', 'case:cancel', 'case:read', 'case:remind', 'document:add', 'document:download', 'signer:add', 'upload:create', 'validation:read', 'evidence:download', 'template:read'],

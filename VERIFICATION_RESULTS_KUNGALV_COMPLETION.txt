@@ -1,0 +1,121 @@
+Kommunsign — verification results
+Branch: claude/happy-planck-ewrny2
+Date:   2026-08-19
+
+COMMANDS RUN
+  env -u CONTROL_DATABASE_URL -u DATA_DATABASE_URL npm run verify
+  bash scripts/db-verify.sh                     (against real PostgreSQL, docker compose)
+  npm run db:migrate                            (clean replay, control 0001-0018, data 0001-0029)
+
+RESULT: all green.
+
+npm run verify
+  clean, build                                  OK
+  verify:repository                             OK
+  verify:deployment-config                      OK
+  verify:migrations                             OK
+  verify:requirements                           138 requirements
+                                                SKA  PASS=87 BLOCKED_EXTERNAL=43
+                                                BÖR  PASS=7  BLOCKED_EXTERNAL=1
+  verify:provenance                             OK
+  verify:sdk                                    OK
+  verify:accessibility                          OK (6 portals, WCAG 2.2 AA static)
+  scan:secrets                                  OK
+  verify:java                                   OK (offline javac services and SDK)
+  tests/run.mjs                                 147 tests passed
+  tests/m365-office.mjs                         OK
+  tests/provider-runtime.mjs                    OK
+  tests/auth-observability.mjs                  OK
+  tests/integration.mjs                         OK (3 suites)
+  tests/security.mjs                            OK
+
+bash scripts/db-verify.sh   (real PostgreSQL 16, both planes)
+  onboarding-control.sql                        OK
+  verify_accounts.sql                           OK
+  verify_organization_creation.sql              OK
+  verify_platform_jobs.sql                      OK
+  federation-replay.sql                         federation replay guards: OK
+                                                (incl. single-use login requests)
+  migrations/data/verify.sql                    OK
+  verify_organization_creation.sql (data)       OK
+  tenant-isolation.sql                          OK
+  pades-signature-chain.sql                     pades signature chain guards: OK
+  webhook-delivery.sql                          webhook delivery guards: OK
+  archive-export.sql                            archive export guards: OK
+  gallring.sql                                  gallring guards: OK
+  privacy-requests.sql                          privacy request guards: OK
+  scim-provisioning.sql                         scim provisioning guards: OK
+  document-delivery.sql                         document delivery guards: OK
+  key-rotation.sql                              key rotation guards: OK
+
+mvn -B test   (services reactor)
+  SigningEngineFactoryTest                      OK
+  TicIdentityBindingTest                        OK
+  SigningChainIntegrationTest                   6 tests
+  OidcTokenValidatorTest                        6 tests, against really signed tokens:
+                                                alg:none is refused, a header naming
+                                                where to fetch the key (jku) is refused
+                                                before verification, a token from another
+                                                IdP is refused, and an edited payload is
+                                                refused.
+  SamlAssertionValidatorTest                    5 tests, against really signed XML:
+                                                a response from an impostor IdP with the
+                                                same issuer string is refused, a genuine
+                                                signature over altered attributes is
+                                                refused, and an unsigned response is
+                                                refused.
+  Total                                         17 tests, BUILD SUCCESS
+
+NOT RUN — AND THIS IS THE MOST IMPORTANT LINE IN THIS FILE
+
+  Full real-flow E2E      — NEVER EXECUTED. The API, workers, SignService and
+                            validation-service have never been started together
+                            and had a document pushed through them
+                            (upload -> identity -> PAdES -> validation ->
+                            evidence package -> delivery -> archive export).
+
+                            Every piece of that chain is tested on its own: 147
+                            unit and contract tests, 17 Java tests against a real
+                            test certificate authority, and 11 SQL suites against
+                            real PostgreSQL. What is NOT demonstrated is the
+                            wiring between the running processes. A component
+                            suite cannot show that service A calls service B with
+                            the arguments B expects.
+
+                            Reason it was not run here: `docker compose --profile
+                            runtime build validation-service` fails in this
+                            sandbox because Maven inside the container cannot
+                            reach Maven Central — the egress proxy's TLS
+                            interception certificate is not in the container's
+                            Java truststore. The host build works (mvn -B test is
+                            green) because the host has that certificate. This is
+                            an environment limitation, not a defect in the
+                            Dockerfile, and the same build is expected to succeed
+                            on CI where egress is direct. It was not worked
+                            around by disabling certificate verification.
+
+  npm run test:e2e        — Playwright is not installed. The repository carries
+                            almost no npm dependencies by design, so the browser
+                            suite has never been runnable in this environment.
+
+PRODUCTION_GO: NO.
+
+  Two separate reasons, and only the second is external.
+
+  First: the plan made a green full real-flow E2E a precondition for
+  PRODUCTION_GO, and it has not been run. Until it has, nobody should read the
+  green gates above as evidence that the assembled system works — only that each
+  part does.
+
+  Second: production requires artifacts no code can supply:
+
+    - a CA-issued signing certificate for the organisation
+    - HSM or remote QSCD key protection (production refuses SOFTWARE protection)
+    - an RFC 3161 timestamp authority contract
+    - TIC/BankID production credentials
+    - Kungälv's IdP metadata (EntityID, SSO endpoint, signing certificate)
+    - the receiving e-archive's confirmed FGS version and XSD set
+    - the hosting platform feeding kommunsign_last_successful_backup_timestamp_seconds
+
+  Each is recorded as BLOCKED_EXTERNAL against the specific requirement in
+  docs/compliance/kungalv/EXTERNAL_EVIDENCE_BLOCKERS.md, with the exact blocker.

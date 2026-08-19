@@ -1,5 +1,7 @@
 package se.kommunsign.identity;
 
+import se.kommunsign.commons.CompactJwsVerifier;
+
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -21,7 +23,7 @@ public final class FrejaJwsVerifierSelfTest {
         signer.update(input.getBytes(StandardCharsets.US_ASCII));
         String compact = input + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(signer.sign());
 
-        FrejaJwsVerifier verifier = new FrejaJwsVerifier();
+        CompactJwsVerifier verifier = new CompactJwsVerifier();
         if (!verifier.verifyCompactJws(compact, keyPair.getPublic(), "RS256")) throw new AssertionError("valid RS256 JWS rejected");
         if (verifier.verifyCompactJws(compact, keyPair.getPublic(), "ES256")) throw new AssertionError("algorithm mismatch accepted");
         if (verifier.verifyCompactJws(compact + "x", keyPair.getPublic(), "RS256")) throw new AssertionError("modified JWS accepted");

@@ -1,3 +1,8 @@
+import type { OidcValidationRequest, SamlValidationReport, SamlValidationRequest } from '../../../packages/validation-client/src/index.js';
+import type { FederationConfig } from '../../../packages/federation/src/index.js';
+import type { DeliveryRepository } from './production-adapters/postgres/delivery-repository.js';
+import type { FederationRepository } from './production-adapters/postgres/federation-repository.js';
+import type { ScimRepository } from './production-adapters/postgres/scim-repository.js';
 import type { Permission, PlatformPermission } from '../../../packages/authorization/src/index.js';
 import type { ApplicantContext, DomainEvent, PlatformContext, SignatureCaseStatus, TenantContext } from '../../../packages/contracts/src/index.js';
 import type { ApplicationStatus, ProvisioningStatus } from '../../../packages/onboarding/src/index.js';
@@ -79,6 +84,25 @@ export interface WebhookEndpointView extends WebhookEndpointInput {
   readonly id: string;
   readonly active: boolean;
   readonly createdAt: string;
+  /**
+   * The signing secret, returned only by the call that created or rotated it.
+   *
+   * A subscriber cannot verify our HMAC without it, and it is never readable
+   * again afterwards: it exists encrypted in the database and nowhere else, so
+   * a lost secret is rotated rather than recovered.
+   */
+  readonly signingSecret?: string;
+}
+export interface WebhookDeliveryView {
+  readonly id: string;
+  readonly webhookEndpointId: string;
+  readonly outboxEventId: string;
+  readonly eventType: string;
+  readonly status: 'pending' | 'delivering' | 'delivered' | 'failed' | 'dead_letter';
+  readonly attempt: number;
+  readonly responseStatus: number | null;
+  readonly nextAttemptAt: string;
+  readonly deliveredAt: string | null;
 }
 export interface TemplateInput {
   readonly templateKey: string;
@@ -135,6 +159,99 @@ export interface UploadRepository {
 }
 export interface WebhookRepository {
   createEndpoint(context: TenantContext, input: WebhookEndpointInput, idempotencyKey: string, payloadHash: string): Promise<WebhookEndpointView>;
+  rotateSecret(context: TenantContext, endpointId: string, overlapSeconds: number): Promise<WebhookEndpointView>;
+  listDeliveries(context: TenantContext, page: PageInput, status?: string): Promise<Page<WebhookDeliveryView>>;
+  replayDelivery(context: TenantContext, deliveryId: string): Promise<WebhookDeliveryView>;
+}
+export interface GallringPreviewCase {
+  readonly signatureCaseId: string;
+  readonly title: string;
+  readonly closedAt: string | null;
+  readonly action: 'DELETE' | 'ARCHIVE_THEN_DELETE';
+  readonly reason: string;
+  /** True when a legal hold blocks this case; such cases are never queued. */
+  readonly underLegalHold: boolean;
+  readonly archived: boolean;
+}
+export interface GallringPreview {
+  readonly policyKey: string;
+  readonly policyVersion: number;
+  readonly retentionClass: 'business_data' | 'security_log' | 'access_log';
+  readonly evaluatedAt: string;
+  readonly eligible: readonly GallringPreviewCase[];
+  readonly blocked: readonly GallringPreviewCase[];
+}
+export interface GallringJobView {
+  readonly id: string;
+  readonly state: 'QUEUED' | 'PLANNED' | 'APPROVED' | 'EXECUTING' | 'VERIFIED' | 'REPORTED' | 'ABANDONED';
+  readonly policyKey: string;
+  readonly policyVersion: number;
+  readonly retentionClass: string;
+  readonly caseIds: readonly string[];
+  readonly plannedTargets: readonly string[];
+  readonly requestedBy: string;
+  readonly requestedAt: string;
+  readonly approvedBy: string | null;
+  readonly approvedAt: string | null;
+  readonly report?: {
+    readonly complete: boolean;
+    readonly deletedTotal: number;
+    readonly unverifiedTargets: readonly string[];
+    readonly reportSha256: string;
+  };
+}
+export interface RetentionRepository {
+  /**
+   * Shows what a gallring would remove before anything is removed. Gallring is
+   * irreversible, so the preview is not a convenience — it is how the customer
+   * sees what they are about to approve.
+   */
+  preview(context: TenantContext, policyKey: string): Promise<GallringPreview>;
+  queue(context: TenantContext, policyKey: string, caseIds: readonly string[], idempotencyKey: string, payloadHash: string): Promise<GallringJobView>;
+  approve(context: TenantContext, gallringJobId: string): Promise<GallringJobView>;
+  get(context: TenantContext, gallringJobId: string): Promise<GallringJobView>;
+  list(context: TenantContext, page: PageInput): Promise<Page<GallringJobView>>;
+}
+/** What the customer sees of a rights request, with nothing about the subject in it. */
+export interface PrivacyRequestView {
+  readonly privacyRequestId: string;
+  readonly state: 'RECEIVED' | 'IDENTITY_VERIFIED' | 'IN_PROGRESS' | 'FULFILLED' | 'DELIVERED' | 'REFUSED';
+  readonly right: 'ACCESS' | 'RECTIFICATION' | 'RESTRICTION' | 'ERASURE' | 'PORTABILITY';
+  readonly receivedAt: string;
+  readonly dueAt: string;
+  /** True once the deadline has passed with the request still open. */
+  readonly overdue: boolean;
+  readonly identityAssurance: 'LOW' | 'SUBSTANTIAL' | 'HIGH' | null;
+  readonly deliveredAt: string | null;
+  readonly refusalGround: string | null;
+  /** One entry per store, present only once the request has been answered. */
+  readonly coverage: readonly {
+    readonly store: 'CONTROL' | 'DATA' | 'OBJECT_STORAGE' | 'AUDIT_LOG' | 'BACKUP';
+    readonly recordCount: number;
+    readonly searched: boolean;
+    readonly exemptionReason: string | null;
+    readonly actionTaken: string;
+  }[];
+}
+export interface RecordPrivacyRequestInput {
+  readonly right: 'ACCESS' | 'RECTIFICATION' | 'RESTRICTION' | 'ERASURE' | 'PORTABILITY';
+  /** The subject's identifier, in the clear on the wire and never stored as such. */
+  readonly subjectIdentifier: string;
+  readonly identityMethod: string;
+  readonly identityAssurance: 'LOW' | 'SUBSTANTIAL' | 'HIGH';
+}
+export interface PrivacyRepository {
+  /**
+   * Records a request and starts the thirty-day clock. Identity is supplied at
+   * this point rather than later because everything after it — searching,
+   * exporting, erasing — is disclosure or destruction, and neither may happen
+   * on an unproven claim to be someone.
+   */
+  record(context: TenantContext, input: RecordPrivacyRequestInput, idempotencyKey: string, payloadHash: string): Promise<PrivacyRequestView>;
+  /** Queues execution. Separate from recording so the erasing act needs its own grant. */
+  execute(context: TenantContext, privacyRequestId: string): Promise<PrivacyRequestView>;
+  get(context: TenantContext, privacyRequestId: string): Promise<PrivacyRequestView>;
+  list(context: TenantContext, page: PageInput): Promise<Page<PrivacyRequestView>>;
 }
 export interface EventRepository {
   list(context: TenantContext, page: PageInput): Promise<Page<DomainEvent>>;
@@ -438,12 +555,49 @@ export interface PublicVerificationRepository {
   get(verificationId: string): Promise<PublicVerificationSummary | null>;
   verifyPackage(bytes: Uint8Array): Promise<{ readonly verified: boolean; readonly packageSha256: string; readonly failures: readonly string[] }>;
 }
+export interface MetricsEndpoint {
+  readonly scrapeToken: string;
+  render(now: Date): Promise<string>;
+}
 export interface ApiDependencies {
   readonly cases: CaseRepository;
   readonly uploads: UploadRepository;
   readonly webhooks: WebhookRepository;
   readonly events: EventRepository;
   readonly templates: TemplateRepository;
+  /** Optional: a deployment without gallring configured simply has no routes. */
+  readonly retention?: RetentionRepository;
+  /** Optional: a deployment without rights-request handling simply has no routes. */
+  readonly privacy?: PrivacyRepository;
+  /** Optional: a deployment with no directory connected simply has no SCIM surface. */
+  readonly scim?: ScimRepository;
+  /** Optional: a tenant with no IdP configured simply cannot federate. */
+  readonly federation?: FederationRepository;
+  /** Verifies an assertion's signature. Separate port so the router never verifies crypto itself. */
+  readonly federationValidation?: {
+    validateSaml(input: SamlValidationRequest): Promise<SamlValidationReport>;
+    validateOidc(input: OidcValidationRequest): Promise<SamlValidationReport>;
+  };
+  /**
+   * Resolves the tenant's configured IdP signing certificate.
+   *
+   * A port rather than a column read, because where the certificate lives is a
+   * deployment decision. Returning nothing must fail the login closed: without
+   * it the only thing verifiable is that the message signed itself.
+   */
+  readonly federationTrust?: (config: FederationConfig, tenantId: string) => Promise<string | null>;
+  /**
+   * Optional: without a scrape credential configured there is no /metrics
+   * endpoint. The default has to be "absent" rather than "open", because an
+   * accidentally public metrics endpoint leaks cross-tenant operational state
+   * and nothing about the deployment looks wrong while it does.
+   */
+  readonly metrics?: MetricsEndpoint;
+  /**
+   * Optional: without it a completed document can still be fetched through the
+   * authenticated API, there is simply no shareable link.
+   */
+  readonly delivery?: DeliveryRepository;
   readonly publicSigning?: PublicSigningRepository;
   readonly providerWebhooks?: ProviderWebhookRepository;
   readonly publicVerification?: PublicVerificationRepository;

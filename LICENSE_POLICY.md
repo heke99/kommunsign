@@ -19,6 +19,21 @@ Gränsen beräknas per donor mot copyrightbara källkodsrader och exkluderar gen
 
 `reused_loc / original_loc * 100` får aldrig överstiga 85. En donorpost med importerad kod men utan verifierat evidence, faktisk file mapping eller mätbar originalmängd ska stoppa build.
 
+## Tredjepartsberoenden (ADR 0003 admission gate)
+
+Policyn ovan gäller *donorkod* — kod som kopieras in i repot. Ett kompilerat
+beroende som konsumeras som artefakt är något annat och prövas mot ADR 0003:s
+admission gate i stället: exakt pinnad version, registrerad checksumma och
+proveniens, granskad licens, sårbarhetsskanning, aktivt underhåll, och åtkomst
+enbart genom en boundary-tjänst.
+
+De Sweden Connect-, BouncyCastle- och PDFBox-artefakter som ADR 0004 inför är
+samtliga Apache-2.0 eller MIT-liknande och kompatibla med kommersiell SaaS-
+distribution med sluten källkod. Ingen av dem länkas in i TypeScript-kärnan; de
+nås enbart via `services/signservice` och `services/validation-service`.
+Versionerna är pinnade en och en i `services/pom.xml`, och enforcer-pluginet
+stoppar bygget vid SNAPSHOT-beroenden eller opinnade plugins.
+
 ## Nuvarande status
 
 Denna leverans innehåller ingen importerad donor-kod. Alla poster har `reused_loc: 0`. Användarens uppgift om skriftligt tillstånd är registrerad som `claimed_not_verified`, eftersom själva bevisfilerna inte ingick i uppladdningen.

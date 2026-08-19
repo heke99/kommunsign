@@ -36,6 +36,12 @@ import {
   admitPadesSignature, attainedPadesLevel, describePadesLevel,
 } from '../dist/packages/pades/src/index.js';
 import {
+  buildSigningIntentManifest, signingIntentManifestBytes, signingIntentManifestSha256,
+} from '../dist/packages/signing-engine/src/manifest.js';
+import { SignServiceClient } from '../dist/packages/signservice-client/src/index.js';
+import { signWebhook, verifyWebhook } from '../dist/packages/webhooks/src/index.js';
+import { buildFgsPackage, FGS_CONFORMANCE_STATUS, FGS_SPECIFICATION } from '../dist/packages/archive/src/fgs.js';
+import {
   buildDataSubjectResponse, erasureExemption, isOverdue,
 } from '../dist/packages/privacy/src/index.js';
 import {
@@ -92,6 +98,15 @@ import {
   formatSwedishDate, formatSwedishDateTime, formatSwedishTime,
   formatSwedishTimestampWithOffset, messageFor, swedishUtcOffsetHours,
 } from '../dist/packages/locale/src/index.js';
+import {
+  handleApplicationDeadline, handleCertificateMonitor, handleTenantActivation, handleTenantReadiness,
+} from '../dist/apps/workers/src/platform-handlers.js';
+import { handlePrivacyRequestExecute } from '../dist/apps/workers/src/privacy-handlers.js';
+import { handleScimRequest } from '../dist/apps/api/src/scim-router.js';
+import { handleFederationRequest } from '../dist/apps/api/src/federation-router.js';
+import {
+  PROMETHEUS_COUNTERS, PROMETHEUS_GAUGES, PROMETHEUS_UNFED_SERIES, renderPrometheus,
+} from '../dist/packages/observability/src/prometheus.js';
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -1491,52 +1506,52 @@ const fedAssertion = (overrides = {}) => ({
   attributes: { uid: ['anna.andersson'], memberOf: ['CN=Kommunsign-Handlaggare', 'CN=Ovrig'] }, ...overrides,
 });
 const fedBinding = (overrides = {}) => ({ requestId: 'request-1', tenantId: FED_TENANT, redirectUri: 'https://kungalv.kommunsign.se/saml/acs', ...overrides });
-const fedCode = (assertion = {}, config = {}, binding = {}, ledger = new InMemoryAssertionLedger()) => {
-  try { verifyWorkforceAssertion(fedAssertion(assertion), fedConfig(config), fedBinding(binding), ledger, NOW); return 'NO_ERROR'; }
+const fedCode = async (assertion = {}, config = {}, binding = {}, ledger = new InMemoryAssertionLedger()) => {
+  try { await verifyWorkforceAssertion(fedAssertion(assertion), fedConfig(config), fedBinding(binding), ledger, NOW); return 'NO_ERROR'; }
   catch (error) { return error.code; }
 };
 
-test('a federated assertion is admitted only when it answers our own login request', () => {
-  assert.equal(fedCode(), 'NO_ERROR');
+test('a federated assertion is admitted only when it answers our own login request', async () => {
+  assert.equal(await fedCode(), 'NO_ERROR');
 
   // Nothing below the signature means anything on an unsigned assertion.
-  assert.equal(fedCode({ signatureVerified: false }), 'FEDERATION_SIGNATURE_NOT_VERIFIED');
+  assert.equal(await fedCode({ signatureVerified: false }), 'FEDERATION_SIGNATURE_NOT_VERIFIED');
   // A disabled provider must not authenticate anyone, even with a valid
   // assertion left over from when it was enabled.
-  assert.equal(fedCode({}, { enabled: false }), 'FEDERATION_PROVIDER_DISABLED');
-  assert.equal(fedCode({ issuer: 'https://evil.example' }), 'FEDERATION_ISSUER_MISMATCH');
+  assert.equal(await fedCode({}, { enabled: false }), 'FEDERATION_PROVIDER_DISABLED');
+  assert.equal(await fedCode({ issuer: 'https://evil.example' }), 'FEDERATION_ISSUER_MISMATCH');
   // An assertion minted for a different service provider by the same IdP.
-  assert.equal(fedCode({ audience: 'https://other.example/sp' }), 'FEDERATION_AUDIENCE_MISMATCH');
+  assert.equal(await fedCode({ audience: 'https://other.example/sp' }), 'FEDERATION_AUDIENCE_MISMATCH');
   // One captured at a different endpoint and posted to ours.
-  assert.equal(fedCode({ destination: 'https://other.example/acs' }), 'FEDERATION_DESTINATION_MISMATCH');
+  assert.equal(await fedCode({ destination: 'https://other.example/acs' }), 'FEDERATION_DESTINATION_MISMATCH');
   // IdP-initiated flows are refused: a stolen assertion could be posted at any
   // time if it did not have to answer a request we started.
-  assert.equal(fedCode({ inResponseTo: null }), 'FEDERATION_REQUEST_MISMATCH');
-  assert.equal(fedCode({ inResponseTo: 'request-2' }), 'FEDERATION_REQUEST_MISMATCH');
+  assert.equal(await fedCode({ inResponseTo: null }), 'FEDERATION_REQUEST_MISMATCH');
+  assert.equal(await fedCode({ inResponseTo: 'request-2' }), 'FEDERATION_REQUEST_MISMATCH');
   // AGENTS.md rule 1: tenant comes from the bound configuration, never the message.
-  assert.equal(fedCode({}, {}, { tenantId: '00000000-0000-4000-8000-0000000000b2' }), 'FEDERATION_TENANT_MISMATCH');
-  assert.equal(fedCode({ subject: '   ' }, {}, {}), 'FEDERATION_SUBJECT_MISSING');
+  assert.equal(await fedCode({}, {}, { tenantId: '00000000-0000-4000-8000-0000000000b2' }), 'FEDERATION_TENANT_MISMATCH');
+  assert.equal(await fedCode({ subject: '   ' }, {}, {}), 'FEDERATION_SUBJECT_MISSING');
 });
 
-test('a federated assertion expires, cannot be replayed, and carries a fresh enough session', () => {
-  assert.equal(fedCode({ notOnOrAfter: '2026-08-07T11:00:00.000Z' }), 'FEDERATION_ASSERTION_EXPIRED');
-  assert.equal(fedCode({ notBefore: '2026-08-07T12:30:00.000Z' }), 'FEDERATION_ASSERTION_NOT_YET_VALID');
+test('a federated assertion expires, cannot be replayed, and carries a fresh enough session', async () => {
+  assert.equal(await fedCode({ notOnOrAfter: '2026-08-07T11:00:00.000Z' }), 'FEDERATION_ASSERTION_EXPIRED');
+  assert.equal(await fedCode({ notBefore: '2026-08-07T12:30:00.000Z' }), 'FEDERATION_ASSERTION_NOT_YET_VALID');
 
   // Within its validity window the same assertion is accepted every time it is
   // presented, unless it is consumed exactly once.
   const ledger = new InMemoryAssertionLedger();
-  assert.equal(fedCode({}, {}, {}, ledger), 'NO_ERROR');
-  assert.equal(fedCode({}, {}, {}, ledger), 'FEDERATION_ASSERTION_REPLAYED');
+  assert.equal(await fedCode({}, {}, {}, ledger), 'NO_ERROR');
+  assert.equal(await fedCode({}, {}, {}, ledger), 'FEDERATION_ASSERTION_REPLAYED');
 
   // A fresh assertion can still describe a very old IdP session.
-  assert.equal(fedCode({ authenticatedAt: '2026-08-07T06:00:00.000Z' }), 'FEDERATION_SESSION_TOO_OLD');
-  assert.equal(fedCode({ authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:Password' }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
-  assert.equal(fedCode({ authnContext: null }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
+  assert.equal(await fedCode({ authenticatedAt: '2026-08-07T06:00:00.000Z' }), 'FEDERATION_SESSION_TOO_OLD');
+  assert.equal(await fedCode({ authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:Password' }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
+  assert.equal(await fedCode({ authnContext: null }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
   // A tenant that demands no particular context accepts what the IdP sent.
-  assert.equal(fedCode({ authnContext: null }, { requiredAuthnContexts: [] }), 'NO_ERROR');
+  assert.equal(await fedCode({ authnContext: null }, { requiredAuthnContexts: [] }), 'NO_ERROR');
 
   // The same rules apply to OIDC: one decision, not two that can drift.
-  assert.equal(fedCode({ protocol: 'OIDC' }, { protocol: 'OIDC' }), 'NO_ERROR');
+  assert.equal(await fedCode({ protocol: 'OIDC' }, { protocol: 'OIDC' }), 'NO_ERROR');
 });
 
 test('group to role mapping denies by default rather than granting a fallback', () => {
@@ -2543,6 +2558,260 @@ const conversion = (overrides = {}) => ({
 });
 const officeCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
 
+const manifestDocument = (ordinal, suffix) => ({
+  ordinal,
+  documentVersionId: `00000000-0000-4000-8000-00000000000${ordinal}`,
+  documentSha256: String(suffix).repeat(64).slice(0, 64),
+  displayName: `document-${ordinal}.pdf`,
+  mimeType: 'application/pdf',
+  profile: 'PDF/A-2b',
+  byteSize: 1024 * ordinal,
+});
+const manifestInput = (documents) => ({
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  signatureCaseId: '22222222-2222-4222-8222-222222222222',
+  signingIntentId: '33333333-3333-4333-8333-333333333333',
+  signerId: '44444444-4444-4444-8444-444444444444',
+  documents,
+});
+const manifestCode = (fn) => { try { fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+test('a signing intent manifest hashes the same however the documents arrive', async () => {
+  const ordered = [manifestDocument(1, 'a'), manifestDocument(2, 'b'), manifestDocument(3, 'c')];
+  const shuffled = [ordered[2], ordered[0], ordered[1]];
+
+  const first = await signingIntentManifestSha256(buildSigningIntentManifest(manifestInput(ordered)));
+  const second = await signingIntentManifestSha256(buildSigningIntentManifest(manifestInput(shuffled)));
+
+  // Retrieval order is an implementation detail of whatever query produced the
+  // rows. If it leaked into the hash, the same consent would produce different
+  // evidence on different days and the manifest would prove nothing.
+  assert.equal(first, second);
+  assert.match(first, /^[0-9a-f]{64}$/);
+});
+
+test('a signing intent manifest changes when any document in the set changes', async () => {
+  const base = [manifestDocument(1, 'a'), manifestDocument(2, 'b')];
+  const original = await signingIntentManifestSha256(buildSigningIntentManifest(manifestInput(base)));
+
+  const swappedHash = await signingIntentManifestSha256(buildSigningIntentManifest(manifestInput(
+    [base[0], { ...base[1], documentSha256: 'd'.repeat(64) }],
+  )));
+  assert.notEqual(original, swappedHash);
+
+  const droppedDocument = await signingIntentManifestSha256(buildSigningIntentManifest(manifestInput([base[0]])));
+  assert.notEqual(original, droppedDocument);
+
+  const otherSigner = await signingIntentManifestSha256(buildSigningIntentManifest({
+    ...manifestInput(base), signerId: '55555555-5555-4555-8555-555555555555',
+  }));
+  assert.notEqual(original, otherSigner);
+});
+
+test('a signing intent manifest refuses a document set it cannot describe honestly', () => {
+  assert.equal(manifestCode(() => buildSigningIntentManifest(manifestInput([]))), 'MANIFEST_EMPTY');
+
+  // A gap means a document went missing between reading the intent and building
+  // the manifest. Renumbering around it would record a set nobody agreed to.
+  assert.equal(
+    manifestCode(() => buildSigningIntentManifest(manifestInput([manifestDocument(1, 'a'), manifestDocument(3, 'c')]))),
+    'MANIFEST_ORDINALS_NOT_CONTIGUOUS',
+  );
+  assert.equal(
+    manifestCode(() => buildSigningIntentManifest(manifestInput([{ ...manifestDocument(1, 'a'), documentSha256: 'not-a-hash' }]))),
+    'MANIFEST_DOCUMENT_HASH_INVALID',
+  );
+  assert.equal(
+    manifestCode(() => buildSigningIntentManifest(manifestInput([{ ...manifestDocument(1, 'a'), byteSize: 0 }]))),
+    'MANIFEST_DOCUMENT_SIZE_INVALID',
+  );
+  const duplicated = manifestDocument(1, 'a');
+  assert.equal(
+    manifestCode(() => buildSigningIntentManifest(manifestInput([duplicated, { ...duplicated, ordinal: 2 }]))),
+    'MANIFEST_DOCUMENT_DUPLICATED',
+  );
+});
+
+test('the manifest is stored as canonical JSON, so its bytes are reproducible', () => {
+  const manifest = buildSigningIntentManifest(manifestInput([manifestDocument(1, 'a'), manifestDocument(2, 'b')]));
+  const bytes = signingIntentManifestBytes(manifest);
+  const text = new TextDecoder().decode(bytes);
+  assert.equal(JSON.parse(text).schema, 'kommunsign.signing-intent-manifest.v1');
+  assert.deepEqual(signingIntentManifestBytes(manifest), bytes);
+});
+
+test('the signing service client refuses to carry a signing request over an open network', () => {
+  // The request body contains the document about to be signed and the identity
+  // evidence authorising it. Plain HTTP is tolerated only inside the private
+  // network the signing service actually lives on.
+  assert.throws(() => new SignServiceClient('http://signservice.example.com', 'token'), /SIGNSERVICE_URL_INVALID/);
+  assert.throws(() => new SignServiceClient('https://signservice.example.com', '   '), /SIGNSERVICE_TOKEN_MISSING/);
+  assert.ok(new SignServiceClient('http://signservice.railway.internal:8081', 'token'));
+  assert.ok(new SignServiceClient('http://127.0.0.1:8081', 'token'));
+  assert.ok(new SignServiceClient('https://signservice.example.com', 'token'));
+});
+
+test('a signing service that is not configured never resolves into a signature', async () => {
+  const notConfigured = new SignServiceClient('http://127.0.0.1:8081', 'token', async () => new Response(
+    JSON.stringify({ status: 'NOT_CONFIGURED', reason: 'no backend' }), { status: 503, headers: { 'content-type': 'application/json' } },
+  ));
+  await assert.rejects(() => notConfigured.sign({}), (error) => error.name === 'SignServiceNotConfiguredError');
+
+  const refused = new SignServiceClient('http://127.0.0.1:8081', 'token', async () => new Response(
+    JSON.stringify({ status: 'REFUSED', reason: 'IDENTITY_BINDING_SIGNER_MISMATCH' }), { status: 422, headers: { 'content-type': 'application/json' } },
+  ));
+  await assert.rejects(() => refused.sign({}), (error) => error.name === 'SignServiceRefusedError' && error.reason === 'IDENTITY_BINDING_SIGNER_MISMATCH');
+
+  // A 200 that is not actually a signed artifact must not be read as one.
+  const malformed = new SignServiceClient('http://127.0.0.1:8081', 'token', async () => new Response(
+    JSON.stringify({ status: 'SIGNED' }), { status: 200, headers: { 'content-type': 'application/json' } },
+  ));
+  await assert.rejects(() => malformed.sign({}), /SIGNSERVICE_PROTOCOL_INVALID/);
+});
+
+test('a webhook signature covers the event, so a subscriber can tell our POST from anyone else\'s', async () => {
+  const secret = 'shared-secret-value';
+  const envelope = {
+    id: '11111111-1111-4111-8111-111111111111',
+    type: 'signer.signed',
+    occurredAt: '2026-08-18T10:00:00.000Z',
+    aggregate: { type: 'signer', id: '22222222-2222-4222-8222-222222222222' },
+    payloadSha256: 'a'.repeat(64),
+    data: { signatureCaseId: '33333333-3333-4333-8333-333333333333' },
+  };
+  const signed = await signWebhook(envelope, secret, '1800000000');
+  assert.equal(await verifyWebhook(signed, secret, 1800000000), true);
+
+  // Changing the body without re-signing must fail, or the signature says
+  // nothing about what was actually delivered.
+  const tampered = { ...signed, body: signed.body.replace('signer.signed', 'case.completed') };
+  assert.equal(await verifyWebhook(tampered, secret, 1800000000), false);
+
+  // The timestamp is inside the signed material, so replaying an old delivery
+  // with a fresh timestamp does not verify.
+  assert.equal(await verifyWebhook({ ...signed, timestamp: '1800000060' }, secret, 1800000060), false);
+
+  // And a delivery signed with someone else's secret is not ours.
+  assert.equal(await verifyWebhook(signed, 'a-different-secret', 1800000000), false);
+
+  // Freshness is enforced independently of the signature.
+  assert.equal(await verifyWebhook(signed, secret, 1800000000 + 3600), false);
+});
+
+const fgsAgents = {
+  archivist: 'Kungälvs kommunarkiv',
+  creator: 'Kungälvs kommun',
+  submitter: 'Kungälvs kommun',
+  producingSoftware: 'Kommunsign',
+  producingSoftwareVersion: '0.2.0',
+};
+const fgsCase = (overrides = {}) => ({
+  tenantId: '11111111-1111-4111-8111-111111111111',
+  signatureCaseId: '22222222-2222-4222-8222-222222222222',
+  reference: 'KS2026/1005',
+  title: 'Beslut om bygglov',
+  decisionMode: 'ELECTRONIC_SIGNATURE',
+  status: 'archiving',
+  createdAt: '2026-08-01T09:00:00.000Z',
+  closedAt: '2026-08-05T15:30:00.000Z',
+  documents: [{
+    documentId: '33333333-3333-4333-8333-333333333333',
+    documentVersionId: '44444444-4444-4444-8444-444444444444',
+    displayName: 'beslut.pdf',
+    sha256: 'a'.repeat(64),
+    byteSize: 2048,
+    verifiedProfile: 'PDF/A-2b',
+    isSignedArtifact: true,
+  }],
+  signatures: [{
+    signerId: '55555555-5555-4555-8555-555555555555',
+    signedAt: '2026-08-05T12:00:00.000Z',
+    padesLevel: 'PAdES-B',
+    signatureArtifactSha256: 'b'.repeat(64),
+    validationReportSha256: 'c'.repeat(64),
+    timestampTokenSha256: null,
+  }],
+  identities: [{
+    signerId: '55555555-5555-4555-8555-555555555555',
+    provider: 'TIC_BANKID',
+    assuranceLevel: 'HIGH',
+    maskedIdentifier: '19640823-****',
+    verifiedAt: '2026-08-05T11:59:00.000Z',
+    evidenceSha256: 'd'.repeat(64),
+  }],
+  auditTrailSha256: 'e'.repeat(64),
+  ...overrides,
+});
+const fgsFiles = () => [
+  { path: 'content/beslut.pdf', bytes: new TextEncoder().encode('%PDF-1.7 beslut'), mediaType: 'application/pdf' },
+  { path: 'evidence/validation-report.json', bytes: new TextEncoder().encode('{"indication":"TOTAL_PASSED"}'), mediaType: 'application/json' },
+];
+
+test('an FGS descriptor is byte-identical when the same closed case is exported twice', async () => {
+  const first = await buildFgsPackage(await buildArchivePackage(fgsCase(), fgsFiles()), fgsAgents);
+  const second = await buildFgsPackage(await buildArchivePackage(fgsCase(), fgsFiles()), fgsAgents);
+
+  // The archived copy has to be provably the delivered copy. A generated UUID
+  // or a wall-clock timestamp anywhere in here would quietly break that.
+  assert.equal(first.descriptorSha256, second.descriptorSha256);
+  assert.deepEqual(first.descriptor.bytes, second.descriptor.bytes);
+  assert.equal(first.specification, FGS_SPECIFICATION);
+});
+
+test('the FGS descriptor is METS following the published Riksarkivet profile', async () => {
+  const fgs = await buildFgsPackage(await buildArchivePackage(fgsCase(), fgsFiles()), fgsAgents);
+  const xml = new TextDecoder().decode(fgs.descriptor.bytes);
+
+  assert.equal(fgs.descriptor.path, 'sip.xml');
+  assert.match(xml, /xmlns:mets="http:\/\/www\.loc\.gov\/METS\/"/);
+  assert.match(xml, /xmlns:ext="ExtensionMETS"/);
+  assert.match(xml, /PROFILE="http:\/\/xml\.ra\.se\/e-arkiv\/METS\/CommonSpecificationSwedenPackageProfile\.xml"/);
+  assert.match(xml, /ext:OAISSTATUS="SIP"/);
+  assert.match(xml, /<mets:metsDocumentID>sip\.xml<\/mets:metsDocumentID>/);
+  assert.match(xml, /CHECKSUMTYPE="SHA-256"/);
+  assert.match(xml, /<mets:structMap LABEL="Profilestructmap">/);
+  // Every file the manifest describes must be referenced exactly once.
+  assert.equal((xml.match(/<mets:file /g) ?? []).length, (xml.match(/<mets:fptr /g) ?? []).length);
+  assert.match(xml, /xlink:href="file:\/\/\/content\/beslut\.pdf"/);
+});
+
+test('operator text in a case title cannot break out of the FGS descriptor', async () => {
+  const hostile = 'Beslut" TYPE="ERMS" x="<script>alert(1)</script>&';
+  const fgs = await buildFgsPackage(await buildArchivePackage(fgsCase({ title: hostile }), fgsFiles()), fgsAgents);
+  const xml = new TextDecoder().decode(fgs.descriptor.bytes);
+
+  // A raw quote would end the LABEL attribute and let the rest be read as
+  // markup by an archive that ingests this file unattended.
+  assert.match(xml, /LABEL="Beslut&quot; TYPE=&quot;ERMS&quot; x=&quot;&lt;script&gt;/);
+  assert.equal(xml.includes('<script>'), false);
+  assert.match(xml, / TYPE="Archival information"/);
+  assert.equal((xml.match(/ TYPE="ERMS"/g) ?? []).length, 0);
+});
+
+test('the FGS adapter never claims schema conformance it has not verified', async () => {
+  // Structure following the published profile and validating against the
+  // receiving archive's XSD set are different claims. Conflating them is the
+  // exact overclaim this adapter exists to remove.
+  assert.equal(FGS_CONFORMANCE_STATUS.structureFollowsProfile, true);
+  assert.equal(FGS_CONFORMANCE_STATUS.schemaValidated, false);
+  assert.ok(FGS_CONFORMANCE_STATUS.schemaValidationBlocker.length > 0);
+});
+
+test('an FGS descriptor refuses to name an agent the profile requires and nobody supplied', async () => {
+  // The archive-package refusals (unclosed case, unverified PDF/A profile,
+  // missing validation report, missing audit trail) are covered by the archive
+  // tests above. What is new here is the profile's own requirement: a METS
+  // header without its required agents names no responsible organisation, and a
+  // preservation record nobody is accountable for is not a record.
+  const archive = await buildArchivePackage(fgsCase(), fgsFiles());
+  const code = async (fn) => { try { await fn(); return 'NO_ERROR'; } catch (error) { return error.code; } };
+
+  assert.equal(await code(() => buildFgsPackage(archive, { ...fgsAgents, archivist: '  ' })), 'ARCHIVE_PROFILE_NOT_VERIFIED');
+  assert.equal(await code(() => buildFgsPackage(archive, { ...fgsAgents, creator: '' })), 'ARCHIVE_PROFILE_NOT_VERIFIED');
+  assert.equal(await code(() => buildFgsPackage(archive, { ...fgsAgents, submitter: '' })), 'ARCHIVE_PROFILE_NOT_VERIFIED');
+  assert.equal(await code(() => buildFgsPackage(archive, fgsAgents)), 'NO_ERROR');
+});
+
 test('an Office document is converted before signing, and only the PDF/A is signed', () => {
   const plan = planOfficeIngestion(office());
   assert.equal(plan.targetProfile, 'PDF/A-2b');
@@ -2623,6 +2892,1089 @@ test('dates and times render in the Swedish standard regardless of host locale',
   const unknown = messageFor('SOME_INTERNAL_CODE_42');
   assert.doesNotMatch(unknown, /SOME_INTERNAL_CODE_42/);
   assert.match(unknown, /Något gick fel/);
+});
+
+// --- Control-plane platform jobs -------------------------------------------
+
+/**
+ * A control database standing in for Postgres.
+ *
+ * Every statement the handler issues is recorded, and anything the test did not
+ * anticipate raises rather than returning an empty result — a silent `{rows:[]}`
+ * would let a handler that queried the wrong table still look correct.
+ */
+function controlDatabaseDouble(responder) {
+  const statements = [];
+  return {
+    statements,
+    transaction: async (work) => work({
+      query: async (sql, parameters = []) => {
+        statements.push({ sql, parameters });
+        if (sql.includes('pg_advisory_xact_lock')) return { rows: [], rowCount: 0 };
+        if (sql.includes('from control.control_audit_events')) return { rows: [], rowCount: 0 };
+        if (sql.includes('insert into control.control_audit_events')) return { rows: [], rowCount: 0 };
+        const response = responder(sql, parameters);
+        if (response === undefined) throw new Error(`unexpected control query: ${sql}`);
+        return response;
+      },
+    }),
+  };
+}
+
+const auditEvents = (database) => database.statements
+  .filter((entry) => entry.sql.includes('insert into control.control_audit_events'))
+  .map((entry) => ({ eventType: entry.parameters[0], payload: entry.parameters[1] }));
+
+const platformJob = (payload) => ({ id: '11111111-1111-4111-8111-111111111111', type: 'X', tenantId: null, payload, attempt: 1, idempotencyKey: 'k' });
+
+test('an unverified application expires rather than being recorded as withdrawn', async () => {
+  const database = controlDatabaseDouble((sql) => {
+    if (sql.includes('update control.onboarding_applications')) {
+      return { rows: [{ id: 'a1', created_at: '2026-01-01T00:00:00.000Z' }], rowCount: 1 };
+    }
+    return undefined;
+  });
+  await handleApplicationDeadline(database, platformJob({}));
+
+  const update = database.statements.find((entry) => entry.sql.includes('update control.onboarding_applications'));
+  // Withdrawal is an act by the applicant. Writing it for an unattended timeout
+  // would put a decision in the record that no human made.
+  assert.match(update.sql, /set status='expired'/);
+  assert.doesNotMatch(update.sql, /withdrawn/);
+  // Only the two pre-submission states. An application under review is someone's
+  // active work and must never be closed out from underneath them by a timer.
+  assert.match(update.sql, /status in \('draft','email_verification_pending'\)/);
+  // The trigger owns status_version and updated_at; setting them in the
+  // statement would be silently overwritten and read as if it had taken effect.
+  assert.doesNotMatch(update.sql, /status_version/);
+
+  const events = auditEvents(database);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].eventType, 'onboarding.application.expired');
+  assert.equal(events[0].payload.applicationId, 'a1');
+});
+
+test('readiness is evaluated through the shared model and recorded, never inferred at activation', async () => {
+  const checkedAt = '2026-08-01T00:00:00.000Z';
+  const database = controlDatabaseDouble((sql) => (
+    sql.includes('insert into control.tenant_readiness_results') ? { rows: [], rowCount: 1 } : undefined
+  ));
+  await handleTenantReadiness(database, platformJob({
+    tenantId: '22222222-2222-4222-8222-222222222222',
+    environment: 'production',
+    checks: [
+      { code: 'BANKID_CREDENTIALS', passed: false, severity: 'blocking', checkedAt },
+      { code: 'BRANDING', passed: false, severity: 'warning', checkedAt },
+      { code: 'DOMAIN_VERIFIED', passed: true, severity: 'blocking', checkedAt },
+    ],
+  }));
+
+  const insert = database.statements.find((entry) => entry.sql.includes('insert into control.tenant_readiness_results'));
+  assert.equal(insert.parameters[3], false, 'one failed blocking check makes the tenant not ready');
+  assert.deepEqual(insert.parameters[4].map((check) => check.code), ['BANKID_CREDENTIALS']);
+  assert.deepEqual(insert.parameters[5].map((check) => check.code), ['BRANDING']);
+  assert.deepEqual(insert.parameters[6].map((check) => check.code), ['DOMAIN_VERIFIED']);
+
+  const [event] = auditEvents(database);
+  assert.equal(event.eventType, 'tenant.readiness.evaluated');
+  assert.deepEqual(event.payload.blockingCodes, ['BANKID_CREDENTIALS']);
+});
+
+test('a malformed readiness check is refused, never dropped', async () => {
+  const tenantId = '22222222-2222-4222-8222-222222222222';
+  const valid = { code: 'DOMAIN_VERIFIED', passed: true, severity: 'blocking', checkedAt: '2026-08-01T00:00:00.000Z' };
+  // Dropping the malformed entry would make the tenant look readier than it is,
+  // which is the one direction this must never fail in.
+  for (const broken of [
+    { ...valid, severity: 'advisory' },
+    { ...valid, passed: 'true' },
+    { ...valid, checkedAt: 'yesterday' },
+    { ...valid, code: '' },
+    'DOMAIN_VERIFIED',
+  ]) {
+    const database = controlDatabaseDouble(() => ({ rows: [], rowCount: 1 }));
+    await assert.rejects(
+      () => handleTenantReadiness(database, platformJob({ tenantId, environment: 'production', checks: [valid, broken] })),
+      /WORKER_PAYLOAD_CHECKS_INVALID/,
+    );
+    assert.equal(database.statements.length, 0, 'nothing is written when the payload cannot be trusted');
+  }
+
+  // An empty check list is not evidence of readiness either.
+  const empty = controlDatabaseDouble(() => ({ rows: [], rowCount: 1 }));
+  await assert.rejects(
+    () => handleTenantReadiness(empty, platformJob({ tenantId, environment: 'production', checks: [] })),
+    /WORKER_PAYLOAD_CHECKS_INVALID/,
+  );
+});
+
+test('activation rests on a recorded production readiness result, not on the absence of a bad one', async () => {
+  const tenantId = '22222222-2222-4222-8222-222222222222';
+  const activationRequestId = '33333333-3333-4333-8333-333333333333';
+  const payload = { tenantId, activationRequestId };
+
+  const scenario = (requestStatus, readinessRows) => controlDatabaseDouble((sql) => {
+    if (sql.includes('from control.tenant_activation_requests')) return { rows: [{ status: requestStatus }], rowCount: 1 };
+    if (sql.includes('from control.tenant_readiness_results')) return { rows: readinessRows, rowCount: readinessRows.length };
+    if (sql.includes('update control.tenant_activation_requests')) return { rows: [], rowCount: 1 };
+    if (sql.includes('update control.platform_tenants')) return { rows: [], rowCount: 1 };
+    return undefined;
+  });
+
+  // No readiness result is not the same as a passing one, and is just as
+  // disqualifying: activation must rest on evidence.
+  const missing = scenario('approved', []);
+  await assert.rejects(() => handleTenantActivation(missing, platformJob(payload)), /NO_PRODUCTION_READINESS_RESULT/);
+  assert.ok(!missing.statements.some((entry) => entry.sql.includes('update control.platform_tenants')));
+  assert.equal(auditEvents(missing)[0].eventType, 'tenant.activation.refused');
+
+  const blocked = scenario('approved', [{ ready: false, blocking_checks: [{ code: 'BANKID_CREDENTIALS' }] }]);
+  await assert.rejects(() => handleTenantActivation(blocked, platformJob(payload)), /READINESS_BLOCKED/);
+  assert.ok(!blocked.statements.some((entry) => entry.sql.includes('update control.platform_tenants')));
+
+  // An unapproved request never reaches the readiness check at all: two-person
+  // approval is a separate gate, not something readiness can substitute for.
+  const unapproved = scenario('pending_approval', [{ ready: true, blocking_checks: [] }]);
+  await assert.rejects(() => handleTenantActivation(unapproved, platformJob(payload)), /TENANT_ACTIVATION_NOT_APPROVED/);
+  assert.ok(!unapproved.statements.some((entry) => entry.sql.includes('from control.tenant_readiness_results')));
+
+  const ready = scenario('approved', [{ ready: true, blocking_checks: [] }]);
+  await handleTenantActivation(ready, platformJob(payload));
+  const activation = ready.statements.find((entry) => entry.sql.includes('update control.platform_tenants'));
+  assert.match(activation.sql, /status='active'/);
+  // Only a tenant that is still coming up may be activated, so this cannot
+  // silently un-suspend a tenant that was deliberately stopped.
+  assert.match(activation.sql, /status in \('provisioning','onboarding'\)/);
+  assert.equal(auditEvents(ready)[0].eventType, 'tenant.activated');
+
+  // Re-running the job after activation is a no-op, not a second activation.
+  const again = scenario('activated', [{ ready: true, blocking_checks: [] }]);
+  await handleTenantActivation(again, platformJob(payload));
+  assert.ok(!again.statements.some((entry) => entry.sql.includes('update control.platform_tenants')));
+
+  // The readiness row is re-read here rather than trusted from the payload, so
+  // a payload claiming readiness cannot activate a tenant on its own.
+  const lying = scenario('approved', []);
+  await assert.rejects(
+    () => handleTenantActivation(lying, platformJob({ ...payload, ready: true })),
+    /NO_PRODUCTION_READINESS_RESULT/,
+  );
+});
+
+test('the certificate monitor reports having run, and uses the window the alert watches', async () => {
+  const alerts = await readFile('infrastructure/monitoring/prometheus-alerts.yaml', 'utf8');
+  const expiry = /kommunsign_certificate_not_after_seconds - time\(\) < (\d+)/.exec(alerts);
+  assert.ok(expiry, 'the CertificateExpiringSoon alert must still express a window');
+
+  const flagged = controlDatabaseDouble((sql) => (
+    sql.includes('update control.domain_certificate_snapshots')
+      ? { rows: [{ id: 'c1', tenant_id: 't1', not_after: '2026-08-20T00:00:00.000Z' }], rowCount: 1 }
+      : undefined
+  ));
+  await handleCertificateMonitor(flagged, platformJob({}));
+
+  const update = flagged.statements.find((entry) => entry.sql.includes('update control.domain_certificate_snapshots'));
+  // The job and the alert must agree on what "expiring soon" means. If they
+  // drifted, the alert would fire on certificates the system never flagged.
+  assert.equal(update.parameters[0] * 24 * 60 * 60, Number(expiry[1]));
+  assert.match(update.sql, /set status='renewal_required'/);
+  assert.match(update.sql, /status='issued'/, 'a failed or revoked certificate is not a renewal candidate');
+
+  const event = auditEvents(flagged)[0];
+  assert.equal(event.eventType, 'certificate.monitor.completed');
+  assert.equal(event.payload.flaggedCount, 1);
+
+  // Reported even when nothing was flagged: "no certificates near expiry" and
+  // "the monitor did not run" are different statements, and only one of them
+  // is reassuring.
+  const quiet = controlDatabaseDouble((sql) => (
+    sql.includes('update control.domain_certificate_snapshots') ? { rows: [], rowCount: 0 } : undefined
+  ));
+  await handleCertificateMonitor(quiet, platformJob({}));
+  assert.equal(auditEvents(quiet)[0].payload.flaggedCount, 0);
+});
+
+test('every control-plane platform job is wired to a handler rather than dead-lettered', async () => {
+  const source = await readFile('apps/workers/src/production-handlers.ts', 'utf8');
+  assert.match(source, /\.\.\.createPlatformJobHandlers\(/);
+  for (const type of ['APPLICATION_DEADLINE', 'TENANT_READINESS', 'TENANT_ACTIVATION', 'CERTIFICATE_MONITOR']) {
+    assert.doesNotMatch(source, new RegExp(`${type}: phaseUnsupported`), `${type} still dead-letters`);
+  }
+  // TENANT_PROVISION is the deliberate exception: postgres-production-adapter
+  // overrides it with a handler that needs infrastructure this module lacks.
+  const adapter = await readFile('apps/workers/src/postgres-production-adapter.ts', 'utf8');
+  assert.match(adapter, /TENANT_PROVISION/);
+});
+
+// --- Data subject rights requests -------------------------------------------
+
+/**
+ * Drives the privacy handler against doubles for both databases.
+ *
+ * The doubles answer the specific queries the handler issues and raise on
+ * anything else, so a handler that searched the wrong table would fail loudly
+ * rather than quietly returning nothing and calling it a clean result.
+ */
+function privacyDoubles(overrides = {}) {
+  const statements = [];
+  const deleted = [];
+  const dataRow = {
+    id: '44444444-4444-4444-8444-444444444444',
+    state: 'RECEIVED',
+    right_requested: overrides.right ?? 'ACCESS',
+    subject_identifier_blind_index: new Uint8Array([1, 2, 3]),
+    subject_user_id: '55555555-5555-4555-8555-555555555555',
+    received_at: '2026-08-01T00:00:00.000Z',
+    identity_verified_at: '2026-08-01T00:05:00.000Z',
+    identity_method: 'bankid',
+    identity_assurance: overrides.assurance ?? 'HIGH',
+    handled_by: '66666666-6666-4666-8666-666666666666',
+    ...(overrides.row ?? {}),
+  };
+  const counts = { control: 1, data: 2, objectKeys: ['tenant/a.xml', 'tenant/b.xml'], audit: 4, holds: 0, restrictions: 0, ...(overrides.counts ?? {}) };
+
+  const run = (sql) => {
+    // set_config is the tenant-context preamble withTenantTransaction issues.
+    // It is not a business statement, so it is answered but not counted.
+    if (sql.includes('set_config')) return { rows: [], rowCount: 1 };
+    statements.push(sql);
+    if (sql.includes('from app.privacy_requests') && sql.includes('for update')) return { rows: [dataRow], rowCount: 1 };
+    if (sql.includes('from control.onboarding_applications')) return { rows: [{ total: String(counts.control) }], rowCount: 1 };
+    if (sql.includes('from app.signers where tenant_id=$1')) return { rows: [{ total: String(counts.data) }], rowCount: 1 };
+    if (sql.includes('update app.signers')) return { rows: [], rowCount: counts.data };
+    if (sql.includes('artifacts.collect_response_object_key')) {
+      return { rows: counts.objectKeys.map((object_key) => ({ object_key })), rowCount: counts.objectKeys.length };
+    }
+    if (sql.includes('from audit.audit_events')) return { rows: [{ total: String(counts.audit) }], rowCount: 1 };
+    if (sql.includes('from app.legal_holds')) return { rows: [{ held: String(counts.holds) }], rowCount: 1 };
+    if (sql.includes("right_requested='RESTRICTION'")) return { rows: [{ active: String(counts.restrictions) }], rowCount: 1 };
+    if (sql.includes('insert into app.privacy_request_coverage')) return { rows: [], rowCount: 1 };
+    if (sql.includes('insert into app.privacy_responses')) return { rows: [], rowCount: 1 };
+    if (sql.includes('update app.privacy_requests')) return { rows: [], rowCount: 1 };
+    if (sql.includes('audit.append_event')) return { rows: [], rowCount: 1 };
+    if (sql.includes('insert into app.outbox_events')) return { rows: [], rowCount: 1 };
+    return undefined;
+  };
+
+  const database = {
+    statements,
+    transaction: async (work) => work({
+      query: async (sql, parameters = []) => {
+        const response = run(sql);
+        if (response === undefined) throw new Error(`unexpected query: ${sql}`);
+        if (sql.includes('insert into app.privacy_request_coverage')) {
+          statements.coverage = statements.coverage ?? [];
+          statements.coverage.push({
+            store: parameters[2], recordCount: parameters[3], searched: parameters[4],
+            exemptionReason: parameters[5], actionTaken: parameters[6],
+          });
+        }
+        if (sql.includes('insert into app.privacy_responses')) statements.response = parameters[3];
+        return response;
+      },
+    }),
+  };
+
+  const infrastructure = {
+    objectStorage: overrides.noDelete ? {} : { deleteObject: async (_context, key) => { deleted.push(key); } },
+  };
+  return { database, infrastructure, deleted, statements };
+}
+
+const privacyExecuteJob = () => ({
+  id: '77777777-7777-4777-8777-777777777777', type: 'PRIVACY_REQUEST_EXECUTE',
+  tenantId: '88888888-8888-4888-8888-888888888888',
+  payload: { privacyRequestId: '44444444-4444-4444-8444-444444444444' },
+  idempotencyKey: 'k', attempt: 1,
+});
+
+test('every store is accounted for, and one that cannot be searched says so instead of reporting nothing', async () => {
+  const { database, infrastructure, statements } = privacyDoubles();
+  await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+
+  const coverage = statements.coverage ?? [];
+  assert.deepEqual(
+    coverage.map((entry) => entry.store).sort(),
+    ['AUDIT_LOG', 'BACKUP', 'CONTROL', 'DATA', 'OBJECT_STORAGE'],
+    'a register extract that quietly omits a store is worse than no extract, because it looks complete',
+  );
+
+  // The claim that matters. A handler returning "searched, zero records"
+  // without querying satisfies every type in the system and is a lie.
+  const backup = coverage.find((entry) => entry.store === 'BACKUP');
+  assert.equal(backup.searched, false, 'a backup set cannot be point-searched online');
+  assert.ok(backup.exemptionReason && backup.exemptionReason.trim().length > 0, 'and an unsearched store must state why');
+  assert.equal(backup.recordCount, 0);
+  assert.equal(backup.actionTaken, 'EXEMPTED');
+
+  // The searched stores report what the queries actually returned, not a
+  // constant. Change the underlying counts and the answer changes with them.
+  assert.equal(coverage.find((entry) => entry.store === 'CONTROL').recordCount, 1);
+  assert.equal(coverage.find((entry) => entry.store === 'DATA').recordCount, 2);
+  assert.equal(coverage.find((entry) => entry.store === 'OBJECT_STORAGE').recordCount, 2);
+  assert.equal(coverage.find((entry) => entry.store === 'AUDIT_LOG').recordCount, 4);
+
+  const response = statements.response;
+  assert.equal(response.totalRecords, 1 + 2 + 2 + 4, 'the total is the sum of what was found, not a guess');
+  assert.equal(response.complete, true);
+  assert.deepEqual(response.exemptedStores, ['BACKUP']);
+});
+
+test('an erasure destroys object payloads and clears identifiers, but never the audit chain', async () => {
+  const { database, infrastructure, deleted, statements } = privacyDoubles({ right: 'ERASURE' });
+  await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+
+  assert.deepEqual(deleted, ['tenant/a.xml', 'tenant/b.xml'], 'the evidence payloads are actually destroyed');
+  assert.ok(
+    database.statements.some((sql) => sql.includes('update app.signers') && sql.includes('verified_identifier_blind_index=null')),
+    'and the identifiers on the rows that stay are cleared',
+  );
+  // The signer row itself survives: signature evidence has to remain
+  // verifiable, and dropping the row would break the chain proving who signed.
+  assert.ok(!database.statements.some((sql) => sql.includes('delete from app.signers')));
+
+  const coverage = statements.coverage ?? [];
+  const auditLog = coverage.find((entry) => entry.store === 'AUDIT_LOG');
+  assert.equal(auditLog.searched, true, 'the log is searched, and reported');
+  assert.equal(auditLog.actionTaken, 'EXEMPTED', 'but never deleted -- the chain is what makes every other record verifiable');
+  assert.match(auditLog.exemptionReason, /PUB-avtalet 7\.5/);
+  assert.equal(coverage.find((entry) => entry.store === 'OBJECT_STORAGE').actionTaken, 'CRYPTO_ERASED');
+});
+
+test('an erasure with no way to delete objects reports the store as unaddressed, not as empty', async () => {
+  const { database, infrastructure, statements } = privacyDoubles({ right: 'ERASURE', noDelete: true });
+  await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+
+  const objectStorage = (statements.coverage ?? []).find((entry) => entry.store === 'OBJECT_STORAGE');
+  // Reporting zero here would be the comfortable lie: the answer would look
+  // complete while two files still held the person's evidence.
+  assert.equal(objectStorage.searched, false);
+  assert.ok(objectStorage.exemptionReason.length > 0);
+  assert.equal(objectStorage.actionTaken, 'EXEMPTED');
+});
+
+test('an erasure stops at a legal hold and is refused with the ground, not silently skipped', async () => {
+  const { database, infrastructure, deleted } = privacyDoubles({ right: 'ERASURE', counts: { holds: 1 } });
+  await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+
+  const refusal = database.statements.find((sql) => sql.includes("state='REFUSED'"));
+  assert.ok(refusal, 'a request that cannot be carried out is refused, not left open');
+  assert.ok(!database.statements.some((sql) => sql.includes('insert into app.privacy_responses')), 'and no answer is issued');
+  assert.deepEqual(deleted, [], 'nothing under hold was destroyed');
+});
+
+test('an unproven identity refuses the request rather than disclosing anything', async () => {
+  for (const row of [
+    { identity_verified_at: null },
+    { identity_method: null },
+    { identity_assurance: null },
+  ]) {
+    const { database, infrastructure, deleted } = privacyDoubles({ row });
+    await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+    assert.ok(database.statements.some((sql) => sql.includes("state='REFUSED'")));
+    assert.ok(!database.statements.some((sql) => sql.includes('from control.onboarding_applications')),
+      'nothing is even searched before identity is proven');
+    assert.deepEqual(deleted, []);
+  }
+
+  // A verified identity that is not strong enough for the right being
+  // exercised is refused for the same reason: an address someone happens to
+  // control is not proof for a register extract.
+  const weak = privacyDoubles({ assurance: 'SUBSTANTIAL' });
+  await handlePrivacyRequestExecute(weak.database, weak.database, weak.infrastructure, privacyExecuteJob());
+  assert.ok(weak.database.statements.some((sql) => sql.includes("state='REFUSED'")));
+});
+
+test('a delivered or refused request is not re-run', async () => {
+  for (const state of ['DELIVERED', 'REFUSED']) {
+    const { database, infrastructure, deleted } = privacyDoubles({ right: 'ERASURE', row: { state } });
+    await handlePrivacyRequestExecute(database, database, infrastructure, privacyExecuteJob());
+    assert.deepEqual(deleted, [], 're-running must not re-delete');
+    assert.equal(database.statements.length, 1, 'and must not re-disclose');
+  }
+});
+
+test('the rights-request routes are wired and split the handling grant from the erasing one', async () => {
+  const router = await readFile('apps/api/src/router.ts', 'utf8');
+  assert.match(router, /'\/v1\/privacy\/requests'/);
+  assert.match(router, /privacy\\\/requests\\\/\(\[\^\/\]\+\)\\\/execute/);
+  // Recording that someone asked and destroying the record behind it are
+  // different acts, and must not share a grant.
+  assert.match(router, /authorize\(dependencies, context, 'privacy:execute'\)/);
+  assert.match(router, /authorize\(dependencies, context, 'privacy:manage'\)/);
+
+  assert.equal(hasPermission(['tenant_admin'], 'privacy:execute'), true);
+  assert.equal(hasPermission(['tenant_security_admin'], 'privacy:manage'), true);
+  for (const role of ['document_creator', 'document_sender', 'approver', 'readonly', 'auditor']) {
+    assert.equal(hasPermission([role], 'privacy:execute'), false, `${role} must not be able to erase personal data`);
+    assert.equal(hasPermission([role], 'privacy:manage'), false);
+  }
+});
+
+// --- SCIM 2.0 provisioning surface ------------------------------------------
+
+const SCIM_HTTP_TOKEN = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const SCIM_HTTP_TENANT = '99999999-1111-4999-8999-999999999999';
+
+/**
+ * A SCIM repository double that behaves like the real one on the points the
+ * router depends on: the tenant comes from the credential, and nothing else.
+ */
+function scimRepositoryDouble(overrides = {}) {
+  const saved = [];
+  const users = overrides.users ?? [];
+  return {
+    saved,
+    async authenticate(tokenHash) {
+      // A wrong token is a miss, exactly as the real lookup would be.
+      const expected = await sha256Hex(new TextEncoder().encode(SCIM_HTTP_TOKEN));
+      const presented = [...tokenHash].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      if (presented !== expected) return null;
+      return {
+        tenantId: SCIM_HTTP_TENANT,
+        clientId: '99999999-2222-4999-8999-999999999999',
+        assignableRoles: overrides.assignableRoles ?? ['readonly', 'document_creator'],
+        groupToRole: overrides.groupToRole ?? { 'CN=Kommunsign-Lasare': 'readonly' },
+      };
+    },
+    async listUsers() { return users; },
+    async getUser(_context, id) { return users.find((user) => user.id === id) ?? null; },
+    async createUser(_context, user) { saved.push({ action: 'CREATED', user }); return user; },
+    async saveUser(_context, user, action) { saved.push({ action, user }); return user; },
+    async hasHistory() { return overrides.hasHistory ?? false; },
+    async listGroups() { return [{ displayName: 'CN=Kommunsign-Lasare', role: 'readonly' }]; },
+    async issueClient() { throw new Error('not used here'); },
+  };
+}
+
+const scimHttpUser = (overrides = {}) => ({
+  id: '99999999-3333-4999-8999-999999999999',
+  tenantId: SCIM_HTTP_TENANT,
+  externalId: 'dir-0001',
+  userName: 'anna@kungalv.se',
+  displayName: 'Anna Andersson',
+  email: 'anna@kungalv.se',
+  active: true,
+  roles: [],
+  groups: [],
+  createdAt: '2026-08-01T00:00:00.000Z',
+  updatedAt: '2026-08-01T00:00:00.000Z',
+  ...overrides,
+});
+
+const scimRequest = (path, init = {}) => new Request(`https://api.kommunsign.se${path}`, {
+  headers: { authorization: `Bearer ${SCIM_HTTP_TOKEN}`, 'content-type': 'application/scim+json', ...(init.headers ?? {}) },
+  ...init,
+});
+
+test('SCIM authenticates on its own credential and says nothing about which tokens exist', async () => {
+  const scim = scimRepositoryDouble();
+
+  // A missing, malformed and simply wrong token are all the same failure, so
+  // probing tells an attacker nothing.
+  for (const headers of [{}, { authorization: 'Basic abc' }, { authorization: 'Bearer ' + 'b'.repeat(42) }]) {
+    const response = await handleScimRequest({ scim }, new Request('https://api.kommunsign.se/scim/v2/Users', { headers }), 'r1');
+    assert.equal(response.status, 401);
+    assert.equal(response.headers.get('www-authenticate'), 'Bearer realm="scim"');
+    const body = await response.json();
+    assert.deepEqual(body.schemas, ['urn:ietf:params:scim:api:messages:2.0:Error']);
+    assert.doesNotMatch(JSON.stringify(body), /tenant|client/i, 'a 401 must not describe what would have been reached');
+  }
+
+  // A path outside SCIM is not this router's business at all.
+  assert.equal(await handleScimRequest({ scim }, new Request('https://api.kommunsign.se/v1/signature-cases'), 'r2'), null);
+});
+
+test('SCIM errors come back in the SCIM error schema, not this API’s', async () => {
+  const scim = scimRepositoryDouble();
+  const response = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users?filter=' + encodeURIComponent('displayName co "a"')), 'r3');
+  assert.equal(response.status, 400);
+  assert.equal(response.headers.get('content-type'), 'application/scim+json; charset=utf-8');
+  const body = await response.json();
+  // A provisioning client parses one shape. Giving it another turns a
+  // meaningful 400 into an unclassifiable failure that stalls the sync.
+  assert.deepEqual(body.schemas, ['urn:ietf:params:scim:api:messages:2.0:Error']);
+  assert.equal(body.scimType, 'invalidFilter');
+  assert.equal(body.status, '400');
+});
+
+test('provisioning is idempotent on externalId, so a re-sync is a no-op rather than a conflict', async () => {
+  const existing = scimHttpUser();
+  const scim = scimRepositoryDouble({ users: [existing] });
+  const response = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users', {
+    method: 'POST',
+    body: JSON.stringify({ userName: 'anna@kungalv.se', externalId: 'dir-0001' }),
+  }), 'r4');
+
+  assert.equal(response.status, 200, 'an IdP retry must not 409 and stall the sync');
+  assert.equal(scim.saved.length, 0, 'and must not create a duplicate account');
+  assert.equal((await response.json()).id, existing.id);
+});
+
+test('a directory group grants only what the credential was scoped for', async () => {
+  // The mapping points at a role outside assignableRoles. A directory admin
+  // adding someone to that group must not thereby become able to grant it.
+  const scim = scimRepositoryDouble({
+    assignableRoles: ['readonly'],
+    groupToRole: { 'CN=Kommunsign-Admin': 'tenant_admin' },
+  });
+  const response = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users', {
+    method: 'POST',
+    body: JSON.stringify({ userName: 'ny@kungalv.se', externalId: 'dir-0002', groups: [{ display: 'CN=Kommunsign-Admin' }] }),
+  }), 'r5');
+
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).scimType, undefined, 'role scope is not one of the RFC scimType values');
+  assert.equal(scim.saved.length, 0, 'nothing is written when the grant would exceed the scope');
+
+  // An unmapped group grants nothing at all, rather than a default role.
+  const scoped = scimRepositoryDouble({ assignableRoles: ['readonly'], groupToRole: { 'CN=Kommunsign-Lasare': 'readonly' } });
+  const created = await handleScimRequest({ scim: scoped }, scimRequest('/scim/v2/Users', {
+    method: 'POST',
+    body: JSON.stringify({ userName: 'ny@kungalv.se', groups: [{ display: 'CN=Nagot-Annat' }, { display: 'CN=Kommunsign-Lasare' }] }),
+  }), 'r6');
+  assert.equal(created.status, 201);
+  assert.deepEqual(scoped.saved[0].user.roles, ['readonly']);
+});
+
+test('deactivation arrives as a patch, keeps the row, and stops the grants', async () => {
+  const scim = scimRepositoryDouble({ users: [scimHttpUser({ roles: ['readonly'] })] });
+  const response = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users/99999999-3333-4999-8999-999999999999', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      schemas: ['urn:ietf:params:scim:api:messages:2.0:PatchOp'],
+      Operations: [{ op: 'replace', path: 'active', value: false }],
+    }),
+  }), 'r7');
+
+  assert.equal(response.status, 200);
+  assert.equal(scim.saved[0].action, 'DEACTIVATED');
+  assert.equal(scim.saved[0].user.active, false);
+  // The user's history — which documents they signed, which cases they handled
+  // — has to survive deprovisioning, or the trail develops holes exactly where
+  // a leaver is involved.
+  assert.equal((await response.json()).id, '99999999-3333-4999-8999-999999999999');
+});
+
+test('DELETE deactivates a user with history and strips their roles either way', async () => {
+  for (const hasHistory of [true, false]) {
+    const scim = scimRepositoryDouble({ users: [scimHttpUser({ roles: ['readonly'] })], hasHistory });
+    const response = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users/99999999-3333-4999-8999-999999999999', { method: 'DELETE' }), 'r8');
+    assert.equal(response.status, 204);
+    assert.equal(scim.saved[0].action, hasHistory ? 'DEACTIVATED' : 'DELETED');
+    assert.equal(scim.saved[0].user.active, false);
+    // A deprovisioned account stops granting immediately, whichever branch ran.
+    assert.deepEqual(scim.saved[0].user.roles, []);
+  }
+});
+
+test('SCIM pagination is 1-based, which is the bug that shows up months later', async () => {
+  const users = Array.from({ length: 5 }, (_value, index) => scimHttpUser({
+    id: `99999999-3333-4999-8999-00000000000${index}`, userName: `user${index}@kungalv.se`, externalId: `dir-${index}`,
+  }));
+  const scim = scimRepositoryDouble({ users });
+
+  const first = await (await handleScimRequest({ scim }, scimRequest('/scim/v2/Users?startIndex=1&count=2'), 'r9')).json();
+  assert.equal(first.startIndex, 1);
+  assert.equal(first.totalResults, 5);
+  assert.deepEqual(first.Resources.map((entry) => entry.userName), ['user0@kungalv.se', 'user1@kungalv.se']);
+
+  // Treating startIndex as 0-based skips or repeats a user on every boundary,
+  // and surfaces as "some staff were never provisioned".
+  const second = await (await handleScimRequest({ scim }, scimRequest('/scim/v2/Users?startIndex=3&count=2'), 'r10')).json();
+  assert.deepEqual(second.Resources.map((entry) => entry.userName), ['user2@kungalv.se', 'user3@kungalv.se']);
+
+  const invalid = await handleScimRequest({ scim }, scimRequest('/scim/v2/Users?startIndex=0'), 'r11');
+  assert.equal(invalid.status, 400, 'a broken client is visible immediately rather than syncing the wrong window');
+});
+
+test('the SCIM surface is reached before the session resolver and never takes a tenant from a request', async () => {
+  const router = await readFile('apps/api/src/router.ts', 'utf8');
+  const scimIndex = router.indexOf('handleScimRequest(dependencies');
+  const contextIndex = router.indexOf('await dependencies.resolveContext(request)');
+  assert.ok(scimIndex > 0 && contextIndex > 0);
+  // A directory pushing users has no session. Running SCIM through the session
+  // resolver would need a bypass that some later route inherits.
+  assert.ok(scimIndex < contextIndex, 'SCIM must be handled before the session resolver');
+
+  const scimRouter = await readFile('apps/api/src/scim-router.ts', 'utf8');
+  // The tenant comes from the credential row. Reading it from a path, body or
+  // header would hand out a cross-tenant write primitive with every token.
+  assert.match(scimRouter, /tenantId: credential\.tenantId/);
+  assert.doesNotMatch(scimRouter, /tenantId:\s*(?:body|url|request|write)\./);
+});
+
+test('replay protection is only real if it survives a restart', async () => {
+  const federation = await readFile('apps/api/src/production-adapters/postgres/federation-repository.ts', 'utf8');
+
+  // The single-use guarantee is the primary key, not a read followed by a
+  // write. A check-then-insert has a race, and a race in replay protection is
+  // what a replay attack looks like when it is done properly.
+  assert.match(federation, /on conflict \(tenant_id,assertion_id\) do nothing/);
+  assert.match(federation, /rowCount === 1/);
+  assert.doesNotMatch(federation, /select .* from control\.federation_assertion_ledger[\s\S]{0,200}insert into/);
+
+  // The tenant is bound per call. Two ACS requests for different tenants are
+  // served concurrently by one process, and shared mutable tenant state would
+  // let one consume the other's assertion ID.
+  assert.match(federation, /ledgerFor\(tenantId\)/);
+  assert.doesNotMatch(federation, /let boundTenant/);
+
+  // Pruning is strictly past the window: removing an entry whose assertion is
+  // still valid would reopen the replay it exists to close.
+  assert.match(federation, /not_on_or_after < \$1/);
+
+  // No vendor is named in the federation *code*. Connecting a different IdP is
+  // a configuration row, which is the whole point of the generic provider
+  // keys. Comments may discuss a vendor -- explaining why it is not hardcoded
+  // is the opposite of hardcoding it -- so they are stripped before the check.
+  const library = await readFile('packages/federation/src/index.ts', 'utf8');
+  const withoutComments = (source) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  for (const source of [federation, library]) {
+    assert.doesNotMatch(withoutComments(source), /MobilityGuard|Entra|Okta|PingFederate/i);
+  }
+
+  // And the in-memory ledger is documented as what it is, so nobody reaches
+  // for it in production by accident.
+  assert.match(library, /export class InMemoryAssertionLedger/);
+  assert.match(library, /loses every consumed ID on restart/);
+});
+
+// --- Prometheus exposition ---------------------------------------------------
+
+test('every alert rule watches a series this system actually emits', async () => {
+  const rules = await readFile('infrastructure/monitoring/prometheus-alerts.yaml', 'utf8');
+  const referenced = new Set([...rules.matchAll(/kommunsign_[a-z0-9_]+/g)].map((match) => match[0]));
+  assert.ok(referenced.size >= 5, 'the alert rules must still reference metrics');
+
+  const declared = new Set([...PROMETHEUS_COUNTERS, ...PROMETHEUS_GAUGES]);
+  for (const series of referenced) {
+    // An alert watching a series nobody produces is worse than no alert,
+    // because a silent alert reads as "nothing is wrong". Every one of the five
+    // rules was in exactly that state before this endpoint existed.
+    assert.ok(declared.has(series), `${series} is alerted on but not even declared`);
+  }
+
+  // Declared is not the same as fed. The exporter is checked against what the
+  // repository actually queries, so a name added to the catalogue without a
+  // query behind it does not quietly satisfy the check above.
+  const repository = await readFile('apps/api/src/production-adapters/postgres/metrics-repository.ts', 'utf8');
+  const unfed = new Set(PROMETHEUS_UNFED_SERIES);
+  for (const series of [...PROMETHEUS_COUNTERS, ...PROMETHEUS_GAUGES]) {
+    const fed = repository.includes(`'${series}'`);
+    if (fed) {
+      assert.ok(!unfed.has(series), `${series} is fed but still listed as unfed`);
+      continue;
+    }
+    // A series may be declared and unfed, but only if it says so out loud —
+    // and then the requirement matrix has to carry the same admission.
+    assert.ok(unfed.has(series), `${series} is declared but nothing produces it, and it is not listed as unfed`);
+  }
+
+  const blockers = await readFile('docs/compliance/kungalv/EXTERNAL_EVIDENCE_BLOCKERS.md', 'utf8');
+  for (const series of PROMETHEUS_UNFED_SERIES) {
+    assert.match(blockers, /[Bb]ackup/, `${series} is unfed, so the gap must be recorded as an external blocker`);
+  }
+});
+
+test('the exposition escapes label values and omits what it could not compute', () => {
+  const rendered = renderPrometheus(
+    [{ name: 'kommunsign_signature_attempts_total', value: 3, labels: { outcome: 'failed' } }],
+    [
+      { name: 'kommunsign_webhook_queue_oldest_age_seconds', value: 42 },
+      // A metric that could not be computed is omitted. Emitting NaN fails the
+      // whole scrape, taking every other series down with it.
+      { name: 'kommunsign_worker_queue_depth', value: Number.NaN, labels: { queue: 'EMAIL_SEND' } },
+      { name: 'kommunsign_cases_awaiting_completion', value: Number.POSITIVE_INFINITY },
+    ],
+  );
+
+  assert.match(rendered, /# TYPE kommunsign_signature_attempts_total counter/);
+  assert.match(rendered, /# TYPE kommunsign_webhook_queue_oldest_age_seconds gauge/);
+  assert.match(rendered, /kommunsign_signature_attempts_total\{outcome="failed"\} 3/);
+  assert.doesNotMatch(rendered, /NaN|Inf/);
+
+  // HELP and TYPE appear once per family. Repeating them per series makes
+  // Prometheus reject the whole scrape rather than skip the duplicate.
+  assert.equal(rendered.match(/# TYPE kommunsign_signature_attempts_total/g).length, 1);
+
+  // A quote in a label value would otherwise end the label early and the rest
+  // would parse as further labels — a scrape reporting the wrong series.
+  const escaped = renderPrometheus([], [{ name: 'kommunsign_worker_queue_depth', value: 1, labels: { queue: 'a"b\nc' } }]);
+  assert.match(escaped, /queue="a\\"b\\nc"/);
+
+  // Two renders of the same input are byte-identical, so a diff between
+  // scrapes is about the values rather than about map ordering.
+  const input = [{ name: 'kommunsign_worker_queue_depth', value: 2, labels: { queue: 'b' } }, { name: 'kommunsign_worker_queue_depth', value: 1, labels: { queue: 'a' } }];
+  assert.equal(renderPrometheus([], input), renderPrometheus([], [...input].reverse()));
+});
+
+test('a metric label can never carry a case id or a personal number', () => {
+  // The allow-list is the real control: a high-cardinality label both destroys
+  // the metrics backend and quietly turns the scrape into an unredacted export.
+  assert.throws(
+    () => renderPrometheus([], [{ name: 'kommunsign_worker_queue_depth', value: 1, labels: { caseId: 'abc' } }]),
+    /not allowed/,
+  );
+  assert.throws(
+    () => renderPrometheus([], [{ name: 'kommunsign_worker_queue_depth', value: 1, labels: { tenant: '19850101-1234' } }]),
+    /personal number/,
+  );
+});
+
+test('the scrape endpoint is absent by default and refuses a wrong credential', async () => {
+  const router = await readFile('apps/api/src/router.ts', 'utf8');
+  // Absent rather than open when unconfigured: an accidentally public /metrics
+  // leaks cross-tenant operational state, and nothing looks wrong while it does.
+  assert.match(router, /if \(!dependencies\.metrics\) return null;/);
+  // Compared over digests, so a wrong token cannot be told from a nearly-right
+  // one by how long the rejection took.
+  assert.match(router, /sha256Hex\(new TextEncoder\(\)\.encode\(presented\)\)/);
+  assert.match(router, /presentedDigest !== expectedDigest/);
+  assert.match(router, /text\/plain; version=0\.0\.4/);
+
+  const wiring = await readFile('apps/api/src/production-adapters/postgres/index.ts', 'utf8');
+  assert.match(wiring, /scrapeToken\.length < 32/, 'a short or empty token must not enable the endpoint');
+
+  // Everything is read from the databases at scrape time. A process-local
+  // counter restarts at zero on deploy, which increase() reads as a reset.
+  const repository = await readFile('apps/api/src/production-adapters/postgres/metrics-repository.ts', 'utf8');
+  assert.doesNotMatch(repository, /new Map\(\)[\s\S]{0,80}\+= 1|let total = 0/);
+  assert.match(repository, /from app\.signature_attempts/);
+  assert.match(repository, /tenant\.access\.cross_tenant_attempt/);
+});
+
+// --- Delivering the finished document ---------------------------------------
+
+test('a download link is coarsened before it is recorded, and reveals nothing when it fails', async () => {
+  const { truncateClientAddress, userAgentFamily } = await import('../dist/apps/api/src/production-adapters/postgres/delivery-repository.js');
+
+  // A full client address is personal data retained for a purpose nobody
+  // stated. A /24 still answers the only question the trail has to answer:
+  // "same office twice" versus "this link is being passed around".
+  assert.equal(truncateClientAddress('192.0.2.147'), '192.0.2.0/24');
+  assert.equal(truncateClientAddress('2001:db8:1234:5678::1'), '2001:db8:1234::/48');
+  assert.equal(truncateClientAddress(''), undefined);
+  assert.equal(truncateClientAddress('not-an-address'), undefined);
+
+  // A full user agent is a fingerprint; a family is not.
+  assert.equal(userAgentFamily('Mozilla/5.0 (X11) Firefox/128.0'), 'firefox');
+  assert.equal(userAgentFamily('Mozilla/5.0 Chrome/126 Safari/537'), 'chrome');
+  assert.equal(userAgentFamily(null), undefined);
+
+  const repository = await readFile('apps/api/src/production-adapters/postgres/delivery-repository.ts', 'utf8');
+  // Redemption is one conditional UPDATE, not read-then-write: two concurrent
+  // fetches must not both see the last remaining use and both take it.
+  assert.match(repository, /update app\.document_download_grants[\s\S]{0,400}use_count < maximum_uses/);
+  assert.doesNotMatch(repository, /select[\s\S]{0,200}from app\.document_download_grants[\s\S]{0,200}update app\.document_download_grants/);
+  // The token is stored only as a hash, so a leaked database is not a set of
+  // working download links.
+  assert.match(repository, /token_hash/);
+  assert.doesNotMatch(repository, /token text|token: token,\s*\n\s*tokenHash/);
+
+  const router = await readFile('apps/api/src/router.ts', 'utf8');
+  // Unknown, expired, revoked and spent are one answer. Distinguishing them
+  // would tell a probing caller which links once existed.
+  assert.match(router, /DOWNLOAD_LINK_INVALID/);
+  assert.match(router, /if \(!redeemed\) throw new ApiRequestError\('DOWNLOAD_LINK_INVALID'/);
+  // Issuing a shareable link is a disclosure, so it needs the download grant.
+  assert.match(router, /download-links[\s\S]{0,300}authorize\(dependencies, context, 'document:download'\)/);
+});
+
+test('a case cannot be created already completed', async () => {
+  const migration = await readFile('migrations/data/0028_completion_guards_cover_insert.sql', 'utf8');
+  // Every completion guard was BEFORE UPDATE OF status. Verified against a live
+  // database: a case with no signers, no evidence package and no signature
+  // chain inserted cleanly as completed. Migration 0021 exists to make that
+  // impossible, and the promise had an INSERT-shaped hole in it.
+  assert.match(migration, /BEFORE INSERT ON app\.signature_cases/);
+  assert.match(migration, /BEFORE INSERT ON app\.signers/);
+  assert.match(migration, /BEFORE INSERT ON app\.document_versions/);
+  assert.match(migration, /case cannot be created already completed/);
+
+  const suite = await readFile('tests/sql/document-delivery.sql', 'utf8');
+  assert.match(suite, /a case was created already completed/, 'the guard needs a live-database check, not only a migration');
+});
+
+// --- Federated login over the wire ------------------------------------------
+
+const FED_ROUTE_TENANT = '21212121-2121-4121-8121-212121212121';
+const FED_REQUEST_ID = '_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+function federationDoubles(overrides = {}) {
+  const started = [];
+  const consumed = [];
+  const config = {
+    tenantId: FED_ROUTE_TENANT, protocol: 'SAML2', enabled: true,
+    issuer: 'https://idp.kungalv.se/saml',
+    audience: 'https://kungalv.kommunsign.se/sp',
+    destination: 'https://kungalv.kommunsign.se/auth/federation/GENERIC_SAML/acs',
+    signingCertificateSecretReference: 'vault://idp-cert',
+    requiredAuthnContexts: [], maximumAuthenticationAgeSeconds: 3600,
+    subjectAttribute: 'uid', groupsAttribute: 'memberOf',
+    groupToRole: { 'CN=Kommunsign-Handlaggare': 'document_creator' },
+    assignableRoles: ['document_creator'],
+    ...(overrides.config ?? {}),
+  };
+  const seen = new Set();
+  const federation = {
+    async configFor() { return overrides.noConfig ? null : config; },
+    async startLogin(input) { started.push(input); },
+    async consumeLogin(requestId) {
+      consumed.push(requestId);
+      if (overrides.loginMissing) return null;
+      // Single use, exactly as the conditional update in the repository is.
+      if (seen.has(requestId)) return null;
+      seen.add(requestId);
+      return {
+        tenantId: FED_ROUTE_TENANT, requestId, providerKey: 'GENERIC_SAML',
+        environment: 'production', redirectUri: config.destination, returnPath: '/arenden',
+      };
+    },
+    ledgerFor() { return { async consume() { return true; } }; },
+    async pruneLedger() { return 0; },
+    async pruneLoginRequests() { return 0; },
+  };
+  const now = new Date();
+  const report = {
+    result: 'PASS', signatureVerified: true,
+    assertionId: '_assertion-1', issuer: config.issuer, audience: config.audience,
+    destination: config.destination, inResponseTo: FED_REQUEST_ID,
+    notBefore: new Date(now.getTime() - 60_000).toISOString(),
+    notOnOrAfter: new Date(now.getTime() + 300_000).toISOString(),
+    authenticatedAt: new Date(now.getTime() - 30_000).toISOString(),
+    authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:MultiFactor',
+    subject: 'anna.andersson',
+    attributes: { uid: ['anna.andersson'], memberOf: ['CN=Kommunsign-Handlaggare'] },
+    ...(overrides.report ?? {}),
+  };
+  return {
+    started, consumed, config,
+    dependencies: {
+      federation,
+      federationValidation: { async validateSaml() { return report; }, async validateOidc() { return report; } },
+      federationTrust: overrides.noTrust ? async () => null : async () => 'Y2VydA==',
+      reportError() {},
+    },
+  };
+}
+
+const acsRequest = (relayState = FED_REQUEST_ID, samlResponse = 'PHNhbWw+') =>
+  new Request('https://api.kommunsign.se/auth/federation/GENERIC_SAML/acs', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ SAMLResponse: samlResponse, RelayState: relayState }).toString(),
+  });
+
+test('a federated login must answer a request this system started', async () => {
+  const doubles = federationDoubles();
+
+  // Starting a login records the binding. Held only in memory it would be lost
+  // on restart and unknown to other instances, so the only flows that worked
+  // would be the IdP-initiated ones the decision layer refuses.
+  const start = await handleFederationRequest(doubles.dependencies, new Request(
+    `https://api.kommunsign.se/auth/federation/GENERIC_SAML/login?tenantId=${FED_ROUTE_TENANT}&returnPath=/arenden`,
+    { method: 'POST' },
+  ), 'r1');
+  assert.equal(start.status, 201);
+  assert.equal(doubles.started.length, 1);
+  assert.match(doubles.started[0].requestId, /^_/, 'a SAML ID may not start with a digit');
+  assert.equal(doubles.started[0].returnPath, '/arenden');
+
+  const accepted = await handleFederationRequest(doubles.dependencies, acsRequest(), 'r2');
+  assert.equal(accepted.status, 200);
+  const identity = await accepted.json();
+  assert.equal(identity.tenantId, FED_ROUTE_TENANT, 'the tenant comes from the login we recorded');
+  assert.deepEqual(identity.roles, ['document_creator']);
+  assert.equal(identity.returnPath, '/arenden');
+
+  // Replaying the same assertion answers a login that no longer exists.
+  const replayed = await handleFederationRequest(doubles.dependencies, acsRequest(), 'r3');
+  assert.equal(replayed.status, 401);
+  assert.equal((await replayed.json()).error.code, 'FEDERATION_LOGIN_REQUEST_INVALID');
+});
+
+test('an assertion with no login behind it is refused, and unknown is indistinguishable from expired', async () => {
+  const missing = federationDoubles({ loginMissing: true });
+  const response = await handleFederationRequest(missing.dependencies, acsRequest(), 'r4');
+  assert.equal(response.status, 401);
+  // Unknown, expired and already-answered are one answer. Telling them apart
+  // would confirm which request ids existed.
+  assert.equal((await response.json()).error.code, 'FEDERATION_LOGIN_REQUEST_INVALID');
+
+  // A RelayState that is not one of ours never reaches the store at all.
+  const malformed = federationDoubles();
+  const bad = await handleFederationRequest(malformed.dependencies, acsRequest('../../etc/passwd'), 'r5');
+  assert.equal(bad.status, 400);
+  assert.equal(malformed.consumed.length, 0);
+});
+
+test('federated login fails closed when the IdP certificate is not configured', async () => {
+  // Without the configured certificate the only verifiable claim is that the
+  // message signed itself, which is what anybody with a text editor can do.
+  const doubles = federationDoubles({ noTrust: true });
+  const response = await handleFederationRequest(doubles.dependencies, acsRequest(), 'r6');
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, 'FEDERATION_TRUST_NOT_CONFIGURED');
+
+  // And when nothing is configured at all, the endpoint refuses rather than
+  // accepting an assertion it cannot check.
+  const unconfigured = await handleFederationRequest({ reportError() {} }, acsRequest(), 'r7');
+  assert.equal(unconfigured.status, 503);
+  assert.equal((await unconfigured.json()).error.code, 'FEDERATION_NOT_CONFIGURED');
+});
+
+test('a report that did not verify the signature can never become an accepted login', async () => {
+  for (const report of [
+    { result: 'FAIL', signatureVerified: false, reason: 'SIGNER_NOT_TRUSTED' },
+    // The dangerous one: a PASS with the flag missing. Defaulting it to true
+    // would make every check below it meaningless.
+    { result: 'PASS', signatureVerified: false },
+  ]) {
+    const doubles = federationDoubles({ report });
+    const response = await handleFederationRequest(doubles.dependencies, acsRequest(), 'r8');
+    assert.equal(response.status, 401);
+    assert.equal((await response.json()).error.code, 'FEDERATION_SIGNATURE_NOT_VERIFIED');
+  }
+
+  // A missing validity window is not a permissive one.
+  const noWindow = federationDoubles({ report: { notOnOrAfter: null } });
+  const expired = await handleFederationRequest(noWindow.dependencies, acsRequest(), 'r9');
+  assert.equal(expired.status, 401);
+  assert.equal((await expired.json()).error.code, 'FEDERATION_ASSERTION_EXPIRED');
+
+  // An assertion with no id cannot be consumed, so it cannot be replay-protected.
+  const noId = federationDoubles({ report: { assertionId: null } });
+  const unconsumable = await handleFederationRequest(noId.dependencies, acsRequest(), 'r10');
+  assert.equal(unconsumable.status, 401);
+});
+
+test('the ACS refuses an assertion minted for another endpoint or another service provider', async () => {
+  const wrongAudience = federationDoubles({ report: { audience: 'https://someone-else.example/sp' } });
+  const audience = await handleFederationRequest(wrongAudience.dependencies, acsRequest(), 'r11');
+  assert.equal(audience.status, 401);
+  assert.equal((await audience.json()).error.code, 'FEDERATION_AUDIENCE_MISMATCH');
+
+  const wrongDestination = federationDoubles({ report: { destination: 'https://evil.example/acs' } });
+  const destination = await handleFederationRequest(wrongDestination.dependencies, acsRequest(), 'r12');
+  assert.equal(destination.status, 401);
+  assert.equal((await destination.json()).error.code, 'FEDERATION_DESTINATION_MISMATCH');
+
+  // An assertion that answers a different login than the one we consumed.
+  const wrongRequest = federationDoubles({ report: { inResponseTo: '_someone-elses-request' } });
+  const mismatched = await handleFederationRequest(wrongRequest.dependencies, acsRequest(), 'r13');
+  assert.equal(mismatched.status, 401);
+  assert.equal((await mismatched.json()).error.code, 'FEDERATION_REQUEST_MISMATCH');
+});
+
+test('the login endpoint will not become an open redirect', async () => {
+  const doubles = federationDoubles();
+  for (const returnPath of ['//evil.example/steal', 'https://evil.example', '/\\evil.example']) {
+    const response = await handleFederationRequest(doubles.dependencies, new Request(
+      `https://api.kommunsign.se/auth/federation/GENERIC_SAML/login?tenantId=${FED_ROUTE_TENANT}&returnPath=${encodeURIComponent(returnPath)}`,
+      { method: 'POST' },
+    ), 'r14');
+    // An open redirect on a login endpoint is exactly where phishing wants one,
+    // and `//host` is protocol-relative: a browser follows it off-site.
+    assert.equal(response.status, 400, `${returnPath} must be refused`);
+    assert.equal((await response.json()).error.code, 'FEDERATION_RETURN_PATH_INVALID');
+  }
+  assert.equal(doubles.started.length, 0);
+});
+
+test('signature verification lives in the validation service, not in the router', async () => {
+  const router = await readFile('apps/api/src/federation-router.ts', 'utf8');
+  // The router must not verify crypto itself: one implementation, in the place
+  // that already has the XML-DSig machinery and its own tests.
+  assert.doesNotMatch(router, /createVerify|XMLSignature|crypto\.subtle\.verify/);
+  assert.match(router, /validation\.validateSaml/);
+  // And the tenant is taken from the recorded login, never from the assertion.
+  assert.match(router, /tenantId: login\.tenantId/);
+  assert.doesNotMatch(router, /tenantId: (?:report|assertion)\./);
+
+  const validator = await readFile('services/validation-service/src/main/java/se/kommunsign/validation/SamlAssertionValidator.java', 'utf8');
+  // The configured certificate is compared before anything is read from the
+  // message. KeyInfo is attacker-supplied.
+  assert.match(validator, /SIGNER_IS_CONFIGURED_IDP/);
+  assert.match(validator, /EXTERNAL_REFERENCE_FORBIDDEN/);
+  assert.match(validator, /disallow-doctype-decl/);
+});
+
+const callbackRequest = (state = FED_REQUEST_ID, idToken = 'header.payload.signature') =>
+  new Request(`https://api.kommunsign.se/auth/federation/GENERIC_OIDC/callback?state=${encodeURIComponent(state)}&id_token=${encodeURIComponent(idToken)}`);
+
+test('OIDC reaches the same decision layer as SAML, and the endpoint cannot pick the protocol', async () => {
+  const oidcConfig = {
+    protocol: 'OIDC',
+    destination: 'https://kungalv.kommunsign.se/auth/federation/GENERIC_OIDC/callback',
+  };
+  const doubles = federationDoubles({
+    config: oidcConfig,
+    report: { protocol: 'OIDC', destination: null },
+  });
+  // The double's consumeLogin returns the SAML redirectUri, so line it up with
+  // the OIDC endpoint the token was actually received at.
+  const original = doubles.dependencies.federation.consumeLogin;
+  doubles.dependencies.federation.consumeLogin = async (requestId) => {
+    const login = await original(requestId);
+    return login ? { ...login, providerKey: 'GENERIC_OIDC', redirectUri: oidcConfig.destination } : null;
+  };
+
+  const accepted = await handleFederationRequest(doubles.dependencies, callbackRequest(), 'r20');
+  assert.equal(accepted.status, 200);
+  const identity = await accepted.json();
+  assert.equal(identity.protocol, 'OIDC');
+  assert.deepEqual(identity.roles, ['document_creator'], 'the same mapping, not a second copy of it');
+  assert.equal(identity.tenantId, FED_ROUTE_TENANT);
+
+  // A tenant configured for SAML must not be able to log in with an id_token by
+  // posting to the callback instead — that would be a second, weaker path into
+  // the same account.
+  const samlTenant = federationDoubles();
+  const samlConsume = samlTenant.dependencies.federation.consumeLogin;
+  samlTenant.dependencies.federation.consumeLogin = async (requestId) => {
+    const login = await samlConsume(requestId);
+    // The provider key lines up with the endpoint, so the earlier
+    // provider check does not fire and the protocol check is what is tested.
+    return login ? { ...login, providerKey: 'GENERIC_OIDC' } : null;
+  };
+  const wrongEndpoint = await handleFederationRequest(samlTenant.dependencies, callbackRequest(), 'r21');
+  assert.equal(wrongEndpoint.status, 400);
+  assert.equal((await wrongEndpoint.json()).error.code, 'FEDERATION_PROTOCOL_MISMATCH');
+
+  // A login started for one provider cannot be answered at another's endpoint
+  // either, which is the check that fires first and is worth keeping distinct.
+  const crossProvider = federationDoubles();
+  const mismatchedProvider = await handleFederationRequest(crossProvider.dependencies, callbackRequest(), 'r22');
+  assert.equal(mismatchedProvider.status, 401);
+  assert.equal((await mismatchedProvider.json()).error.code, 'FEDERATION_LOGIN_REQUEST_INVALID');
+});
+
+test('an id_token with no destination is checked against the endpoint we recorded', async () => {
+  const router = await readFile('apps/api/src/federation-router.ts', 'utf8');
+  // An id_token carries no destination claim. Substituting one the token
+  // supplied would defeat the check; the recorded redirect URI is used instead.
+  assert.match(router, /destination: report\.destination \?\? receivedAt/);
+  assert.match(router, /toWorkforceAssertion\(report, config, login\.redirectUri\)/);
+  // The nonce is bound to the login we started, which is the role
+  // InResponseTo plays for SAML — one rule, enforced once.
+  assert.match(router, /expectedNonce: login\.requestId/);
+
+  const validator = await readFile('services/validation-service/src/main/java/se/kommunsign/validation/OidcTokenValidator.java', 'utf8');
+  // A header naming where to fetch the key is refused before verification.
+  assert.match(validator, /ID_TOKEN_SELECTS_ITS_OWN_KEY/);
+  assert.match(validator, /\\"jku\\"/);
+  // Asymmetric algorithms only: an HMAC alg with an RSA public key is the
+  // classic confusion, and the allow-list is what makes `none` unreachable.
+  assert.match(validator, /ALLOWED_ALGORITHMS = Set\.of\("RS256", "ES256"\)/);
+  // auth_time rather than iat, so a fresh token cannot describe an old session.
+  assert.match(validator, /auth_time/);
+
+  // One verifier, shared. Two copies is two places for `alg: none` to be
+  // forgotten.
+  const shared = await readFile('services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java', 'utf8');
+  assert.match(shared, /class CompactJwsVerifier/);
+  assert.match(validator, /import se\.kommunsign\.commons\.CompactJwsVerifier;/);
 });
 
 let failed = 0;

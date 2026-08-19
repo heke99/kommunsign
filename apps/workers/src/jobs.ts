@@ -10,6 +10,12 @@ export type DurableJobType =
   | 'IDENTITY_STATUS_POLL'
   | 'SIGNATURE_CREATE'
   | 'SIGNATURE_VALIDATE'
+  // The two stages that turn verified identity evidence into an admitted
+  // signature. They are separate jobs so that validation can fail on its own:
+  // a handler that signed and then judged its own output would be the same
+  // party twice, which is the opposite of independent validation.
+  | 'PADES_CREATE'
+  | 'PADES_VALIDATE'
   | 'TIC_EVIDENCE_COLLECT'
   | 'EVIDENCE_PACKAGE_BUILD'
   | 'EMAIL_SEND'
@@ -17,7 +23,8 @@ export type DurableJobType =
   | 'REMINDER_SEND'
   | 'CASE_EXPIRE'
   | 'ARCHIVE_EXPORT'
-  | 'RETENTION_EXECUTE';
+  | 'RETENTION_EXECUTE'
+  | 'PRIVACY_REQUEST_EXECUTE';
 
 export interface DurableJob<T = Readonly<Record<string, unknown>>> {
   readonly id: string;

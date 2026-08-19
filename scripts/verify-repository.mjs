@@ -19,12 +19,34 @@ const required = [
   'scripts/verify-deployment-config.mjs','scripts/verify-live-deployment.mjs','RAILWAY_API_RUNTIME_SETUP.md','COMPLETE_WEB_API_FIX_REPORT.md',
   'infrastructure/railway/api.railway.json','infrastructure/railway/workers.railway.json','infrastructure/railway/validation-service.railway.json','infrastructure/railway/runtime-services.json',
   'infrastructure/railway/shared.runtime.env.example','infrastructure/railway/api.env.example','infrastructure/railway/workers.env.example','infrastructure/railway/validation-service.env.example',
+  'services/pom.xml','services/commons/pom.xml','services/signservice/pom.xml','services/validation-service/pom.xml','services/integration-tests/pom.xml',
+  'scripts/build-java-maven.sh','docs/architecture/adr/0004-sweden-connect-signing-backend.md',
+  'infrastructure/railway/signservice.railway.json','infrastructure/railway/signservice.env.example',
+  'infrastructure/docker/signservice.Dockerfile','infrastructure/docker/validation-service.Dockerfile',
 ];
 for (const path of required) await access(path);
 
 const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
 if (workflow.includes('REPLACE_WITH') || /uses:\s+[^@]+@v\d/.test(workflow)) throw new Error('GitHub Actions must be pinned to full SHAs');
 if (/run:\s+echo\s+["'](?:Run|Generate)/.test(workflow)) throw new Error('CI contains a placeholder security step');
+
+// The signing service holds key material. If it were ever published, the blast
+// radius of any other bug in it would be the whole signing chain, so its being
+// private is an invariant rather than a deployment preference.
+const runtimeServices = JSON.parse(await readFile('infrastructure/railway/runtime-services.json', 'utf8'));
+const signService = runtimeServices.services.find((service) => service.name === 'signservice');
+if (!signService) throw new Error('signservice must be a declared runtime service');
+if (signService.public !== false) throw new Error('signservice must never be publicly exposed');
+if (signService.customDomain) throw new Error('signservice must not have a public domain');
+
+// A SNAPSHOT in the build that signs municipal documents means the bytes that
+// produced a signature cannot be reconstructed later.
+for (const pom of ['services/pom.xml','services/signservice/pom.xml','services/validation-service/pom.xml','services/commons/pom.xml','services/integration-tests/pom.xml']) {
+  const contents = await readFile(pom, 'utf8');
+  // Match version elements only. The poms mention SNAPSHOT in the enforcer rule
+  // that forbids it, and a substring check would flag that as the thing it bans.
+  if (/<version>[^<]*SNAPSHOT[^<]*<\/version>/.test(contents)) throw new Error(`${pom} must not reference SNAPSHOT versions`);
+}
 
 const forbiddenExtensions = ['.pem','.key','.p12','.pfx','.jks','.keystore'];
 async function walk(path) {

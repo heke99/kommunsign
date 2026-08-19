@@ -1,5 +1,11 @@
 import { handleOnboardingRequest } from './onboarding-router.js';
 import { handleAuthRequest } from './auth-router.js';
+import { handleScimRequest } from './scim-router.js';
+import { handleFederationRequest } from './federation-router.js';
+import {
+  DEFAULT_GRANT_LIFETIME_SECONDS, MAXIMUM_GRANT_LIFETIME_SECONDS,
+  truncateClientAddress, userAgentFamily,
+} from './production-adapters/postgres/delivery-repository.js';
 import type { Permission } from '../../../packages/authorization/src/index.js';
 import type { ApiErrorBody, TenantContext } from '../../../packages/contracts/src/index.js';
 import { canonicalJson, type CanonicalJsonValue } from '../../../packages/crypto/src/canonical-json.js';
@@ -11,8 +17,9 @@ declare const process: { readonly env: Readonly<Record<string, string | undefine
 
 import type {
   AddDocumentInput, AddSignerInput, ApiDependencies, CreateCaseInput, DownloadArtifact,
-  PageInput, TemplateInput, UploadGrantInput, WebhookEndpointInput,
+  PageInput, RecordPrivacyRequestInput, TemplateInput, UploadGrantInput, WebhookEndpointInput,
 } from './ports.js';
+import type { IssueScimClientInput } from './production-adapters/postgres/scim-repository.js';
 
 const MAX_JSON_BODY_BYTES = 128 * 1024;
 const MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
@@ -245,6 +252,30 @@ async function handlePublicRequest(dependencies: ApiDependencies, request: Reque
     const result = await dependencies.publicVerification.get(verificationMatch[1]);
     return result ? publicJson(result, requestId) : publicJson({ error: { code: 'NOT_FOUND', message: 'Verification was not found', requestId } }, requestId, 404);
   }
+  const downloadMatch = /^\/v1\/public\/downloads\/([A-Za-z0-9_-]{43})$/.exec(url.pathname);
+  if (downloadMatch?.[1] && request.method === 'GET') {
+    if (!dependencies.delivery) throw new ApiRequestError('DELIVERY_NOT_CONFIGURED', 'Document delivery is not configured', 503);
+    // Both are coarsened before they are stored: a full client address and a
+    // full user agent are personal data being retained for a purpose nobody
+    // stated. What the trail has to answer is "same office twice" versus "this
+    // link is being passed around", and a /24 answers that.
+    const network = truncateClientAddress(request.headers.get('x-forwarded-for')?.split(',')[0] ?? null);
+    const agent = userAgentFamily(request.headers.get('user-agent'));
+    const redeemed = await dependencies.delivery.redeem(downloadMatch[1], new Date(), {
+      ...(network ? { network } : {}),
+      ...(agent ? { userAgentFamily: agent } : {}),
+    });
+    // Unknown, expired, revoked and spent are one answer. Distinguishing them
+    // would tell a probing caller which links once existed.
+    if (!redeemed) throw new ApiRequestError('DOWNLOAD_LINK_INVALID', 'This download link is no longer valid', 404);
+    const context = deliveryContext(redeemed.tenantId, requestId);
+    const artifact = redeemed.artifact === 'SIGNED_DOCUMENT'
+      ? await dependencies.cases.signedDocument(context, redeemed.signatureCaseId)
+      : redeemed.artifact === 'VALIDATION_REPORT'
+        ? await dependencies.cases.validationReport(context, redeemed.signatureCaseId)
+        : await dependencies.cases.evidencePackage(context, redeemed.signatureCaseId);
+    return artifactResponse(artifact, requestId);
+  }
   if (url.pathname === '/v1/public/verifications/packages/verify' && request.method === 'POST') {
     assertPublicHost(request, 'verify');
     if (!dependencies.publicVerification) throw new ApiRequestError('PUBLIC_VERIFICATION_NOT_CONFIGURED', 'Public verification is not configured', 503);
@@ -252,6 +283,101 @@ async function handlePublicRequest(dependencies: ApiDependencies, request: Reque
     return publicJson(await dependencies.publicVerification.verifyPackage(bytes), requestId);
   }
   return null;
+}
+
+/**
+ * The context a redeemed download link runs under.
+ *
+ * Deliberately minimal and deployment-sourced: the link proves entitlement to
+ * exactly one artifact of one case, and the repository call it makes is already
+ * scoped to that case. Giving it a membership context would grant far more than
+ * the link was issued for.
+ */
+function deliveryContext(tenantId: string, requestId: string): TenantContext {
+  return { tenantId, subjectId: SYSTEM_DELIVERY_ACTOR, requestId, authMethod: 'magic_link', source: 'deployment' };
+}
+const SYSTEM_DELIVERY_ACTOR = '00000000-0000-0000-0000-000000000000';
+
+const DELIVERY_ARTIFACTS = ['SIGNED_DOCUMENT', 'VALIDATION_REPORT', 'EVIDENCE_PACKAGE'] as const;
+
+function parseDownloadLinkInput(value: unknown): {
+  readonly artifact: 'SIGNED_DOCUMENT' | 'VALIDATION_REPORT' | 'EVIDENCE_PACKAGE';
+  readonly lifetimeSeconds: number;
+  readonly maximumUses: number;
+  readonly signerId?: string;
+} {
+  assertPlainObject(value);
+  assertAllowedKeys(value, ['artifact', 'lifetimeSeconds', 'maximumUses', 'signerId']);
+  const artifact = value.artifact ?? 'SIGNED_DOCUMENT';
+  if (typeof artifact !== 'string' || !DELIVERY_ARTIFACTS.includes(artifact as never)) {
+    throw new ApiRequestError('VALIDATION_ERROR', 'artifact is invalid', 422, { field: 'artifact' });
+  }
+  const lifetimeSeconds = value.lifetimeSeconds === undefined ? DEFAULT_GRANT_LIFETIME_SECONDS : value.lifetimeSeconds;
+  if (typeof lifetimeSeconds !== 'number' || !Number.isSafeInteger(lifetimeSeconds)
+      || lifetimeSeconds < 60 || lifetimeSeconds > MAXIMUM_GRANT_LIFETIME_SECONDS) {
+    throw new ApiRequestError('DOWNLOAD_GRANT_LIFETIME_INVALID', 'lifetimeSeconds is outside the permitted range', 422);
+  }
+  const maximumUses = value.maximumUses === undefined ? 5 : value.maximumUses;
+  if (typeof maximumUses !== 'number' || !Number.isSafeInteger(maximumUses) || maximumUses < 1 || maximumUses > 50) {
+    throw new ApiRequestError('VALIDATION_ERROR', 'maximumUses must be between 1 and 50', 422, { field: 'maximumUses' });
+  }
+  const signerId = value.signerId === undefined || value.signerId === null
+    ? undefined : requireUuid(requireString(value.signerId, 'signerId', 36, 36), 'signerId');
+  return {
+    artifact: artifact as 'SIGNED_DOCUMENT' | 'VALIDATION_REPORT' | 'EVIDENCE_PACKAGE',
+    lifetimeSeconds, maximumUses, ...(signerId ? { signerId } : {}),
+  };
+}
+
+function parseScimClientInput(value: unknown): IssueScimClientInput {
+  assertPlainObject(value);
+  assertAllowedKeys(value, ['displayName', 'assignableRoles', 'groupToRole']);
+  const displayName = requireString(value.displayName, 'displayName', 1, 120);
+  if (!Array.isArray(value.assignableRoles) || value.assignableRoles.length === 0) {
+    throw new ApiRequestError('VALIDATION_ERROR', 'assignableRoles must list at least one role', 422, { field: 'assignableRoles' });
+  }
+  const assignableRoles = value.assignableRoles.map((role, index) => requireString(role, `assignableRoles[${index}]`, 1, 64));
+  const groupToRole: Record<string, string> = {};
+  if (value.groupToRole !== undefined) {
+    assertPlainObject(value.groupToRole);
+    for (const [group, role] of Object.entries(value.groupToRole)) {
+      // Group values are compared verbatim against what the directory sends,
+      // so they are length-checked but never normalised: case-folding a
+      // distinguished name can collide two genuinely distinct groups.
+      if (group.length < 1 || group.length > 512) {
+        throw new ApiRequestError('VALIDATION_ERROR', 'A group value is out of range', 422, { field: 'groupToRole' });
+      }
+      groupToRole[group] = requireString(role, 'groupToRole', 1, 64);
+    }
+  }
+  return { displayName, assignableRoles, groupToRole };
+}
+
+const DATA_SUBJECT_RIGHTS = ['ACCESS', 'RECTIFICATION', 'RESTRICTION', 'ERASURE', 'PORTABILITY'] as const;
+const IDENTITY_ASSURANCE_LEVELS = ['LOW', 'SUBSTANTIAL', 'HIGH'] as const;
+
+function parsePrivacyRequestInput(value: unknown): RecordPrivacyRequestInput {
+  assertPlainObject(value);
+  assertAllowedKeys(value, ['right', 'subjectIdentifier', 'identityMethod', 'identityAssurance']);
+  if (typeof value.right !== 'string' || !DATA_SUBJECT_RIGHTS.includes(value.right as never)) {
+    throw new ApiRequestError('VALIDATION_ERROR', 'right is invalid', 422, { field: 'right' });
+  }
+  if (typeof value.identityAssurance !== 'string' || !IDENTITY_ASSURANCE_LEVELS.includes(value.identityAssurance as never)) {
+    throw new ApiRequestError('VALIDATION_ERROR', 'identityAssurance is invalid', 422, { field: 'identityAssurance' });
+  }
+  // The strong-identity rights are rejected here as well as in the database.
+  // Releasing a register extract to an address someone happens to control is a
+  // personal data breach in itself, so the caller learns it at the edge rather
+  // than after the request is already on file.
+  if (['ACCESS', 'ERASURE', 'PORTABILITY', 'RECTIFICATION'].includes(value.right) && value.identityAssurance !== 'HIGH') {
+    throw new ApiRequestError('PRIVACY_IDENTITY_ASSURANCE_TOO_LOW', 'This right requires a strongly verified identity', 422);
+  }
+  return {
+    right: value.right as RecordPrivacyRequestInput['right'],
+    subjectIdentifier: requireString(value.subjectIdentifier, 'subjectIdentifier', 1, 320),
+    identityMethod: requireString(value.identityMethod, 'identityMethod', 1, 120),
+    identityAssurance: value.identityAssurance as RecordPrivacyRequestInput['identityAssurance'],
+  };
 }
 
 function parseCreateCaseInput(value: unknown): CreateCaseInput {
@@ -318,6 +444,30 @@ function parseUploadInput(value: unknown): UploadGrantInput {
     throw new ApiRequestError('VALIDATION_ERROR', 'Upload metadata is invalid or forbidden by policy', 422);
   }
 }
+
+/**
+ * Validates a gallring request.
+ *
+ * The case list is bounded because gallring is irreversible and a single
+ * request that named tens of thousands of cases would be impossible for the
+ * approver to meaningfully review before authorising it.
+ */
+function parseGallringInput(body: unknown): { readonly policyKey: string; readonly caseIds: readonly string[] } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ApiRequestError('RETENTION_REQUEST_INVALID', 'A gallring request object is required', 400);
+  const record = body as Record<string, unknown>;
+  const policyKey = record.policyKey;
+  if (typeof policyKey !== 'string' || !/^[a-z][a-z0-9_.-]{1,63}$/.test(policyKey)) {
+    throw new ApiRequestError('RETENTION_POLICY_KEY_INVALID', 'A policyKey is required', 400);
+  }
+  const caseIds = record.caseIds;
+  if (!Array.isArray(caseIds) || caseIds.length === 0 || caseIds.length > 500) {
+    throw new ApiRequestError('RETENTION_CASE_LIST_INVALID', 'Between 1 and 500 caseIds are required', 400);
+  }
+  const parsed = caseIds.map((value, index) => requireUuid(typeof value === 'string' ? value : '', `caseIds[${index}]`));
+  if (new Set(parsed).size !== parsed.length) throw new ApiRequestError('RETENTION_CASE_LIST_INVALID', 'caseIds must be unique', 400);
+  return { policyKey, caseIds: parsed };
+}
+
 function parseWebhookInput(value: unknown): WebhookEndpointInput {
   assertPlainObject(value);
   assertAllowedKeys(value, ['url', 'subscribedEvents']);
@@ -394,19 +544,80 @@ function mapKnownError(cause: unknown): ApiRequestError | null {
     HOST_NOT_ALLOWED: [421, 'HOST_NOT_ALLOWED'],
     SIGNATURE_POLICY_NOT_FOUND: [404, 'SIGNATURE_POLICY_NOT_FOUND'],
     SIGNATURE_POLICY_DECISION_MODE_MISMATCH: [422, 'SIGNATURE_POLICY_DECISION_MODE_MISMATCH'],
+    DOWNLOAD_GRANT_NOT_FOUND: [404, 'DOWNLOAD_GRANT_NOT_FOUND'],
+    DOWNLOAD_GRANT_LIFETIME_INVALID: [422, 'DOWNLOAD_GRANT_LIFETIME_INVALID'],
+    DOWNLOAD_GRANT_CASE_NOT_COMPLETED: [409, 'DOWNLOAD_GRANT_CASE_NOT_COMPLETED'],
+    PRIVACY_REQUEST_NOT_FOUND: [404, 'PRIVACY_REQUEST_NOT_FOUND'],
+    PRIVACY_REQUEST_CLOSED: [409, 'PRIVACY_REQUEST_CLOSED'],
+    PRIVACY_REQUEST_CONFLICT: [409, 'PRIVACY_REQUEST_CONFLICT'],
   };
   const mapped = mappings[cause.message];
   return mapped ? new ApiRequestError(mapped[1], mapped[1].replace(/_/g, ' '), mapped[0]) : null;
+}
+
+/**
+ * The scrape endpoint.
+ *
+ * Internal, never public. It exposes cross-tenant operational state — queue
+ * depths, certificate expiries, per-tenant series — which is exactly what an
+ * operator needs and exactly what a customer must not see. Access is a bearer
+ * token held by the monitoring system; without one configured the endpoint does
+ * not exist at all, which is the right default for something whose accidental
+ * exposure is silent.
+ */
+async function handleMetricsRequest(
+  dependencies: ApiDependencies,
+  request: Request,
+  requestId: string,
+): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (url.pathname !== '/metrics') return null;
+  if (!dependencies.metrics) return null;
+  if (request.method !== 'GET') return error('METHOD_NOT_ALLOWED', 'Only GET is supported', requestId, 405);
+
+  // Constant-time comparison over digests, so a wrong token cannot be
+  // distinguished from a nearly-right one by how long the rejection took.
+  const presented = /^Bearer\s+(.+)$/.exec(request.headers.get('authorization') ?? '')?.[1] ?? '';
+  const expected = dependencies.metrics.scrapeToken;
+  const [presentedDigest, expectedDigest] = await Promise.all([
+    sha256Hex(new TextEncoder().encode(presented)),
+    sha256Hex(new TextEncoder().encode(expected)),
+  ]);
+  if (presentedDigest !== expectedDigest) {
+    return error('UNAUTHORIZED', 'A scrape credential is required', requestId, 401);
+  }
+
+  const body = await dependencies.metrics.render(new Date());
+  return new Response(body, {
+    status: 200,
+    headers: {
+      // The version suffix is what tells Prometheus this is the text exposition
+      // format rather than something it should try to parse as OpenMetrics.
+      'content-type': 'text/plain; version=0.0.4; charset=utf-8',
+      'cache-control': 'no-store',
+      'x-request-id': requestId,
+    },
+  });
 }
 
 export function createApiHandler(dependencies: ApiDependencies): (request: Request) => Promise<Response> {
   return async (request: Request): Promise<Response> => {
     const requestId = requestIdFrom(request);
     try {
+      const metricsResponse = await handleMetricsRequest(dependencies, request, requestId);
+      if (metricsResponse) return metricsResponse;
       const publicResponse = await handlePublicRequest(dependencies, request, requestId);
       if (publicResponse) return publicResponse;
       const authResponse = await handleAuthRequest(dependencies, request, requestId);
       if (authResponse) return authResponse;
+      // Before resolveContext: a directory pushing users has no session, and
+      // SCIM authenticates with its own tenant-scoped provisioning credential.
+      const scimResponse = await handleScimRequest(dependencies, request, requestId);
+      if (scimResponse) return scimResponse;
+      // Also before resolveContext: an assertion is the credential, so there is
+      // no session yet when the ACS is called.
+      const federationResponse = await handleFederationRequest(dependencies, request, requestId);
+      if (federationResponse) return federationResponse;
       const onboardingResponse = await handleOnboardingRequest(dependencies, request, requestId);
       if (onboardingResponse) return onboardingResponse;
       const context = await dependencies.resolveContext(request);
@@ -445,6 +656,147 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
         const idempotencyKey = requireIdempotencyKey(request);
         const input = parseWebhookInput(await readJson(request));
         return json(await dependencies.webhooks.createEndpoint(context, input, idempotencyKey, await canonicalPayloadHash(input)), 201, { 'x-request-id': requestId });
+      }
+      const rotateMatch = /^\/v1\/webhook-endpoints\/([^/]+)\/rotate-secret$/.exec(url.pathname);
+      if (request.method === 'POST' && rotateMatch) {
+        await authorize(dependencies, context, 'webhook:manage');
+        const endpointId = requireUuid(rotateMatch[1] ?? '', 'webhookEndpointId');
+        const body = await readJson(request).catch(() => ({}));
+        // The overlap window keeps the previous secret valid so a rotation does
+        // not reject deliveries already in flight. Default is generous because
+        // the alternative failure — a subscriber silently dropping events — is
+        // much harder for them to notice than a key they rotated on purpose.
+        const overlapSeconds = typeof (body as { overlapSeconds?: unknown }).overlapSeconds === 'number'
+          ? Number((body as { overlapSeconds: number }).overlapSeconds) : 3600;
+        if (!Number.isSafeInteger(overlapSeconds) || overlapSeconds < 0 || overlapSeconds > 86_400) {
+          throw new ApiRequestError('WEBHOOK_ROTATION_OVERLAP_INVALID', 'overlapSeconds must be between 0 and 86400', 400);
+        }
+        return json(await dependencies.webhooks.rotateSecret(context, endpointId, overlapSeconds), 200, { 'x-request-id': requestId });
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/webhook-deliveries') {
+        await authorize(dependencies, context, 'webhook:manage');
+        const status = url.searchParams.get('status') ?? undefined;
+        if (status !== undefined && !['pending','delivering','delivered','failed','dead_letter'].includes(status)) {
+          throw new ApiRequestError('WEBHOOK_DELIVERY_STATUS_INVALID', 'Unknown delivery status', 400);
+        }
+        return json(await dependencies.webhooks.listDeliveries(context, pageInput(url), status), 200, { 'x-request-id': requestId });
+      }
+      const replayMatch = /^\/v1\/webhook-deliveries\/([^/]+)\/replay$/.exec(url.pathname);
+      if (request.method === 'POST' && replayMatch) {
+        await authorize(dependencies, context, 'webhook:manage');
+        const deliveryId = requireUuid(replayMatch[1] ?? '', 'webhookDeliveryId');
+        return json(await dependencies.webhooks.replayDelivery(context, deliveryId), 202, { 'x-request-id': requestId });
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/retention/preview') {
+        await authorize(dependencies, context, 'retention:manage');
+        if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
+        const policyKey = url.searchParams.get('policyKey');
+        if (!policyKey || !/^[a-z][a-z0-9_.-]{1,63}$/.test(policyKey)) {
+          throw new ApiRequestError('RETENTION_POLICY_KEY_INVALID', 'A policyKey is required', 400);
+        }
+        // Preview is deliberately a read. Gallring is irreversible, so the step
+        // that shows what would be destroyed must never destroy anything itself.
+        return json(await dependencies.retention.preview(context, policyKey), 200, { 'x-request-id': requestId });
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/retention/jobs') {
+        await authorize(dependencies, context, 'retention:manage');
+        if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
+        return json(await dependencies.retention.list(context, pageInput(url)), 200, { 'x-request-id': requestId });
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/retention/jobs') {
+        await authorize(dependencies, context, 'retention:manage');
+        if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
+        const idempotencyKey = requireIdempotencyKey(request);
+        const input = parseGallringInput(await readJson(request));
+        return json(
+          await dependencies.retention.queue(context, input.policyKey, input.caseIds, idempotencyKey, await canonicalPayloadHash(input)),
+          201, { 'x-request-id': requestId },
+        );
+      }
+      const gallringGetMatch = /^\/v1\/retention\/jobs\/([^/]+)$/.exec(url.pathname);
+      if (request.method === 'GET' && gallringGetMatch) {
+        await authorize(dependencies, context, 'retention:manage');
+        if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
+        return json(await dependencies.retention.get(context, requireUuid(gallringGetMatch[1] ?? '', 'gallringJobId')), 200, { 'x-request-id': requestId });
+      }
+      const gallringApproveMatch = /^\/v1\/retention\/jobs\/([^/]+)\/approve$/.exec(url.pathname);
+      if (request.method === 'POST' && gallringApproveMatch) {
+        // A separate permission from retention:manage, so the person who plans a
+        // gallring and the person who authorises it can be different by role and
+        // not only by intent.
+        await authorize(dependencies, context, 'retention:execute');
+        if (!dependencies.retention) throw new ApiRequestError('RETENTION_NOT_CONFIGURED', 'Retention is not configured', 503);
+        return json(
+          await dependencies.retention.approve(context, requireUuid(gallringApproveMatch[1] ?? '', 'gallringJobId')),
+          202, { 'x-request-id': requestId },
+        );
+      }
+      const grantMatch = /^\/v1\/signature-cases\/([^/]+)\/download-links$/.exec(url.pathname);
+      if (request.method === 'POST' && grantMatch) {
+        // The same grant that lets someone download the finished document, so
+        // the same permission. Issuing a shareable link is a disclosure.
+        await authorize(dependencies, context, 'document:download');
+        if (!dependencies.delivery) throw new ApiRequestError('DELIVERY_NOT_CONFIGURED', 'Document delivery is not configured', 503);
+        const input = parseDownloadLinkInput(await readJson(request).catch(() => ({})));
+        return json(
+          await dependencies.delivery.issue(context, {
+            signatureCaseId: requireUuid(grantMatch[1] ?? '', 'signatureCaseId'),
+            ...input,
+          }),
+          201, { 'x-request-id': requestId },
+        );
+      }
+      const revokeGrantMatch = /^\/v1\/download-links\/([^/]+)$/.exec(url.pathname);
+      if (request.method === 'DELETE' && revokeGrantMatch) {
+        await authorize(dependencies, context, 'document:download');
+        if (!dependencies.delivery) throw new ApiRequestError('DELIVERY_NOT_CONFIGURED', 'Document delivery is not configured', 503);
+        await dependencies.delivery.revoke(context, requireUuid(revokeGrantMatch[1] ?? '', 'grantId'));
+        return new Response(null, { status: 204, headers: { 'x-request-id': requestId, 'cache-control': 'no-store' } });
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/scim/clients') {
+        await authorize(dependencies, context, 'integration:manage');
+        if (!dependencies.scim) throw new ApiRequestError('SCIM_NOT_CONFIGURED', 'SCIM provisioning is not configured', 503);
+        const input = parseScimClientInput(await readJson(request));
+        // The token is in this response and nowhere else, ever again. It is
+        // stored only as a hash, so there is nothing to show later — which is
+        // the point: a token we could re-display is one we are still holding.
+        return json(await dependencies.scim.issueClient(context, input), 201, { 'x-request-id': requestId });
+      }
+      if (request.method === 'POST' && url.pathname === '/v1/privacy/requests') {
+        await authorize(dependencies, context, 'privacy:manage');
+        if (!dependencies.privacy) throw new ApiRequestError('PRIVACY_NOT_CONFIGURED', 'Rights requests are not configured', 503);
+        const idempotencyKey = requireIdempotencyKey(request);
+        const input = parsePrivacyRequestInput(await readJson(request));
+        return json(
+          await dependencies.privacy.record(context, input, idempotencyKey, await canonicalPayloadHash(input)),
+          201, { 'x-request-id': requestId },
+        );
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/privacy/requests') {
+        await authorize(dependencies, context, 'privacy:manage');
+        if (!dependencies.privacy) throw new ApiRequestError('PRIVACY_NOT_CONFIGURED', 'Rights requests are not configured', 503);
+        return json(await dependencies.privacy.list(context, pageInput(url)), 200, { 'x-request-id': requestId });
+      }
+      const privacyGetMatch = /^\/v1\/privacy\/requests\/([^/]+)$/.exec(url.pathname);
+      if (request.method === 'GET' && privacyGetMatch) {
+        await authorize(dependencies, context, 'privacy:manage');
+        if (!dependencies.privacy) throw new ApiRequestError('PRIVACY_NOT_CONFIGURED', 'Rights requests are not configured', 503);
+        return json(
+          await dependencies.privacy.get(context, requireUuid(privacyGetMatch[1] ?? '', 'privacyRequestId')),
+          200, { 'x-request-id': requestId },
+        );
+      }
+      const privacyExecuteMatch = /^\/v1\/privacy\/requests\/([^/]+)\/execute$/.exec(url.pathname);
+      if (request.method === 'POST' && privacyExecuteMatch) {
+        // A separate grant from recording. Searching and erasing someone's data
+        // is a different act from noting that they asked for it, and the person
+        // who logs a request should not thereby be able to destroy the record.
+        await authorize(dependencies, context, 'privacy:execute');
+        if (!dependencies.privacy) throw new ApiRequestError('PRIVACY_NOT_CONFIGURED', 'Rights requests are not configured', 503);
+        return json(
+          await dependencies.privacy.execute(context, requireUuid(privacyExecuteMatch[1] ?? '', 'privacyRequestId')),
+          202, { 'x-request-id': requestId },
+        );
       }
       if (request.method === 'GET' && url.pathname === '/v1/events') {
         await authorize(dependencies, context, 'event:read');

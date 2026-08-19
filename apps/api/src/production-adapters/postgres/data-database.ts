@@ -26,7 +26,7 @@ export function createDataRepositories(database: SqlDatabase, infrastructure: Pr
   return {
     cases,
     uploads: createUploadRepository(database, infrastructure),
-    webhooks: createWebhookRepository(database),
+    webhooks: createWebhookRepository(database, infrastructure),
     events: createEventRepository(database),
     templates: createTemplateRepository(database),
   };
@@ -333,19 +333,101 @@ export function createUploadRepository(database: SqlDatabase, infrastructure: Pr
   };
 }
 
-export function createWebhookRepository(database: SqlDatabase): WebhookRepository {
+export function createWebhookRepository(database: SqlDatabase, infrastructure: ProductionInfrastructure): WebhookRepository {
   return {
     async createEndpoint(context, input, key, payloadHash) {
       return tenantTx(database, context, async (transaction) => idempotent(transaction, context.tenantId, 'webhook:create', key, payloadHash, async () => {
         const parsed = assertSafeWebhookUrl(input.url);
+        // The secret is generated here and returned exactly once. Storing a
+        // vault reference nothing resolves, as this did before, left every
+        // subscriber unable to verify the signature on anything we sent them.
+        const secret = randomToken(32);
+        const ciphertext = await infrastructure.sensitiveData.encryptText(secret, 'webhook.signing_secret');
         const inserted = await transaction.query<WebhookRow>(
-          `insert into app.webhook_endpoints(tenant_id,url,secret_current_ref,subscribed_events,active)
-           values ($1,$2,$3,$4,true)
+          `insert into app.webhook_endpoints(tenant_id,url,secret_current_ref,secret_current_ciphertext,subscribed_events,active)
+           values ($1,$2,$3,$4,$5,true)
            returning id,url,subscribed_events,active,created_at`,
-          [context.tenantId, parsed.toString(), `vault://webhooks/${context.tenantId}/${crypto.randomUUID()}`, input.subscribedEvents],
+          [context.tenantId, parsed.toString(), `db://webhooks/${context.tenantId}`, ciphertext, input.subscribedEvents],
         );
-        return webhookView(requireRow(inserted.rows[0], 'WEBHOOK_INSERT_FAILED'));
+        const view = webhookView(requireRow(inserted.rows[0], 'WEBHOOK_INSERT_FAILED'));
+        return { ...view, signingSecret: secret };
       }));
+    },
+
+    async rotateSecret(context, endpointId, overlapSeconds) {
+      return tenantTx(database, context, async (transaction) => {
+        const secret = randomToken(32);
+        const ciphertext = await infrastructure.sensitiveData.encryptText(secret, 'webhook.signing_secret');
+        // The superseded secret stays valid for a while. Cutting it off at the
+        // instant of rotation would reject deliveries already in flight and make
+        // a routine key change look like an outage to the subscriber.
+        const overlap = Math.min(Math.max(overlapSeconds, 0), 86_400);
+        const updated = await transaction.query<WebhookRow>(
+          `update app.webhook_endpoints
+              set secret_previous_ciphertext = case when $3 > 0 then secret_current_ciphertext else null end,
+                  previous_valid_until = case when $3 > 0 then now() + make_interval(secs => $3) else null end,
+                  secret_current_ciphertext = $4,
+                  secret_rotated_at = now()
+            where tenant_id=$1 and id=$2
+            returning id,url,subscribed_events,active,created_at`,
+          [context.tenantId, endpointId, overlap, ciphertext],
+        );
+        const view = webhookView(requireRow(updated.rows[0], 'WEBHOOK_ENDPOINT_NOT_FOUND'));
+        return { ...view, signingSecret: secret };
+      });
+    },
+
+    async listDeliveries(context, page, status) {
+      return tenantTx(database, context, async (transaction) => {
+        const { offset, limit } = pageBounds(page);
+        const result = await transaction.query<WebhookDeliveryRow>(
+          `select d.id,d.webhook_endpoint_id,d.outbox_event_id,e.event_type,d.status,d.attempt,
+                  d.response_status,d.next_attempt_at,d.delivered_at
+             from app.webhook_deliveries d
+             join app.outbox_events e on e.tenant_id=d.tenant_id and e.id=d.outbox_event_id
+            where d.tenant_id=$1 and ($4::text is null or d.status=$4)
+            order by d.next_attempt_at desc,d.id desc offset $2 limit $3`,
+          [context.tenantId, offset, limit, status ?? null],
+        );
+        return pageResult(result.rows.map(webhookDeliveryView), offset, limit);
+      });
+    },
+
+    async replayDelivery(context, deliveryId) {
+      return tenantTx(database, context, async (transaction) => {
+        const current = await transaction.query<WebhookDeliveryRow & { readonly event_type: string }>(
+          `select d.id,d.webhook_endpoint_id,d.outbox_event_id,e.event_type,d.status,d.attempt,
+                  d.response_status,d.next_attempt_at,d.delivered_at
+             from app.webhook_deliveries d
+             join app.outbox_events e on e.tenant_id=d.tenant_id and e.id=d.outbox_event_id
+            where d.tenant_id=$1 and d.id=$2 for update`,
+          [context.tenantId, deliveryId],
+        );
+        const row = requireRow(current.rows[0], 'WEBHOOK_DELIVERY_NOT_FOUND');
+        // Replay exists to recover a delivery that failed. Re-sending one that
+        // succeeded would hand the subscriber a duplicate event that our own
+        // idempotency contract promised them they would not receive.
+        if (row.status === 'delivered') throw new Error('WEBHOOK_DELIVERY_ALREADY_DELIVERED');
+
+        await transaction.query(
+          `update app.webhook_deliveries set status='pending',next_attempt_at=now(),response_status=null,response_body_sha256=null
+            where tenant_id=$1 and id=$2`,
+          [context.tenantId, deliveryId],
+        );
+        // A fresh idempotency key: the original job has already been completed or
+        // dead-lettered, and reusing its key would be silently discarded.
+        await transaction.query(
+          `insert into app.durable_jobs(tenant_id,job_type,payload,idempotency_key,status,available_at,maximum_attempts)
+           values($1,'WEBHOOK_DELIVER',$2::jsonb,$3,'pending',now(),10)
+           on conflict (tenant_id,job_type,idempotency_key) do nothing`,
+          [context.tenantId, { outboxEventId: row.outbox_event_id }, `outbox-replay:${deliveryId}:${Date.now()}`],
+        );
+        await transaction.query(
+          `select audit.append_event($1,'TECHNICAL','webhook.replay_requested',$2,$3,'webhook_delivery',$4,$5::jsonb,now())`,
+          [context.tenantId, context.authMethod, context.subjectId, deliveryId, { outboxEventId: row.outbox_event_id, previousStatus: row.status }],
+        );
+        return { ...webhookDeliveryView(row), status: 'pending' as const, responseStatus: null };
+      });
     },
   };
 }
@@ -634,6 +716,24 @@ interface SigningDocumentRow { readonly document_id:string; readonly document_ve
 interface SigningSignerRow { readonly id:string; readonly display_name:string; readonly email_ciphertext:Uint8Array; readonly identifier_binding_mode:'STRICT_PREBOUND'|'BANKID_DISCOVERED'; readonly identifier_binding_exception_code:string|null; readonly signing_order:number; readonly required:boolean; }
 interface UploadRow { readonly id:string; readonly object_key:string; readonly file_name:string; readonly mime_type:string; readonly byte_size:number|string; readonly expected_sha256:string; readonly status:string; }
 interface WebhookRow { readonly id:string; readonly url:string; readonly subscribed_events:readonly string[]; readonly active:boolean; readonly created_at:string|Date; }
+interface WebhookDeliveryRow {
+  readonly id:string; readonly webhook_endpoint_id:string; readonly outbox_event_id:string; readonly event_type:string;
+  readonly status:string; readonly attempt:number; readonly response_status:number|null;
+  readonly next_attempt_at:string|Date; readonly delivered_at:string|Date|null;
+}
+function webhookDeliveryView(row: WebhookDeliveryRow) {
+  return {
+    id: row.id,
+    webhookEndpointId: row.webhook_endpoint_id,
+    outboxEventId: row.outbox_event_id,
+    eventType: row.event_type,
+    status: row.status as 'pending'|'delivering'|'delivered'|'failed'|'dead_letter',
+    attempt: Number(row.attempt),
+    responseStatus: row.response_status === null ? null : Number(row.response_status),
+    nextAttemptAt: new Date(row.next_attempt_at).toISOString(),
+    deliveredAt: row.delivered_at === null ? null : new Date(row.delivered_at).toISOString(),
+  };
+}
 interface OutboxRow { readonly id:string; readonly event_type:string; readonly payload:Readonly<Record<string,unknown>>; readonly occurred_at:string|Date; }
 interface TemplateRow { readonly id:string; readonly template_key:string; readonly version:number; readonly locale:string; readonly subject_template:string; readonly body_template:string; readonly active:boolean; }
 
