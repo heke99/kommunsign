@@ -830,6 +830,37 @@ test('role lookups are memoised within a request and never across requests', asy
   assert.equal(attempts, 2);
 });
 
+test('metrics scrapes are memoised without ever serving a failed collect', async () => {
+  const { createScrapeMemo } = await import('../dist/apps/api/src/production-adapters/postgres/index.js');
+  let clock = 1_000;
+  let collects = 0;
+  const memo = createScrapeMemo(async () => { collects += 1; return `body-${collects}`; }, 10_000, () => clock);
+
+  assert.equal(await memo(new Date()), 'body-1');
+  assert.equal(await memo(new Date()), 'body-1');
+  clock += 9_999;
+  assert.equal(await memo(new Date()), 'body-1');
+  assert.equal(collects, 1, 'collect must run once inside the window');
+
+  clock += 2;
+  assert.equal(await memo(new Date()), 'body-2');
+  assert.equal(collects, 2, 'collect must run again once the window closes');
+
+  // Concurrent scrapes -- an HA Prometheus pair, or a scrape arriving mid-collect -- must share one
+  // collect rather than doubling the load on both databases.
+  clock += 20_000;
+  const [a, b, c] = await Promise.all([memo(new Date()), memo(new Date()), memo(new Date())]);
+  assert.equal(collects, 3);
+  assert.deepEqual([a, b, c], ['body-3', 'body-3', 'body-3']);
+
+  // A failure must not be cached, or one bad scrape blinds monitoring for the whole window.
+  let attempts = 0;
+  const failing = createScrapeMemo(async () => { attempts += 1; throw new Error('COLLECT_FAILED'); }, 10_000, () => clock);
+  await assert.rejects(failing(new Date()), /COLLECT_FAILED/);
+  await assert.rejects(failing(new Date()), /COLLECT_FAILED/);
+  assert.equal(attempts, 2);
+});
+
 test('request body ceilings match the limits each route actually declares', async () => {
   const limits = await import('../apps/api/request-limits.mjs');
   const { bodyLimitFor, maximumRequestBytes, maximumWebhookBytes, maximumEvidenceBytes } = limits;

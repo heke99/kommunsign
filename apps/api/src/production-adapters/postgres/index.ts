@@ -187,6 +187,30 @@ export { createPublicRepositories } from './public-signing-repository.js';
  * cross-tenant operational state, and nothing about the deployment looks wrong
  * while it does.
  */
+export function createScrapeMemo(
+  render: (now: Date) => Promise<string>,
+  ttlMilliseconds: number,
+  clock: () => number = Date.now,
+): (now: Date) => Promise<string> {
+  let cached: { readonly renderedAt: number; readonly body: Promise<string> } | null = null;
+  return (now) => {
+    if (cached && clock() - cached.renderedAt < ttlMilliseconds) return cached.body;
+    const body = render(now);
+    cached = { renderedAt: clock(), body };
+    // A failed scrape must not be served for the rest of the window.
+    void body.catch(() => { cached = null; });
+    return body;
+  };
+}
+
+function boundedInteger(raw: string | undefined, fallback: number, minimum: number, maximum: number): number {
+  const trimmed = raw?.trim();
+  if (!trimmed) return fallback;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) throw new Error('METRICS_CACHE_TTL_MS_INVALID');
+  return parsed;
+}
+
 function metricsEndpoint(controlDatabase: SqlDatabase, dataDatabase: SqlDatabase): { readonly metrics?: MetricsEndpoint } {
   const scrapeToken = process.env.METRICS_SCRAPE_TOKEN ?? '';
   if (scrapeToken.length < 32) return {};
@@ -194,12 +218,26 @@ function metricsEndpoint(controlDatabase: SqlDatabase, dataDatabase: SqlDatabase
   // Reporting a backup needs its own credential, and a deployment that has not
   // set one simply has no ingest route rather than an unauthenticated one.
   const ingestToken = process.env.BACKUP_SIGNAL_TOKEN ?? '';
+  // collect() runs eleven separate transactions, several of them unbounded aggregates over
+  // append-only tables, and it ran in full on every scrape. Prometheus scrapes on a fixed interval
+  // and its alert rules compare against time(), so a gauge that is a few seconds old changes no
+  // alerting decision -- but re-deriving it on every scrape costs the databases a scan apiece,
+  // forever, growing with total platform history.
+  //
+  // The memo also collapses concurrent scrapes: an HA Prometheus pair, or a scrape arriving while
+  // the previous one is still running, now shares a single collect instead of doubling the load.
+  const scrape = createScrapeMemo(
+    async (now: Date) => {
+      const { counters, gauges } = await repository.collect(now);
+      return renderPrometheus(counters, gauges);
+    },
+    boundedInteger(process.env.METRICS_CACHE_TTL_MS, 10_000, 0, 60_000),
+  );
   return {
     metrics: {
       scrapeToken,
       async render(now: Date) {
-        const { counters, gauges } = await repository.collect(now);
-        return renderPrometheus(counters, gauges);
+        return scrape(now);
       },
       ...(ingestToken.length >= 32 ? {
         ingestToken,
