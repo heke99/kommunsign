@@ -7,21 +7,27 @@
 
 BEGIN;
 
+-- Scopes of its own, and cleared first. A real deployment -- or the
+-- application-chain E2E, which reports a backup against the same database --
+-- leaves rows behind, and a suite that assumes an empty table passes only
+-- until someone uses the feature.
+DELETE FROM control.backup_completions WHERE scope LIKE 'suite-%';
+
 -- A normal report is accepted and readable.
 INSERT INTO control.backup_completions(scope, completed_at, reported_by)
-VALUES ('control-database', now() - interval '2 hours', 'platform-backup-job');
+VALUES ('suite-control', now() - interval '2 hours', 'platform-backup-job');
 
 DO $$
 DECLARE recorded timestamptz;
 BEGIN
-  SELECT completed_at INTO recorded FROM control.backup_completions WHERE scope = 'control-database';
+  SELECT completed_at INTO recorded FROM control.backup_completions WHERE scope = 'suite-control';
   IF recorded IS NULL THEN RAISE EXCEPTION 'a reported backup was not recorded'; END IF;
 END $$;
 
 -- Moving forward is the whole point, and must work.
 UPDATE control.backup_completions
    SET completed_at = now() - interval '1 hour'
- WHERE scope = 'control-database';
+ WHERE scope = 'suite-control';
 
 -- Moving backwards must not.
 DO $$
@@ -30,7 +36,7 @@ BEGIN
   BEGIN
     UPDATE control.backup_completions
        SET completed_at = now() - interval '10 hours'
-     WHERE scope = 'control-database';
+     WHERE scope = 'suite-control';
   EXCEPTION WHEN check_violation THEN refused := true;
   END;
   IF NOT refused THEN
@@ -45,7 +51,7 @@ DECLARE refused boolean := false;
 BEGIN
   BEGIN
     INSERT INTO control.backup_completions(scope, completed_at, reported_by)
-    VALUES ('data-database', now() + interval '3 days', 'platform-backup-job');
+    VALUES ('suite-data', now() + interval '3 days', 'platform-backup-job');
   EXCEPTION WHEN check_violation THEN refused := true;
   END;
   IF NOT refused THEN
@@ -56,7 +62,7 @@ END $$;
 -- Small clock skew between the platform and this database is normal and must
 -- not be treated as a lie.
 INSERT INTO control.backup_completions(scope, completed_at, reported_by)
-VALUES ('data-database', now() + interval '1 minute', 'platform-backup-job');
+VALUES ('suite-data', now() + interval '1 minute', 'platform-backup-job');
 
 -- The scope is a slug, not free text: it becomes a metric label.
 DO $$
@@ -64,7 +70,7 @@ DECLARE refused boolean := false;
 BEGIN
   BEGIN
     INSERT INTO control.backup_completions(scope, completed_at, reported_by)
-    VALUES ('Control Database; DROP', now(), 'platform-backup-job');
+    VALUES ('Suite Database; DROP', now(), 'platform-backup-job');
   EXCEPTION WHEN check_violation THEN refused := true;
   END;
   IF NOT refused THEN RAISE EXCEPTION 'an unbounded scope was accepted as a metric label'; END IF;

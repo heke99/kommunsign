@@ -5,9 +5,16 @@ on:
     branches: [main]
 permissions:
   contents: read
+# A superseded run has nothing to tell anyone, and the long jobs here start
+# containers. Cancelling in-progress runs for the same ref keeps a burst of
+# pushes from queueing behind itself. main is exempt: its history is the record.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   verify:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -29,6 +36,7 @@ jobs:
   # PDF is actually signed and independently validated, so it is a required gate.
   java-services:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
@@ -47,6 +55,7 @@ jobs:
     # registered the BouncyCastle provider, and the test fixture had been
     # supplying it. A component suite cannot see that.
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
@@ -66,6 +75,7 @@ jobs:
     # MinIO is started as a step rather than a service container because it
     # needs a command argument ("server /data"), which services cannot set.
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     env:
       S3_ENDPOINT: http://127.0.0.1:9000
       S3_REGION: us-east-1
@@ -105,6 +115,7 @@ jobs:
     # and a BankID signature that failed verification retried instead of failing
     # the signer. Keep it running.
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     services:
       postgres-control:
         image: postgres:17.10-bookworm
@@ -172,6 +183,7 @@ jobs:
           done
   database:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:17.10-bookworm

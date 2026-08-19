@@ -304,3 +304,8 @@ log "platform subject" "$E2E_PLATFORM_SUBJECT"
 
 echo
 node "$ROOT/scripts/e2e-application-chain.mjs"
+
+# The archive descriptor, through a schema processor rather than through the
+# code that wrote it. Runs here because validation-service is already up.
+echo
+node "$ROOT/scripts/verify-fgs-package.mjs"

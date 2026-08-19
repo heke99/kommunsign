@@ -52,9 +52,28 @@ export const FGS_CONFORMANCE_STATUS = {
   specification: FGS_SPECIFICATION,
   profileUri: FGS_PROFILE_URI,
   structureFollowsProfile: true,
-  schemaValidated: false,
+  /**
+   * Validated against the schema set Riksarkivet publishes, by a schema
+   * processor rather than by the code that writes the structure.
+   *
+   * This was false, and turning it on found two real violations that following
+   * the profile by inspection had missed: altRecordID is mandatory in the
+   * profile and was absent entirely, and ID on amdSec is required where METS
+   * core makes it optional.
+   */
+  publishedSchemaValidated: true,
+  publishedSchemaSource: 'Bundled with validation-service; digests in services/validation-service/src/main/resources/fgs/PROVENANCE.txt',
+  /**
+   * Still false, and it is a different claim.
+   *
+   * The receiving archive chooses its FGS version and may mandate local profile
+   * extensions. Passing the published schemas is necessary and not sufficient,
+   * and reporting the two as one number is how a package gets delivered to an
+   * archive that then rejects it.
+   */
+  receivingArchiveSchemaValidated: false,
   schemaValidationBlocker:
-    'Requires the FGS XSD set and any local profile extensions the receiving archive mandates, plus a confirmed FGS version from the municipality.',
+    'Requires the receiving archive to name its FGS version and supply any local profile extensions it mandates. The published schema set is validated against in CI.',
 } as const;
 
 export interface FgsAgents {
@@ -132,13 +151,19 @@ export async function buildFgsPackage(archive: ArchivePackage, agents: FgsAgents
     + `<mets:note>${text(agents.producingSoftwareVersion)}</mets:note>`
     + '</mets:agent>',
   );
+  // The profile makes altRecordID mandatory and restricts TYPE to a fixed list.
+  // OBJID carries the primary identifier; REFERENCECODE is where the receiving
+  // archive looks for the identifier the municipality itself uses, which is the
+  // one a case officer will search for years from now.
+  lines.push(`    <mets:altRecordID TYPE="REFERENCECODE">${text(archive.manifest.reference)}</mets:altRecordID>`);
   lines.push(`    <mets:metsDocumentID>${FGS_PACKAGE_DESCRIPTOR}</mets:metsDocumentID>`);
   lines.push('  </mets:metsHdr>');
 
   // The manifest hash is delivered outside the package so it can certify the
   // manifest. Recording it here as provenance lets an archivist see which
   // manifest this descriptor was built from without trusting the package alone.
-  lines.push('  <mets:amdSec>');
+  // ID is required on amdSec by the profile, not optional as in METS core.
+  lines.push('  <mets:amdSec ID="IDamdSec">');
   lines.push('    <mets:digiprovMD ID="IDprovenance">');
   lines.push('      <mets:mdWrap MDTYPE="OTHER" OTHERMDTYPE="COMMENT">');
   lines.push('        <mets:xmlData>');

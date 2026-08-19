@@ -33,6 +33,8 @@ public final class ValidationServiceApplication {
     private static final int SAML_MAX_BODY_BYTES = 4 * 1024 * 1024;
     // An id_token is a few kilobytes. The cap is small on purpose.
     private static final int OIDC_MAX_BODY_BYTES = 128 * 1024;
+    /** A submission descriptor is metadata about a package, not the package. */
+    private static final int FGS_MAX_BODY_BYTES = 8 * 1024 * 1024;
 
     private ValidationServiceApplication() {}
 
@@ -46,6 +48,7 @@ public final class ValidationServiceApplication {
         TicBankIdEvidenceValidator ticValidator = new TicBankIdEvidenceValidator();
         PadesValidator padesValidator = new PadesValidator();
         SamlAssertionValidator samlValidator = new SamlAssertionValidator();
+        FgsPackageValidator fgsValidator = new FgsPackageValidator();
         OidcTokenValidator oidcValidator = new OidcTokenValidator();
 
         server.createContext("/health", exchange -> respond(exchange, 200, Map.of(
@@ -96,6 +99,14 @@ public final class ValidationServiceApplication {
                 Json.string(parsed, "expectedAudience", true),
                 Json.string(parsed, "expectedNonce", false));
             return oidcValidator.validate(request);
+        }));
+
+        server.createContext("/v1/validate/fgs", exchange -> handle(exchange, token, FGS_MAX_BODY_BYTES, parsed -> {
+            // Only the descriptor. The package's own files are checked by the
+            // manifest that travels with them; what is unverified until now is
+            // whether the METS that describes them is one an archive can read.
+            byte[] descriptor = java.util.Base64.getDecoder().decode(Json.string(parsed, "packageDescriptorBase64", true));
+            return fgsValidator.validate(descriptor);
         }));
 
         server.start();

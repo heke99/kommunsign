@@ -2795,7 +2795,12 @@ test('the FGS adapter never claims schema conformance it has not verified', asyn
   // receiving archive's XSD set are different claims. Conflating them is the
   // exact overclaim this adapter exists to remove.
   assert.equal(FGS_CONFORMANCE_STATUS.structureFollowsProfile, true);
-  assert.equal(FGS_CONFORMANCE_STATUS.schemaValidated, false);
+  // Two claims, kept apart. Passing the published schemas is necessary and not
+  // sufficient: the receiving archive picks its version and may mandate local
+  // extensions, and reporting the two as one number is how a package gets
+  // delivered to an archive that then rejects it.
+  assert.equal(FGS_CONFORMANCE_STATUS.publishedSchemaValidated, true);
+  assert.equal(FGS_CONFORMANCE_STATUS.receivingArchiveSchemaValidated, false);
   assert.ok(FGS_CONFORMANCE_STATUS.schemaValidationBlocker.length > 0);
 });
 

@@ -197,12 +197,19 @@ await check(
   'The receiving e-archive, by naming its FGS version and supplying the XSDs.',
   async () => {
     const source = await readFile('packages/archive/src/fgs.ts', 'utf8');
-    const validated = /schemaValidated:\s*true/.test(source);
+    // Two different claims, and only the second one is this precondition.
+    // Validating against the published schema set is done in CI; validating
+    // against the set the receiving archive mandates needs that archive to name
+    // its version and hand over any local extensions.
+    const published = /publishedSchemaValidated:\s*true/.test(source);
+    const receiving = /receivingArchiveSchemaValidated:\s*true/.test(source);
     return {
-      met: validated,
-      detail: validated
-        ? 'FGS_CONFORMANCE_STATUS reports schemaValidated'
-        : 'FGS_CONFORMANCE_STATUS reports schemaValidated: false — structure follows the published profile, but conformance is unverified',
+      met: receiving,
+      detail: receiving
+        ? 'validated against the receiving archive\'s schema set'
+        : published
+          ? 'validated against Riksarkivet\'s published schema set in CI; the receiving archive has not named its FGS version or supplied local extensions'
+          : 'not validated against any schema set',
     };
   },
 );

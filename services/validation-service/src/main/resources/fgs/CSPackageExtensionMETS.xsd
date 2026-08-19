@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 2017-10-25 Replaced xs:datetime in STARTDATE and ENDDATE with xs:date gives this to be version 1.2 consistent with published version 1.2 of FGS Paketstruktur (RAFGS1V1.2)-->
+<!-- 2017-01-10 Updated valuelist for attribute ACCESSRESTRICT -->
+<!-- 2016-10-01 Updated with new attribute AGREEMENTFORM to be consistent with published version 1.1 of FGS Paketstruktur (RAFGS1V1.1)  -->
+<!-- 2015-08-15 Consistent with published version 1.0 of FGS Paketstruktur (RAFGS1V1) -->
+<!-- Original version 2015-08-15 -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="ExtensionMETS"
+    targetNamespace="ExtensionMETS" elementFormDefault="qualified"> 
+    <xs:attribute name="FORMATREGISTRY">
+        <xs:simpleType>
+            <xs:restriction base="xs:string">
+                <xs:enumeration value="PRONOM"/>
+                <xs:enumeration value="GDFR"/>
+                <xs:enumeration value="UDFR"/>
+                <xs:enumeration value="OTHER"/>
+            </xs:restriction>
+        </xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="OTHERFORMATREGISTRY" type="xs:string"/>
+    <xs:attribute name="FORMATREGISTRYKEY" type="xs:string"/>
+    <xs:attribute name="FILEFORMATNAME" type="xs:string"/>
+    <xs:attribute name="FILEFORMATVERSION" type="xs:string"/>
+    <xs:attribute name="ORIGINALFILENAME" type="xs:string"/>  
+    <xs:attribute name="ARCHIVALREFERENCECODE" type="xs:string"/> 
+    <xs:attribute name="ARCHIVALRECORDTYPE" type="xs:string"/> 
+    <xs:attribute name="OAISSTATUS">
+        <xs:simpleType>
+            <xs:restriction base="xs:string">
+                <xs:enumeration value="SIP"/>
+                <xs:enumeration value="AIP"/>
+                <xs:enumeration value="DIP"/>
+                <xs:enumeration value="AIU"/>
+                <xs:enumeration value="AIC"/>
+            </xs:restriction>
+        </xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="CONTENTTYPESPECIFICATION" type="xs:string"/>
+    <xs:attribute name="DATASUBMISSIONSESSION" type="xs:string"/>
+    <xs:attribute name="PACKAGENUMBER" type="xs:string"/>
+    <xs:attribute name="ARCHIVALNAME" type="xs:string"/>
+    <xs:attribute name="STARTDATE" type="xs:date"/>
+    <xs:attribute name="ENDDATE" type="xs:date"/>
+    <xs:attribute name="INFORMATIONCLASS" type="xs:string"/>
+    <xs:attribute name="SYSTEMTYPE" type="xs:string"/>
+    <xs:attribute name="APPRAISAL">
+        <xs:simpleType>
+            <xs:restriction base="xs:string">
+                <xs:enumeration value="Yes"/>
+                <xs:enumeration value="No"/>
+            </xs:restriction>
+        </xs:simpleType>
+    </xs:attribute>
+    <xs:attribute name="ACCESSRESTRICT">
+        <xs:simpleType>
+            <xs:restriction base="xs:string">
+                <xs:enumeration value="Secrecy"/>
+                <xs:enumeration value="PuL"/>
+                <xs:enumeration value="Secrecy and PuL"/>
+                <xs:enumeration value="GDPR"/>
+            </xs:restriction>
+        </xs:simpleType>
+    </xs:attribute>   
+    <xs:attribute name="AGREEMENTFORM">
+        <xs:simpleType>
+            <xs:restriction base="xs:string">
+                <xs:enumeration value="AGREEMENT"/>
+                <xs:enumeration value="DEPOSIT"/>
+                <xs:enumeration value="GIFT"/>
+                <xs:enumeration value="Not specified"/>
+            </xs:restriction>
+        </xs:simpleType>
+    </xs:attribute>
+</xs:schema>

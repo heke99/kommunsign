@@ -164,7 +164,7 @@ export async function handleArchiveExport(
           // Never inferred from "we produced a package". Structural conformance
           // to the published profile and validation against the receiving
           // archive's schema set are different claims.
-          FGS_CONFORMANCE_STATUS.schemaValidated,
+          FGS_CONFORMANCE_STATUS.receivingArchiveSchemaValidated,
         ],
       );
       await tx.query(
@@ -175,7 +175,8 @@ export async function handleArchiveExport(
       await audit(tx, job.tenantId, 'BUSINESS', 'archive.exported', 'signature_case', signatureCaseId, {
         archiveExportId: exportId, packageSha256, descriptorSha256: fgs.descriptorSha256,
         manifestSha256: archive.manifestSha256, specification: fgs.specification,
-        schemaValidated: FGS_CONFORMANCE_STATUS.schemaValidated, fileCount: packageFiles.length,
+        schemaValidated: FGS_CONFORMANCE_STATUS.receivingArchiveSchemaValidated,
+        publishedSchemaValidated: FGS_CONFORMANCE_STATUS.publishedSchemaValidated, fileCount: packageFiles.length,
       });
       await outbox(tx, job.tenantId, 'signature_case', signatureCaseId, 'archive.exported', {
         archiveExportId: exportId, packageSha256, specification: fgs.specification,

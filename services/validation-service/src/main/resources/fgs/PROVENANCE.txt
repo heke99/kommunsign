@@ -1,0 +1,23 @@
+FGS Paketstruktur schema set, as published by Riksarkivet.
+
+Bundled rather than fetched at validation time. A conformance check that
+depends on a remote host is not reproducible: it becomes a different check when
+the host is down, and a silently different one if the file changes. These are
+the bytes the package was validated against, and their digests are asserted by
+the build.
+
+Retrieved 2026-08-19 from:
+  http://xml.ra.se/e-arkiv/METS/CSPackageMETS.xsd
+  http://xml.ra.se/e-arkiv/METS/CSPackageExtensionMETS.xsd
+  http://xml.ra.se/e-arkiv/xlink/xlink.xsd
+
+sha256:
+  cc60e2be316864e08545d22374c113af09f58e21e1bb7630731a7a7b7f2f7691  CSPackageMETS.xsd
+  ffb8d07441cc58032d89304a934af3c6a55faba41499d5d2fcb6909415c2f1c0  CSPackageExtensionMETS.xsd
+  f1f5bb6003165cdd8f6c1fcc32f8fd1f965e1681010f3b9806d9460bcffa8a3c  xlink.xsd
+
+These are the profile's published schemas. They are NOT the receiving archive's
+schema set: an archive chooses its FGS version and may mandate local profile
+extensions. Validating against these proves the package follows the published
+profile, which is a smaller claim, and the difference is tracked as an external
+blocker against requirements 2064 and 2065.
