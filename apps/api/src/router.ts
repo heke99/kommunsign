@@ -565,25 +565,67 @@ function mapKnownError(cause: unknown): ApiRequestError | null {
  * not exist at all, which is the right default for something whose accidental
  * exposure is silent.
  */
+/**
+ * Compares a bearer token in constant time, over digests.
+ *
+ * Digests rather than the raw values so the comparison length does not depend
+ * on the secret, which is what would otherwise let a wrong token be told apart
+ * from a nearly-right one by how long the rejection took.
+ */
+async function bearerMatches(request: Request, expected: string): Promise<boolean> {
+  const presented = /^Bearer\s+(.+)$/.exec(request.headers.get('authorization') ?? '')?.[1] ?? '';
+  const [presentedDigest, expectedDigest] = await Promise.all([
+    sha256Hex(new TextEncoder().encode(presented)),
+    sha256Hex(new TextEncoder().encode(expected)),
+  ]);
+  return presentedDigest === expectedDigest;
+}
+
 async function handleMetricsRequest(
   dependencies: ApiDependencies,
   request: Request,
   requestId: string,
 ): Promise<Response | null> {
   const url = new URL(request.url);
-  if (url.pathname !== '/metrics') return null;
   if (!dependencies.metrics) return null;
+
+  // The hosting platform's backup job reports here. It sits next to /metrics
+  // because both are the operator plane rather than a tenant's, but it carries
+  // a different credential: reading operational state and silencing an alert
+  // about missing backups are not the same power.
+  if (url.pathname === '/metrics/backup-completions') {
+    const endpoint = dependencies.metrics;
+    if (!endpoint.ingestToken || !endpoint.recordBackupCompletion) {
+      return error('BACKUP_SIGNAL_NOT_CONFIGURED', 'No backup ingest credential is configured', requestId, 503);
+    }
+    if (request.method !== 'POST') return error('METHOD_NOT_ALLOWED', 'Only POST is supported', requestId, 405);
+    if (!(await bearerMatches(request, endpoint.ingestToken))) {
+      return error('UNAUTHORIZED', 'A backup ingest credential is required', requestId, 401);
+    }
+    const body = await readJson(request);
+    assertPlainObject(body);
+    assertAllowedKeys(body, ['scope', 'completedAt', 'reportedBy', 'detail']);
+    try {
+      const recorded = await endpoint.recordBackupCompletion({
+        scope: requireString(body.scope, 'scope', 2, 64),
+        completedAt: requireString(body.completedAt, 'completedAt', 20, 40),
+        reportedBy: requireString(body.reportedBy, 'reportedBy', 1, 200),
+        ...(body.detail === undefined ? {} : { detail: (assertPlainObject(body.detail), body.detail as Record<string, unknown>) }),
+      });
+      return json(recorded, 202, { 'x-request-id': requestId });
+    } catch (cause) {
+      // The database refuses a future timestamp and a backwards move. Both are
+      // the caller's problem to fix, not a server fault, and neither should be
+      // retried unchanged.
+      const code = cause instanceof Error && /^[A-Z][A-Z0-9_]{2,79}$/.test(cause.message) ? cause.message : 'BACKUP_COMPLETION_REFUSED';
+      return error(code, 'The reported backup completion was refused', requestId, 422);
+    }
+  }
+
+  if (url.pathname !== '/metrics') return null;
   if (request.method !== 'GET') return error('METHOD_NOT_ALLOWED', 'Only GET is supported', requestId, 405);
 
-  // Constant-time comparison over digests, so a wrong token cannot be
-  // distinguished from a nearly-right one by how long the rejection took.
-  const presented = /^Bearer\s+(.+)$/.exec(request.headers.get('authorization') ?? '')?.[1] ?? '';
-  const expected = dependencies.metrics.scrapeToken;
-  const [presentedDigest, expectedDigest] = await Promise.all([
-    sha256Hex(new TextEncoder().encode(presented)),
-    sha256Hex(new TextEncoder().encode(expected)),
-  ]);
-  if (presentedDigest !== expectedDigest) {
+  if (!(await bearerMatches(request, dependencies.metrics.scrapeToken))) {
     return error('UNAUTHORIZED', 'A scrape credential is required', requestId, 401);
   }
 

@@ -59,20 +59,18 @@ const HELP: Readonly<Record<string, string>> = {
 /**
  * Series this build declares but cannot yet produce a value for.
  *
- * Being explicit about the gap is the point. Backups are taken by the hosting
- * platform, not by this application, so nothing here knows when the last one
- * succeeded — and the BackupFailed rule alerts on the *absence* of a recent
- * timestamp, which means an un-fed series looks exactly like a healthy one to
- * anyone who has not checked. Listing it here lets the tests hold the line: a
- * series may be alerted on and unfed, but only if it says so out loud.
+ * Empty, and it has to stay honest rather than merely short. A series belongs
+ * here when nothing in this system can ever produce it -- not when a particular
+ * deployment happens not to have configured the source.
  *
- * Feeding it is an operator integration, not a code change: the backup job
- * writes the timestamp through the same scrape endpoint's push path or through
- * the platform's own exporter.
+ * The backup timestamp used to be listed here, because backups are taken by the
+ * hosting platform and the application had no way to hear about one. It now
+ * has: the platform reports a completed backup and the series is rendered from
+ * what was reported. A deployment where nobody reports still produces no
+ * sample, which is exactly what BackupFailed alerts on -- absence. That is a
+ * deployment gap, visible in the alert, rather than a hole in the build.
  */
-export const PROMETHEUS_UNFED_SERIES: readonly string[] = [
-  'kommunsign_last_successful_backup_timestamp_seconds',
-];
+export const PROMETHEUS_UNFED_SERIES: readonly string[] = [];
 
 const TYPE: Readonly<Record<string, 'counter' | 'gauge'>> = Object.fromEntries([
   ...PROMETHEUS_COUNTERS.map((name) => [name, 'counter' as const]),

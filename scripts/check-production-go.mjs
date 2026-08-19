@@ -212,18 +212,34 @@ await check(
 await check(
   'BACKUP_SIGNAL',
   'The backup timestamp series is produced, so BackupFailed can actually fire.',
-  'The hosting platform, whose backup job must publish the timestamp.',
+  'The hosting platform, whose backup job must report each completed backup.',
   async () => {
-    const source = await readFile('packages/observability/src/prometheus.ts', 'utf8');
-    const match = /PROMETHEUS_UNFED_SERIES: readonly string\[\] = \[([\s\S]*?)\]/.exec(source);
-    const unfed = match ? match[1].split(',').map((entry) => entry.trim()).filter(Boolean) : [];
-    const backupUnfed = unfed.some((entry) => entry.includes('backup'));
-    return {
-      met: !backupUnfed,
-      detail: backupUnfed
-        ? 'kommunsign_last_successful_backup_timestamp_seconds is declared unfed, so the alert watches nothing'
-        : 'the backup series is produced',
-    };
+    // Asked of the deployment, not of the source. The ingest path exists in
+    // every build now, so reading the code would only prove that we wrote it;
+    // what matters is whether a real backup has been reported, which is a fact
+    // about the running system and nothing else.
+    const url = environment.CONTROL_DATABASE_URL;
+    if (!url) return { unknown: true, detail: 'CONTROL_DATABASE_URL is not set, so reported backups cannot be read from here' };
+    const { default: postgres } = await import('postgres');
+    const sql = postgres(url, { max: 1, idle_timeout: 2 });
+    try {
+      const rows = await sql`
+        select scope, completed_at,
+               extract(epoch from (now() - completed_at))::int age_seconds
+          from control.backup_completions
+         order by completed_at desc`;
+      if (rows.length === 0) {
+        return { met: false, detail: 'no backup has ever been reported, so the series has no value and BackupFailed watches nothing' };
+      }
+      // A day and a half: long enough that a nightly backup plus a late run is
+      // not an alarm, short enough that a stopped backup job is.
+      const stale = rows.filter((row) => row.age_seconds > 129_600);
+      const summary = rows.map((row) => `${row.scope} ${Math.floor(row.age_seconds / 3600)}h ago`).join(', ');
+      return {
+        met: stale.length === 0,
+        detail: stale.length === 0 ? `reported: ${summary}` : `stale: ${summary}`,
+      };
+    } finally { await sql.end({ timeout: 2 }); }
   },
 );
 

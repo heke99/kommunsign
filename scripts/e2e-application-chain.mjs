@@ -419,6 +419,47 @@ await step('BankID starts and the evidence is refused, not accepted', async () =
 });
 
 // ---------------------------------------------------------------------------
+// 6. The operator plane.
+//
+// BackupFailed alerts on the absence of a recent timestamp, which means an
+// unfed series looks exactly like a healthy one. The application cannot take a
+// backup, but it can hold what the platform reports -- and that is the whole
+// difference between an alert that watches something and one that does not.
+// ---------------------------------------------------------------------------
+
+await step('a reported backup becomes a scrapeable timestamp', async () => {
+  const scrapeToken = required('METRICS_SCRAPE_TOKEN');
+  const ingestToken = required('BACKUP_SIGNAL_TOKEN');
+  const completedAt = new Date(Date.now() - 3_600_000).toISOString();
+  const report = JSON.stringify({ scope: 'control-database', completedAt, reportedBy: 'e2e-application-chain' });
+  const ingestHeaders = (token) => ({ host, 'content-type': 'application/json', authorization: `Bearer ${token}` });
+
+  const withScrapeCredential = await send('POST', '/metrics/backup-completions', ingestHeaders(scrapeToken), report);
+  if (withScrapeCredential.status !== 401) {
+    throw new Error(`the scrape credential was accepted for ingest with ${withScrapeCredential.status}`);
+  }
+  const accepted = await send('POST', '/metrics/backup-completions', ingestHeaders(ingestToken), report);
+  if (accepted.status !== 202) throw new Error(`the backup report was refused: ${accepted.status} ${JSON.stringify(accepted.body).slice(0, 200)}`);
+
+  const scraped = await send('GET', '/metrics', { host, authorization: `Bearer ${scrapeToken}` });
+  if (scraped.status !== 200) throw new Error(`the scrape failed: ${scraped.status}`);
+  const exposition = typeof scraped.body === 'string' ? scraped.body : JSON.stringify(scraped.body);
+  const line = exposition.split('\n').find((entry) => entry.startsWith('kommunsign_last_successful_backup_timestamp_seconds{'));
+  if (!line) throw new Error('the backup series is still absent from the exposition after a report');
+  const value = Number(line.split(' ').at(-1));
+  if (Math.abs(value - Math.floor(Date.parse(completedAt) / 1000)) > 1) {
+    throw new Error(`the exposed timestamp ${value} is not what was reported`);
+  }
+
+  // A backup cannot have completed in the future; accepting one would silence
+  // the alert for as long as the timestamp stayed ahead of the clock.
+  const future = await send('POST', '/metrics/backup-completions', ingestHeaders(ingestToken),
+    JSON.stringify({ scope: 'data-database', completedAt: new Date(Date.now() + 86_400_000).toISOString(), reportedBy: 'e2e-application-chain' }));
+  if (future.status !== 422) throw new Error(`a backup completing in the future was accepted with ${future.status}`);
+  return 'reported, scraped, and a future timestamp refused';
+});
+
+// ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
 

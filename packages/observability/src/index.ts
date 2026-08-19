@@ -244,7 +244,9 @@ export interface MetricSample {
  * separate time series per value, which both destroys the metrics backend and
  * quietly turns the metrics pipeline into an unredacted export of personal data.
  */
-const ALLOWED_LABELS = new Set(['tenant', 'environment', 'provider', 'outcome', 'endpoint', 'queue', 'level']);
+// 'scope' names what was backed up, and the database bounds its shape to a
+// short slug, so it stays as low-cardinality as the rest.
+const ALLOWED_LABELS = new Set(['tenant', 'environment', 'provider', 'outcome', 'endpoint', 'queue', 'level', 'scope']);
 
 export function assertMetricLabelsAreSafe(sample: MetricSample): void {
   for (const [key, value] of Object.entries(sample.labels)) {

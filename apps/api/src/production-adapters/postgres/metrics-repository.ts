@@ -1,5 +1,6 @@
 import type { SqlDatabase } from '../../../../../packages/database/src/index.js';
 import type { CounterSample, GaugeSample } from '../../../../../packages/observability/src/prometheus.js';
+import type { BackupCompletionInput, BackupCompletionResult } from '../../ports.js';
 
 /**
  * The gauges, read from the databases at scrape time.
@@ -16,8 +17,42 @@ import type { CounterSample, GaugeSample } from '../../../../../packages/observa
  */
 export function createMetricsRepository(controlDatabase: SqlDatabase, dataDatabase: SqlDatabase): {
   collect(now: Date): Promise<{ readonly counters: readonly CounterSample[]; readonly gauges: readonly GaugeSample[] }>;
+  recordBackupCompletion(input: BackupCompletionInput): Promise<BackupCompletionResult>;
 } {
   return {
+    /**
+     * Records a backup the hosting platform says it completed.
+     *
+     * The shape checks are here and the invariants are in the database: a
+     * timestamp from the future would silence BackupFailed indefinitely, and a
+     * replayed older report would undo a fresh backup, so both are refused by
+     * constraints rather than by this function alone.
+     */
+    async recordBackupCompletion(input) {
+      if (!/^[a-z][a-z0-9_.-]{1,63}$/.test(input.scope)) throw new Error('BACKUP_SCOPE_INVALID');
+      const completedAt = new Date(input.completedAt);
+      if (Number.isNaN(completedAt.getTime())) throw new Error('BACKUP_COMPLETED_AT_INVALID');
+      const reportedBy = input.reportedBy.trim();
+      if (!reportedBy || reportedBy.length > 200) throw new Error('BACKUP_REPORTER_INVALID');
+      const detail = JSON.stringify(input.detail ?? {});
+      if (detail.length > 4_000) throw new Error('BACKUP_DETAIL_TOO_LARGE');
+
+      const result = await controlDatabase.transaction(async (tx) => tx.query<{ readonly scope: string; readonly completed_at: string | Date }>(
+        `insert into control.backup_completions(scope, completed_at, reported_by, detail)
+         values ($1, $2, $3, $4::jsonb)
+         on conflict (scope) do update
+           set completed_at = excluded.completed_at,
+               recorded_at = now(),
+               reported_by = excluded.reported_by,
+               detail = excluded.detail
+         returning scope, completed_at`,
+        [input.scope, completedAt.toISOString(), reportedBy, detail],
+      ));
+      const row = result.rows[0];
+      if (!row) throw new Error('BACKUP_COMPLETION_NOT_RECORDED');
+      return { scope: row.scope, completedAt: new Date(row.completed_at).toISOString() };
+    },
+
     async collect(now) {
       const gauges: GaugeSample[] = [];
       const counters: CounterSample[] = [];
@@ -36,6 +71,22 @@ export function createMetricsRepository(controlDatabase: SqlDatabase, dataDataba
           name: 'kommunsign_certificate_not_after_seconds',
           value: Math.floor(new Date(row.not_after).getTime() / 1000),
           labels: { tenant: row.tenant_id },
+        });
+      }
+
+      // BackupFailed compares this against time(). The value comes from what
+      // the hosting platform reported, because backups happen outside this
+      // application and nothing here can observe one. A deployment where
+      // nobody reports produces no sample at all, which is precisely what the
+      // alert is looking for -- absence, not a zero.
+      const backups = await controlDatabase.transaction(async (tx) => tx.query<{ readonly scope: string; readonly completed_at: string | Date }>(
+        `select scope, completed_at from control.backup_completions`,
+      ));
+      for (const row of backups.rows) {
+        gauges.push({
+          name: 'kommunsign_last_successful_backup_timestamp_seconds',
+          value: Math.floor(new Date(row.completed_at).getTime() / 1000),
+          labels: { scope: row.scope },
         });
       }
 

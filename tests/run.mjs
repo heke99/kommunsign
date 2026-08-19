@@ -3632,7 +3632,10 @@ test('the scrape endpoint is absent by default and refuses a wrong credential', 
   // Compared over digests, so a wrong token cannot be told from a nearly-right
   // one by how long the rejection took.
   assert.match(router, /sha256Hex\(new TextEncoder\(\)\.encode\(presented\)\)/);
-  assert.match(router, /presentedDigest !== expectedDigest/);
+  assert.match(router, /presentedDigest === expectedDigest/);
+  // One comparison, shared by the scrape and the backup ingest, so the two
+  // cannot drift into different rejection behaviour.
+  assert.match(router, /async function bearerMatches\(/);
   assert.match(router, /text\/plain; version=0\.0\.4/);
 
   const wiring = await readFile('apps/api/src/production-adapters/postgres/index.ts', 'utf8');
@@ -4187,6 +4190,61 @@ test('the go/no-go gate cannot be talked into GO by an environment variable', as
   });
   assert.equal(report.productionGo, false);
   assert.equal(stateOf(report, 'REQUIREMENTS_RESOLVED'), 'BLOCKED');
+});
+
+test('reporting a backup needs its own credential, not the one that reads metrics', async () => {
+  const scrapeToken = 'scrape-token-that-is-long-enough-0001';
+  const ingestToken = 'ingest-token-that-is-long-enough-0002';
+  const recorded = [];
+  const handler = createApiHandler({
+    resolveContext: async () => { throw new Error('the operator plane must not resolve a tenant'); },
+    authorize: () => {},
+    cases: { create: async () => ({}), get: async () => null, list: async () => [], send: async () => ({}), cancel: async () => ({}) },
+    metrics: {
+      scrapeToken,
+      ingestToken,
+      render: async () => '# nothing\n',
+      recordBackupCompletion: async (input) => { recorded.push(input); return { scope: input.scope, completedAt: input.completedAt }; },
+    },
+  });
+  const post = (token, body) => handler(new Request('https://api.example/metrics/backup-completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+  }));
+  const report = { scope: 'control-database', completedAt: '2026-08-19T02:00:00.000Z', reportedBy: 'platform-backup-job' };
+
+  assert.equal((await post(undefined, report)).status, 401);
+  // The separation that matters: whoever may read operational state must not
+  // thereby be able to silence the alert that says backups stopped.
+  assert.equal((await post(scrapeToken, report)).status, 401);
+  assert.equal((await post(ingestToken, report)).status, 202);
+  assert.equal(recorded.length, 1);
+  assert.equal(recorded[0].scope, 'control-database');
+
+  // And the other direction: the ingest credential does not open the scrape.
+  const scraped = await handler(new Request('https://api.example/metrics', {
+    headers: { authorization: `Bearer ${ingestToken}` },
+  }));
+  assert.equal(scraped.status, 401);
+});
+
+test('a deployment without a backup ingest credential has no ingest route', async () => {
+  const handler = createApiHandler({
+    resolveContext: async () => { throw new Error('unused'); },
+    authorize: () => {},
+    cases: { create: async () => ({}), get: async () => null, list: async () => [], send: async () => ({}), cancel: async () => ({}) },
+    metrics: { scrapeToken: 'scrape-token-that-is-long-enough-0001', render: async () => '# nothing\n' },
+  });
+  const response = await handler(new Request('https://api.example/metrics/backup-completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer anything' },
+    body: '{}',
+  }));
+  // 503, not 404: the route exists in every build, and saying so is what tells
+  // an operator the credential is missing rather than the path being wrong.
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).error.code, 'BACKUP_SIGNAL_NOT_CONFIGURED');
 });
 
 let failed = 0;

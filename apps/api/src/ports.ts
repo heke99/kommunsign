@@ -558,6 +558,27 @@ export interface PublicVerificationRepository {
 export interface MetricsEndpoint {
   readonly scrapeToken: string;
   render(now: Date): Promise<string>;
+  /**
+   * Optional: a separate credential for reporting a completed backup.
+   *
+   * Deliberately not the scrape token. Reading operational state and silencing
+   * an alert about missing backups are different powers, and whoever monitors
+   * should not automatically be able to do the second.
+   */
+  readonly ingestToken?: string;
+  recordBackupCompletion?(input: BackupCompletionInput): Promise<BackupCompletionResult>;
+}
+export interface BackupCompletionInput {
+  /** What was backed up, e.g. control-database. Bounded to a short slug. */
+  readonly scope: string;
+  readonly completedAt: string;
+  /** The job or platform that reported it, for the audit trail. */
+  readonly reportedBy: string;
+  readonly detail?: Readonly<Record<string, unknown>>;
+}
+export interface BackupCompletionResult {
+  readonly scope: string;
+  readonly completedAt: string;
 }
 export interface ApiDependencies {
   readonly cases: CaseRepository;

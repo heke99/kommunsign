@@ -121,6 +121,10 @@ export VALIDATION_SERVICE_TOKEN="$(random_token)"
 export PORT="$API_PORT"
 export E2E_API_PORT="$API_PORT"
 export E2E_STUB_PORT="$STUB_PORT"
+# The operator plane: reading metrics and reporting a backup are separate
+# credentials, and the chain checks that they stay separate.
+export METRICS_SCRAPE_TOKEN="$(random_token)$(random_token)"
+export BACKUP_SIGNAL_TOKEN="$(random_token)$(random_token)"
 
 # The external suppliers, served over HTTPS with a certificate made here. Both
 # provider clients refuse a plaintext base URL, and that refusal is worth

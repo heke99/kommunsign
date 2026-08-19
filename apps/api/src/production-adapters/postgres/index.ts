@@ -161,6 +161,9 @@ function metricsEndpoint(controlDatabase: SqlDatabase, dataDatabase: SqlDatabase
   const scrapeToken = process.env.METRICS_SCRAPE_TOKEN ?? '';
   if (scrapeToken.length < 32) return {};
   const repository = createMetricsRepository(controlDatabase, dataDatabase);
+  // Reporting a backup needs its own credential, and a deployment that has not
+  // set one simply has no ingest route rather than an unauthenticated one.
+  const ingestToken = process.env.BACKUP_SIGNAL_TOKEN ?? '';
   return {
     metrics: {
       scrapeToken,
@@ -168,6 +171,10 @@ function metricsEndpoint(controlDatabase: SqlDatabase, dataDatabase: SqlDatabase
         const { counters, gauges } = await repository.collect(now);
         return renderPrometheus(counters, gauges);
       },
+      ...(ingestToken.length >= 32 ? {
+        ingestToken,
+        recordBackupCompletion: (input) => repository.recordBackupCompletion(input),
+      } : {}),
     },
   };
 }

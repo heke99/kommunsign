@@ -1,6 +1,6 @@
 {
   "assessedAt": "2026-08-19",
-  "reason": "Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager.",
+  "reason": "Ombedömning mot faktisk kod efter att signeringskedjan, de blockerade jobbtyperna, GDPR-, SCIM- och federationsruntime, leverans, observability och nyckelrotation färdigställts. Bedömningarna korrigeras i båda riktningarna: krav vars PASS byggde på ett bibliotek utan anropare har fått uppdaterad evidens där runtime nu finns, och krav där runtime fortfarande saknas eller där konformitet inte gått att verifiera har nedgraderats. PASS ges endast när implementation, databas, runtime, API och test finns tillsammans. Efter en andra omgång fick federationens ACS-route byggas färdigt, varpå 2079 går från PARTIAL till PASS, och OIDC-vägen byggdes färdigt ovanpå samma beslutslager. Efter go/no-go-arbetet: backup-signalens mottagarsida är byggd (2037, 3533 behåller BLOCKED_EXTERNAL men med annat kvarstående — ett anrop från driftplattformen i stället för en saknad integrationsdesign).",
   "assessments": {
     "2068": {
       "state": "Gallring är nu en operation kunden kan köra, inte bara ett bibliotek. Den tidigare bedömningen beskrev packages/retention korrekt men utelämnade att ingen runtime-kod importerade det: RETENTION_EXECUTE var phaseUnsupported och dead-letterade direkt, och app.retention_policies fanns inte som tabell. Migration 0024 lägger policytabellen, app.gallring_jobs och app.gallring_reports, och apps/workers/src/retention-handlers.ts driver körningen.",
@@ -149,13 +149,13 @@
       "status": "PASS"
     },
     "2037": {
-      "state": "Backup tas av driftplattformen och inte av applikationen. Larmregeln BackupFailed finns och serien är deklarerad, men ingenting i det här systemet vet när senaste backup lyckades, så serien är uttryckligen listad som omatad i PROMETHEUS_UNFED_SERIES. Det är avsiktligt synligt: BackupFailed larmar på frånvaron av en färsk tidsstämpel, vilket betyder att en omatad serie ser exakt ut som en frisk för den som inte kontrollerat.",
-      "gap": "Ingen kodbrist. Serien måste matas av den som faktiskt tar backuperna.",
-      "implementation": "infrastructure/monitoring/prometheus-alerts.yaml (regeln), packages/observability/src/prometheus.ts (deklaration och uttrycklig omatad-lista).",
-      "evidence": "packages/observability/src/prometheus.ts; infrastructure/monitoring/prometheus-alerts.yaml",
-      "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: test som kräver att varje deklarerad serie antingen matas av metrics-repository eller står med i omatad-listan.",
+      "state": "Applikationen kan nu ta emot en rapporterad backup och exponera den. Migration control/0020 lägger control.backup_completions, POST /metrics/backup-completions tar emot rapporten bakom ett eget BACKUP_SIGNAL_TOKEN, och metrics-repositoryt renderar kommunsign_last_successful_backup_timestamp_seconds ur den. PROMETHEUS_UNFED_SERIES är tom: serien är inte längre strukturellt omatbar, den saknar bara värde i en installation där ingen rapporterar — och det är precis vad BackupFailed larmar på. Ingest-credentialen är avsiktligt inte skrape-token: att läsa driftstatus och att tysta larmet om uteblivna backuper är olika befogenheter. Databasen vägrar en tidsstämpel i framtiden (skulle tysta larmet så länge den ligger före klockan) och en som flyttas bakåt (skulle låta en replay ta bort en färsk backup).",
+      "gap": "Driftplattformens backupjobb måste anropa endpointen efter varje lyckad körning, och kommunen måste bekräfta backupfönster och retention. Ingen kodbrist återstår — det som saknas är ett anrop från den som faktiskt tar backuperna.",
+      "implementation": "migrations/control/0020_backup_signal.sql (tabell, framtidsspärr, monotont trigger), apps/api/src/router.ts (POST /metrics/backup-completions med egen credential), apps/api/src/production-adapters/postgres/metrics-repository.ts (rapport in, gauge ut), packages/observability/src/prometheus.ts (tom omatad-lista).",
+      "evidence": "migrations/control/0020_backup_signal.sql; apps/api/src/router.ts; apps/api/src/production-adapters/postgres/metrics-repository.ts",
+      "verification": "npm run verify (159 tester, inklusive att skrape-token avvisas för ingest och tvärtom), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/backup-signal.sql, samt npm run verify:e2e:application som rapporterar en backup mot körande API, skrapar /metrics och ser serien — och får en framtida tidsstämpel avvisad.",
       "status": "BLOCKED_EXTERNAL",
-      "blocker": "Driftplattformens backupjobb måste mata kommunsign_last_successful_backup_timestamp_seconds, och kommunen måste bekräfta backupfönster och retention. Utan det larmar BackupFailed aldrig, hur frisk regeln än ser ut."
+      "blocker": "Driftplattformens backupjobb måste anropa POST /metrics/backup-completions efter varje lyckad körning, och kommunen måste bekräfta backupfönster och retention. Mottagarsidan finns nu: tabell, endpoint med egen credential, och serien renderas ur det som rapporterats. Det som återstår är ett anrop från den som faktiskt tar backuperna — inte en integrationsdesign."
     },
     "3526": {
       "state": "Rutinen för kryptering finns och nyckelrotation är nu en operation som går att köra, följa och verifiera. Nio tabeller bär key_version, så frågan vilka rader som fortfarande ligger på den gamla nyckeln går att besvara — utan den var rotation en förhoppningsfull massuppdatering utan möjlighet att återuppta eller verifiera. Databasen vägrar markera en rotation verifierad medan någon kolumn fortfarande rapporterar utestående rader.",
@@ -172,6 +172,15 @@
       "evidence": "migrations/data/0027_signed_document_delivery.sql; apps/api/src/production-adapters/postgres/delivery-repository.ts",
       "verification": "npm run verify (138 tester), bash scripts/db-verify.sh mot riktig Postgres: tests/sql/document-delivery.sql med sju scenarier samt enhetstest för avkortning och att okänd, utgången, återkallad och förbrukad länk ger samma svar.",
       "status": "PASS"
+    },
+    "3533": {
+      "state": "Samma mottagarsida som 2037: en lyckad backup kan rapporteras, lagras och skrapas. Vad som inte kan produceras här är evidensen för att backuperna faktiskt tas och går att återläsa.",
+      "gap": "Leverantörsevidens för backuprutinen och en genomförd restore-övning med dokumenterat utfall.",
+      "implementation": "migrations/control/0020_backup_signal.sql, apps/api/src/router.ts, apps/api/src/production-adapters/postgres/metrics-repository.ts.",
+      "evidence": "migrations/control/0020_backup_signal.sql; tests/sql/backup-signal.sql",
+      "verification": "bash scripts/db-verify.sh mot riktig Postgres: tests/sql/backup-signal.sql; npm run verify:e2e:application.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Leverantörsevidens för backuprutinen och en genomförd restore-övning med dokumenterat utfall. Rapporteringsvägen finns, men att en backup går att återläsa kan bara visas genom att någon återläser den."
     }
   }
 }
