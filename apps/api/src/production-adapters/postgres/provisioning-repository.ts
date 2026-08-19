@@ -10,6 +10,17 @@ export interface ProvisioningExecutionConfiguration {
   readonly kmsKeyReference: string;
   readonly platformWildcardVerified: boolean;
   readonly bucketNames: readonly string[];
+  /**
+   * Whether this deployment can start BankID at all.
+   *
+   * app.tenant_signing_settings.tic_bankid_rollout_enabled defaults to false
+   * and nothing in the system ever wrote the row, so no tenant could start a
+   * BankID session: startBankId answered TIC_NOT_CONFIGURED for every tenant,
+   * on every deployment, whatever the environment said. The row is now seeded
+   * during provisioning, and it follows the deployment's own configuration --
+   * a deployment without BankID gets a tenant that cannot start it.
+   */
+  readonly bankIdRolloutEnabled: boolean;
 }
 
 export interface ProvisioningExecutionResult {
@@ -267,6 +278,7 @@ export function createProvisioningRepository(
             requestId: request.id,
             actorId: request.requested_by,
             legalName: request.organization_name,
+            bankIdRolloutEnabled: configuration.bankIdRolloutEnabled,
             organizationNumber: request.organization_number,
           });
           return `tenant:${tenantId}:baseline`;
@@ -620,6 +632,7 @@ async function seedSharedDataPlane(
     readonly actorId: string;
     readonly legalName: string;
     readonly organizationNumber: string;
+    readonly bankIdRolloutEnabled: boolean;
   },
 ): Promise<void> {
   const context: TenantContext = {
@@ -656,6 +669,13 @@ async function seedSharedDataPlane(
       [input.tenantId],
     );
     const systemUserId = required(systemUser.rows[0], 'SYSTEM_PROVISIONING_USER_CREATE_FAILED').id;
+
+    await transaction.query(
+      `insert into app.tenant_signing_settings(tenant_id,tic_bankid_rollout_enabled,updated_by)
+       values($1,$2,$3)
+       on conflict(tenant_id) do nothing`,
+      [input.tenantId, input.bankIdRolloutEnabled, systemUserId],
+    );
 
     const rolePermissions: Readonly<Record<string, readonly string[]>> = {
       tenant_admin: [

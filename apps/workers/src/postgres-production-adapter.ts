@@ -46,6 +46,8 @@ export async function createProductionWorkerAdapter(
       releaseVersion: value(configuration, 'KOMMUNSIGN_RELEASE_VERSION', 'development-unversioned'),
       kmsKeyReference: required(configuration, 'KMS_KEY_REFERENCE'),
       platformWildcardVerified: booleanValue(configuration, 'PLATFORM_WILDCARD_VERIFIED', false),
+      bankIdRolloutEnabled: booleanValue(configuration, 'TIC_BANKID_ENABLED', false)
+        && !booleanValue(configuration, 'TIC_GLOBAL_KILL_SWITCH', false),
       bucketNames: [
         value(configuration, 'STORAGE_APPLICATION_QUARANTINE_BUCKET', 'application-quarantine'),
         value(configuration, 'STORAGE_DOCUMENT_QUARANTINE_BUCKET', 'document-quarantine'),

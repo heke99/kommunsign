@@ -160,6 +160,17 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
         const view: DocumentView = { id: documentId, signatureCaseId: id, displayName: input.displayName, status: normalizeDocumentStatus(row.status), sha256: row.sha256, byteSize: Number(row.byte_size), mimeType: row.mime_type };
         await appendOutbox(transaction, context.tenantId, 'document', documentId, 'document.quarantined', { signatureCaseId: id, documentId, documentVersionId: row.id });
         await enqueueDurableJob(transaction, context.tenantId, 'DOCUMENT_SCAN', `document-scan:${row.id}`, { signatureCaseId:id,documentId,documentVersionId:row.id });
+        // A case with a document in it is no longer a draft. The worker moves
+        // it on to ready when every version has been canonicalised; until
+        // something made this first step, the case stayed in draft and the
+        // database correctly refused to send it.
+        const prepared = await transaction.query(
+          `update app.signature_cases set status='preparing',status_version=status_version+1,updated_at=now()
+            where tenant_id=$1 and id=$2 and status='draft'`, [context.tenantId, id],
+        );
+        if (prepared.rowCount) {
+          await appendOutbox(transaction, context.tenantId, 'signature_case', id, 'signature_case.preparing', { signatureCaseId: id });
+        }
         return view;
       }));
     },
@@ -191,7 +202,9 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
     },
     async send(context, id, key, payloadHash, expectedVersion) {
       return transitionCase(database, context, id, 'sent', key, payloadHash, expectedVersion, async (transaction, current) => {
-        if (!['draft','ready'].includes(current.status)) throw new Error('CASE_NOT_SENDABLE');
+        // Only from ready. A draft has no canonicalised document behind it, and
+        // the database's transition table says the same thing.
+        if (current.status !== 'ready') throw new Error('CASE_NOT_SENDABLE');
         const details = await transaction.query<CaseSigningRow>(
           `select c.id,c.external_reference,c.title,c.policy_id,c.policy_version,o.legal_name as organization_name
              from app.signature_cases c

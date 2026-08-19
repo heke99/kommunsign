@@ -91,6 +91,85 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build
       - run: node scripts/verify-object-storage.mjs
+  application-chain-e2e:
+    # The orchestration, run for real: the production API and the production
+    # worker as separate processes, against both databases, MinIO, ClamAV,
+    # qpdf, Gotenberg, veraPDF and the two Java services. A document goes from
+    # upload to a validated PDF/A canonical revision, an invitation reaches the
+    # email provider, the signer opens it, BankID starts -- and the evidence,
+    # which nothing local can mint, is refused rather than accepted.
+    #
+    # Its first run found five faults that were fatal in production and
+    # invisible to every component test: DOCUMENT_SCAN and EMAIL_SEND could not
+    # run at all, a case could never leave draft, no tenant could start BankID,
+    # and a BankID signature that failed verification retried instead of failing
+    # the signer. Keep it running.
+    runs-on: ubuntu-24.04
+    services:
+      postgres-control:
+        image: postgres:17.10-bookworm
+        env:
+          POSTGRES_USER: kommunsign
+          POSTGRES_PASSWORD: local-change-me
+          POSTGRES_DB: kommunsign_control
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U kommunsign" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+      postgres-data:
+        image: postgres:17.10-bookworm
+        env:
+          POSTGRES_USER: kommunsign
+          POSTGRES_PASSWORD: local-change-me
+          POSTGRES_DB: kommunsign_data
+        ports: ['5434:5432']
+        options: >-
+          --health-cmd "pg_isready -U kommunsign" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+    env:
+      CONTROL_DATABASE_URL: postgresql://kommunsign:local-change-me@127.0.0.1:5433/kommunsign_control
+      DATA_DATABASE_URL: postgresql://kommunsign:local-change-me@127.0.0.1:5434/kommunsign_data
+      S3_ACCESS_KEY_ID: ci-only
+      S3_SECRET_ACCESS_KEY: ci-only-change-me
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '22.16.0', cache: npm }
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with: { distribution: temurin, java-version: '21', cache: maven }
+      - name: Install qpdf and the PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y qpdf postgresql-client
+      - name: Start the document pipeline services
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER="$S3_ACCESS_KEY_ID" -e MINIO_ROOT_PASSWORD="$S3_SECRET_ACCESS_KEY" \
+            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          docker run -d --name clamav -p 3310:3310 clamav/clamav:1.5.3-debian13-slim
+          docker run -d --name gotenberg -p 3007:3000 gotenberg/gotenberg:8.34.0 \
+            gotenberg --api-disable-health-check-logging=true --chromium-disable-javascript=true --api-timeout=120s
+          docker run -d --name verapdf -p 3008:8080 \
+            verapdf/rest@sha256:341359ac6af558f35f03c355a798fec57ba049dd04f0a503f300170e1696573b
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null 2>&1 \
+               && curl -fsS http://127.0.0.1:3007/health >/dev/null 2>&1 \
+               && curl -fsS http://127.0.0.1:3008/api/profiles >/dev/null 2>&1 \
+               && (exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'PING\n' >&3 && head -c 4 <&3 | grep -q PONG); then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "the document pipeline services did not come up" >&2
+          for name in minio clamav gotenberg verapdf; do echo "--- $name"; docker logs --tail 30 "$name"; done
+          exit 1
+      - run: npm ci --ignore-scripts
+      - run: bash scripts/db-migrate.sh
+      - run: npm run verify:e2e:application
+      - name: Service logs on failure
+        if: failure()
+        run: |
+          for file in build/e2e-app/api.log build/e2e-app/workers.log build/e2e-app/signservice.log build/e2e-app/validation.log; do
+            echo "--- $file"; tail -60 "$file" 2>/dev/null || true
+          done
   database:
     runs-on: ubuntu-24.04
     services:

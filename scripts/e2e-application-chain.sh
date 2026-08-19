@@ -107,6 +107,8 @@ export KOMMUNSIGN_ROOT_DOMAIN=kommunsign.invalid
 export PLATFORM_ADMIN_URL=https://admin.kommunsign.invalid
 export TENANT_DISCOVERY_URL=https://app.kommunsign.invalid
 export SIGNER_FALLBACK_URL=https://sign.kommunsign.invalid
+# No proxy in front of the API here, so the end-user IP is the socket's.
+export TRUSTED_PROXY_PROVIDER=none
 export ONBOARDING_PORTAL_URL=https://onboarding.kommunsign.invalid
 export CLAMAV_HOST=127.0.0.1
 export CLAMAV_PORT=3310
@@ -118,6 +120,7 @@ export SIGNSERVICE_TOKEN="$(random_token)"
 export VALIDATION_SERVICE_TOKEN="$(random_token)"
 export PORT="$API_PORT"
 export E2E_API_PORT="$API_PORT"
+export E2E_STUB_PORT="$STUB_PORT"
 
 # The external suppliers, served over HTTPS with a certificate made here. Both
 # provider clients refuse a plaintext base URL, and that refusal is worth

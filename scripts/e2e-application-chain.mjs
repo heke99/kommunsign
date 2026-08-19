@@ -312,6 +312,112 @@ await step('the worker scans and canonicalises the document', async () => {
   return `${document.pdf_profile ?? 'unknown profile'}, ${document.canonical_object_key}`;
 });
 
+let signerId;
+await step('a signer is added and the case is sent', async () => {
+  const signer = expect(await tenant('POST', `/v1/signature-cases/${caseId}/signers`, {
+    displayName: 'E2E Beslutsfattare',
+    email: 'beslutsfattare@kungalv.invalid',
+    personalNumber: '199001010009',
+    requirePersonalNumberMatch: true,
+    personalNumberException: null,
+    required: true,
+    signingOrder: 1,
+  }, { 'idempotency-key': randomUUID() }), 201, 'add signer');
+  signerId = signer.id;
+  const current = expect(await tenant('GET', `/v1/signature-cases/${caseId}`), 200, 'read case');
+  if (current.status !== 'ready') throw new Error(`the case is ${current.status}, not ready to send`);
+  const sent = expect(await tenant('POST', `/v1/signature-cases/${caseId}/send`, undefined,
+    { 'idempotency-key': randomUUID(), 'if-match': String(current.statusVersion) }), 200, 'send case');
+  if (sent.status !== 'sent') throw new Error(`the case is ${sent.status} after sending`);
+  return `signer ${signerId}`;
+});
+
+await step('the invitation reaches the email provider', async () => {
+  const seen = await waitFor('the invitation to be sent', async () => {
+    const response = await fetch(`https://127.0.0.1:${required('E2E_STUB_PORT')}/stub/emails`);
+    const payload = await response.json();
+    return payload.delivered.length > 0 ? payload.delivered : null;
+  }, { timeoutMs: 90_000 });
+  const last = seen[seen.length - 1];
+  // The document must not travel by email; the invitation carries a link.
+  if (JSON.stringify(last).includes('%PDF')) throw new Error('the document was attached to the invitation');
+  return last.subject;
+});
+
+// ---------------------------------------------------------------------------
+// 4. Identity, and the line the system must not cross.
+//
+// BankID completion data is signed by BankID's key and verified against their
+// CA. Nothing here can mint one, so the stub returns completion data that will
+// not verify -- and the point of this step is that the system says so. A signer
+// that reached 'signed' on unverifiable evidence would be the exact failure the
+// whole design exists to prevent.
+// ---------------------------------------------------------------------------
+
+let invitationToken;
+await step('the signer opens the invitation and sees the document', async () => {
+  const emails = await (await fetch(`https://127.0.0.1:${required('E2E_STUB_PORT')}/stub/emails`)).json();
+  const text = emails.delivered[emails.delivered.length - 1]?.text ?? '';
+  invitationToken = /[?&]token=([^\s&)]+)/.exec(text)?.[1];
+  if (!invitationToken) throw new Error('the invitation carried no signing link');
+  invitationToken = decodeURIComponent(invitationToken);
+
+  const signHost = new URL(required('SIGNER_FALLBACK_URL')).hostname;
+  const invitation = expect(await send('GET', `/v1/public/signing-invitations/${invitationToken}`, { host: signHost }), 200, 'read invitation');
+  if (!invitation.documents?.length) throw new Error('the invitation showed no documents');
+  expect(await send('POST', `/v1/public/signing-invitations/${invitationToken}/opened`, { host: signHost, 'content-type': 'application/json' }, '{}'), 200, 'mark opened');
+
+  // The signer must be able to read exactly what they are about to sign.
+  const documentId = invitation.documents[0].documentId ?? invitation.documents[0].id;
+  const shown = await send('GET', `/v1/public/signing-invitations/${invitationToken}/documents/${documentId}`, { host: signHost });
+  if (shown.status !== 200) throw new Error(`the document was not shown: ${shown.status}`);
+  return `${invitation.documents.length} document(s) shown to the signer`;
+});
+
+// ---------------------------------------------------------------------------
+// 5. Identity, and the line the system must not cross.
+//
+// BankID completion data is signed by BankID's key and verified against their
+// CA. Nothing local can mint one, so the stub returns completion data that
+// cannot verify -- and the point of this step is that the system says so. A
+// signer that reached signed on unverifiable evidence would be the exact
+// failure the whole design exists to prevent.
+// ---------------------------------------------------------------------------
+
+await step('BankID starts and the evidence is refused, not accepted', async () => {
+  const signHost = new URL(required('SIGNER_FALLBACK_URL')).hostname;
+  const started = await send('POST', `/v1/public/signing-invitations/${invitationToken}/bankid/start`,
+    { host: signHost, 'content-type': 'application/json' }, JSON.stringify({ reviewAcknowledged: true }));
+  if (started.status !== 201) throw new Error(`BankID did not start: ${started.status} ${JSON.stringify(started.body).slice(0, 200)}`);
+  const sessionId = started.body.id ?? started.body.sessionId;
+  if (!sessionId) throw new Error('the start response carried no session');
+
+  // Polled the way the signer portal polls. Nothing collects the evidence
+  // until the session is seen to have completed.
+  await waitFor('the BankID session to leave pending', async () => {
+    const polled = await send('GET', `/v1/public/signing-invitations/${invitationToken}/bankid/sessions/${sessionId}`, { host: signHost });
+    if (polled.status !== 200) throw new Error(`polling failed: ${polled.status} ${JSON.stringify(polled.body).slice(0, 200)}`);
+    return polled.body.status && polled.body.status !== 'pending' ? polled.body.status : null;
+  }, { timeoutMs: 60_000, intervalMs: 2000 });
+
+  const settled = await waitFor('the identity attempt to settle', async () => {
+    const rows = await data`
+      select s.status::text as signer_status,
+             (select t.status::text from app.identity_transactions t
+               where t.tenant_id = s.tenant_id and t.signer_id = s.id
+               order by t.started_at desc limit 1) as identity_status
+        from app.signers s where s.tenant_id = ${tenantId} and s.id = ${signerId}`;
+    const row = rows[0];
+    if (row?.signer_status === 'signed') throw new Error('a signer was marked signed on evidence that did not verify');
+    return ['failed', 'cancelled', 'expired'].includes(row?.identity_status ?? '') ? row : null;
+  }, { timeoutMs: 120_000, intervalMs: 2000 });
+
+  const artifacts = await data`
+    select count(*)::int as count from app.signature_artifacts where tenant_id = ${tenantId}`;
+  if (artifacts[0]?.count) throw new Error('a signed artifact exists without verified identity evidence');
+  return `identity ${settled.identity_status}, signer ${settled.signer_status}, no signed artifact`;
+});
+
 // ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------

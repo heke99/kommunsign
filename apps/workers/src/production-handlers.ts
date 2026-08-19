@@ -188,6 +188,23 @@ async function handleDocumentCanonicalize(database: SqlDatabase, infrastructure:
     await tx.query(`insert into app.document_hashes(tenant_id,document_version_id,algorithm,digest) values($1,$2,'SHA-256',$3) on conflict do nothing`, [job.tenantId, row.id, canonicalSha]);
     await audit(tx, job.tenantId, 'BUSINESS', 'document.pdfa_validated', 'document_version', row.id, { documentVersionId: row.id, profile: 'PDF/A-2b', sha256: canonicalSha, validatorReportSha256: reportSha });
     await outbox(tx, job.tenantId, 'document', row.document_id, 'document.pdfa_validated', { documentVersionId: row.id, sha256: canonicalSha, profile: 'PDF/A-2b' });
+    // The case becomes ready when its last document does. Nothing used to move
+    // a case out of preparing, so it sat in draft and the database refused
+    // draft -> sent: a case created through the API could never be sent, and
+    // the two intermediate states existed only in the type.
+    const readied = await tx.query(
+      `update app.signature_cases c set status='ready',status_version=status_version+1,updated_at=now()
+        where c.tenant_id=$1 and c.id=$2 and c.status='preparing'
+          and not exists (
+            select 1 from app.documents d
+              join app.document_versions v on v.tenant_id=d.tenant_id and v.document_id=d.id
+             where d.tenant_id=c.tenant_id and d.signature_case_id=c.id and v.status<>'ready')`,
+      [job.tenantId, row.signature_case_id],
+    );
+    if (readied.rowCount) {
+      await audit(tx, job.tenantId, 'BUSINESS', 'signature_case.ready', 'signature_case', row.signature_case_id, { signatureCaseId: row.signature_case_id });
+      await outbox(tx, job.tenantId, 'signature_case', row.signature_case_id, 'signature_case.ready', { signatureCaseId: row.signature_case_id });
+    }
   });
 }
 
@@ -235,13 +252,24 @@ async function handleTicCollect(database: SqlDatabase, infrastructure: Productio
   });
   if (['complete_collected','verified'].includes(row.status)) return;
   if (['cancelled','expired','failed'].includes(row.status)) throw permanent('TIC_SESSION_TERMINAL');
-  const evidence = await services.tic.collectEvidence(row.provider_reference);
-  const collect = asObject(evidence.rawPayload, 'TIC_EVIDENCE_INVALID');
-  const signature = asObject(collect.signature, 'TIC_EVIDENCE_INVALID');
-  const xmlBase64 = requiredString(signature.value, 'TIC_SIGNATURE_MISSING');
-  const ocspBase64 = requiredString(signature.ocspResponse, 'TIC_OCSP_MISSING');
-  const xml = decodeBase64(xmlBase64, 'TIC_SIGNATURE_INVALID');
-  const ocsp = decodeBase64(ocspBase64, 'TIC_OCSP_INVALID');
+  // A collect response we cannot read is the end of this transaction, not a
+  // reason to retry forever. Without this the row stayed 'pending' with no
+  // failure code: the signer waited on a session that would never resolve, and
+  // the only trace was a dead-lettered job.
+  let xml: Uint8Array;
+  let ocsp: Uint8Array;
+  let collect: Record<string, unknown>;
+  try {
+    const evidence = await services.tic.collectEvidence(row.provider_reference);
+    collect = asObject(evidence.rawPayload, 'TIC_EVIDENCE_INVALID');
+    const signature = asObject(collect.signature, 'TIC_EVIDENCE_INVALID');
+    xml = decodeBase64(requiredString(signature.value, 'TIC_SIGNATURE_MISSING'), 'TIC_SIGNATURE_INVALID');
+    ocsp = decodeBase64(requiredString(signature.ocspResponse, 'TIC_OCSP_MISSING'), 'TIC_OCSP_INVALID');
+  } catch (cause) {
+    if (!(cause instanceof Error) || cause.name !== 'PermanentWorkerError') throw cause;
+    await failIdentityTransaction(database, job.tenantId, identityTransactionId, row.signing_intent_id, row.signer_id, safeCode(cause.message));
+    throw cause;
+  }
   const collectBytes = UTF8.encode(canonicalJson(collect as CanonicalJsonValue));
   const prefix = `${job.tenantId}/cases/${row.signature_case_id}/signers/${row.signer_id}/identity/${identityTransactionId}/evidence`;
   const collectKey = `${prefix}/tic-collect-response.json`;
@@ -257,6 +285,30 @@ async function handleTicCollect(database: SqlDatabase, infrastructure: Productio
     await enqueue(tx, job.tenantId, 'SIGNATURE_VALIDATE', `signature-validate:${identityTransactionId}`, { identityTransactionId, collectKey, xmlKey, ocspKey });
     await audit(tx, job.tenantId, 'BUSINESS', 'bankid.evidence_collected', 'identity_transaction', identityTransactionId, { identityTransactionId, signingIntentId: row.signing_intent_id, collectSha256: await sha256Hex(collectBytes), signatureXmlSha256: await sha256Hex(xml), ocspSha256: await sha256Hex(ocsp) });
     await outbox(tx, job.tenantId, 'identity_transaction', identityTransactionId, 'bankid.evidence_collected', { signingIntentId: row.signing_intent_id });
+  });
+}
+
+/**
+ * Ends an identity transaction that cannot go any further.
+ *
+ * The same three rows SIGNATURE_VALIDATE writes when a report fails, so a
+ * signer whose evidence could not even be read ends up in the same state as
+ * one whose evidence did not verify: failed, with a code, and not pending.
+ */
+async function failIdentityTransaction(
+  database: SqlDatabase, tenantId: string, identityTransactionId: string,
+  signingIntentId: string, signerId: string, code: string,
+): Promise<void> {
+  await tenant(database, tenantId, async (tx) => {
+    await tx.query(
+      `update app.identity_transactions set status='failed',failure_code=$3,completed_at=coalesce(completed_at,now())
+        where tenant_id=$1 and id=$2 and status in ('pending','user_action_required')`,
+      [tenantId, identityTransactionId, code],
+    );
+    await tx.query(`update app.signing_intents set status='failed' where tenant_id=$1 and id=$2 and status='provider_started'`, [tenantId, signingIntentId]);
+    await tx.query(`update app.signers set status='failed',status_version=status_version+1 where tenant_id=$1 and id=$2 and status not in ('signed','declined','cancelled')`, [tenantId, signerId]);
+    await audit(tx, tenantId, 'BUSINESS', 'bankid.evidence_failed', 'identity_transaction', identityTransactionId, { identityTransactionId, signingIntentId, failureCode: code });
+    await outbox(tx, tenantId, 'identity_transaction', identityTransactionId, 'bankid.evidence_failed', { signingIntentId, failureCode: code });
   });
 }
 

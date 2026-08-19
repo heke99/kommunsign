@@ -120,7 +120,12 @@ export class ValidationServiceClient {
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15_000);
     try {
       const response = await this.http(`${this.baseUrl}/v1/validate/tic-bankid`, { method: 'POST', headers: { authorization: `Bearer ${this.serviceToken}`, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(input), signal: controller.signal });
-      if (!response.ok) throw new Error(`VALIDATION_SERVICE_FAILED:${response.status}`);
+      // 422 is a completed validation that returned "no", exactly as for PAdES
+      // below. Treating it as a transport failure turned every BankID signature
+      // that did not verify into a retry loop: the report was never recorded,
+      // the signer never moved to failed, and the job retried until it
+      // dead-lettered. A refusal has to be read, not retried.
+      if (!response.ok && response.status !== 422) throw new Error(`VALIDATION_SERVICE_FAILED:${response.status}`);
       const report = await response.json() as TicEvidenceValidationReport;
       if (!report || !['PASS', 'FAIL'].includes(report.result) || !Array.isArray(report.checks)) throw new Error('VALIDATION_SERVICE_PROTOCOL_INVALID');
       return report;

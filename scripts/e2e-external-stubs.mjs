@@ -29,6 +29,7 @@ const server = createServer(
     request.on('data', (chunk) => chunks.push(chunk));
     request.on('end', () => {
       const body = Buffer.concat(chunks).toString('utf8');
+      console.log(JSON.stringify({ level: 'info', event: 'stub_request', method: request.method, path: request.url }));
       const url = new URL(request.url ?? '/', `https://127.0.0.1:${port}`);
       const send = (status, payload) => {
         const bytes = Buffer.from(JSON.stringify(payload));
@@ -39,13 +40,15 @@ const server = createServer(
       // --- transactional email ---------------------------------------------
       if (request.method === 'POST' && url.pathname === '/emails') {
         const parsed = body ? JSON.parse(body) : {};
-        delivered.push({ to: parsed.to, subject: parsed.subject, at: new Date().toISOString() });
+        // The text is kept because it carries the signing link, which is how a
+        // signer gets their token. The E2E reads it the same way a person would.
+        delivered.push({ to: parsed.to, subject: parsed.subject, text: parsed.text, at: new Date().toISOString() });
         return send(200, { id: `stub-${delivered.length}` });
       }
       if (request.method === 'GET' && url.pathname === '/stub/emails') return send(200, { delivered });
 
       // --- BankID broker ----------------------------------------------------
-      if (request.method === 'POST' && url.pathname === '/signatures') {
+      if (request.method === 'POST' && url.pathname === '/auth/bankid/sign') {
         const sessionId = `stub-session-${sessions.size + 1}`;
         sessions.set(sessionId, { status: 'PENDING', startedAt: Date.now() });
         return send(200, {
@@ -56,7 +59,7 @@ const server = createServer(
           expiresAt: new Date(Date.now() + 300_000).toISOString(),
         });
       }
-      const status = url.pathname.match(/^\/signatures\/([^/]+)\/status$/);
+      const status = url.pathname.match(/^\/auth\/([^/]+)\/poll$/);
       if (request.method === 'POST' && status) {
         const session = sessions.get(status[1]);
         if (!session) return send(404, { error: 'unknown session' });
@@ -65,16 +68,23 @@ const server = createServer(
         if (session.status === 'PENDING') session.status = 'COMPLETE';
         return send(200, { status: session.status === 'COMPLETE' ? 'complete' : 'pending' });
       }
-      const collect = url.pathname.match(/^\/signatures\/([^/]+)$/);
+      const collect = url.pathname.match(/^\/auth\/([^/]+)(?:\/collect)?$/);
       if (request.method === 'GET' && collect) {
         const session = sessions.get(collect[1]);
         if (!session) return send(404, { error: 'unknown session' });
+        // The shape TIC returns, carrying a signature that is not BankID's.
+        // Nothing local can mint one -- it is signed by BankID's key and
+        // verified against their CA -- so this is where the system has to say
+        // no. The E2E asserts exactly that.
+        const notBankId = Buffer.from(
+          '<?xml version="1.0" encoding="UTF-8"?><Signature xmlns="http://www.w3.org/2000/09/xmldsig#">'
+          + '<SignedInfo/><SignatureValue>bm90LWJhbmtpZA==</SignatureValue></Signature>',
+          'utf8',
+        ).toString('base64');
         return send(200, {
           sessionId: collect[1],
           status: 'complete',
-          // Deliberately not a real BankID signature. Nothing local can mint
-          // one, and the system must refuse this rather than accept it.
-          completionData: { signature: 'c3R1Yi1ub3QtYS1yZWFsLWJhbmtpZC1zaWduYXR1cmU=', ocspResponse: 'c3R1Yg==' },
+          signature: { value: notBankId, ocspResponse: Buffer.from('not-an-ocsp-response', 'utf8').toString('base64') },
         });
       }
       if (request.method === 'DELETE' && collect) {
