@@ -36,8 +36,17 @@ export async function loadProductionInfrastructure(environment: Readonly<Record<
 
 async function load(moduleName: string): Promise<InfrastructureModule> {
   if (moduleName.includes('dev') || moduleName.includes('memory')) throw new Error('DEVELOPMENT_INFRASTRUCTURE_FORBIDDEN_IN_PRODUCTION');
+  // A relative adapter path is documented as relative to this file, and it has
+  // to resolve that way no matter who calls. The dynamic importer below is
+  // built with new Function, and V8 shares the compilation of an identical
+  // function source across modules, so the referrer Node uses to resolve a
+  // bare relative specifier is whichever module happened to compile it first.
+  // That made the same configuration work from the API and fail in the worker,
+  // which loads the identical helper text from another directory. Resolving
+  // against import.meta.url here removes the referrer from the question.
+  const specifier = moduleName.startsWith('.') ? new URL(moduleName, import.meta.url).href : moduleName;
   const dynamicImport = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<InfrastructureModule>;
-  return dynamicImport(moduleName);
+  return dynamicImport(specifier);
 }
 function required(environment: Readonly<Record<string, string | undefined>>, name: string): string {
   const value = environment[name]?.trim();

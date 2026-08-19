@@ -34,7 +34,15 @@ services:
     image: clamav/clamav:1.5.3-debian13-slim
     ports: ["3310:3310"]
     read_only: true
-    tmpfs: ["/tmp", "/var/log/clamav"]
+    # /run is missing from the read-only image's writable set. Without it the
+    # container restart-loops -- first on "cannot change owner and permissions
+    # of /run/clamav", then on the /var/lock -> /run/lock symlink -- and never
+    # opens the port, so the local stack could not scan a document at all.
+    # /var/lib/clamav gets a named volume rather than a tmpfs: it carries the
+    # signature database, Docker seeds a fresh named volume from the image, and
+    # freshclam has to be able to write updates into it.
+    tmpfs: ["/tmp", "/var/log/clamav", "/run"]
+    volumes: ["clamav-db:/var/lib/clamav"]
     security_opt: ["no-new-privileges:true"]
     healthcheck: { test: ["CMD-SHELL", "echo PING | nc 127.0.0.1 3310 | grep PONG"], interval: 15s, timeout: 5s, retries: 30 }
   gotenberg:
@@ -44,7 +52,18 @@ services:
     read_only: true
     tmpfs: ["/tmp"]
     security_opt: ["no-new-privileges:true"]
-    healthcheck: { test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/health"], interval: 10s, timeout: 5s, retries: 20 }
+    # curl, not wget: the image has no wget, so the old check could never pass
+    # and the container stayed "unhealthy" while serving requests normally.
+    healthcheck: { test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"], interval: 10s, timeout: 5s, retries: 20 }
+  verapdf:
+    # PDF/A conformance is asserted by the worker on every canonicalised
+    # document, and the worker requires VERAPDF_URL, so a local stack without
+    # this service cannot run the document pipeline at all. Pinned by digest:
+    # the project publishes only a moving :latest.
+    image: verapdf/rest@sha256:341359ac6af558f35f03c355a798fec57ba049dd04f0a503f300170e1696573b
+    ports: ["3008:8080"]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck: { test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/api/profiles || exit 1"], interval: 10s, timeout: 5s, retries: 30 }
   mailpit:
     image: axllent/mailpit:v1.27.8
     ports: ["1025:1025", "8025:8025"]
@@ -98,3 +117,4 @@ volumes:
   postgres-data: {}
   redis-data: {}
   minio-data: {}
+  clamav-db: {}
