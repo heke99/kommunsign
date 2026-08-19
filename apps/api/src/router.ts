@@ -176,8 +176,14 @@ function assertPublicHost(request: Request, category: 'sign'|'hooks'|'verify'): 
   const allowed = new Set(candidates.filter(Boolean).map((value) => new URL(value as string).hostname.toLowerCase()));
   if (!allowed.has(hostname)) throw new ApiRequestError('HOST_NOT_ALLOWED', 'Host is not allowed for this endpoint', 421);
 }
-async function handlePublicRequest(dependencies: ApiDependencies, request: Request, requestId: string): Promise<Response | null> {
-  const url = new URL(request.url);
+// Every route below lives under one of these two prefixes. Without the guard this ran a dozen
+// regexes against the pathname of every request in the product, authenticated traffic included,
+// before falling through. Keep this list in step with the routes: a route added outside these
+// prefixes would silently stop being reachable.
+const PUBLIC_ROUTE_PREFIXES = ['/v1/public/', '/v1/provider-webhooks/'] as const;
+
+async function handlePublicRequest(dependencies: ApiDependencies, request: Request, requestId: string, url: URL): Promise<Response | null> {
+  if (!PUBLIC_ROUTE_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) return null;
   const invitationMatch = url.pathname.match(/^\/v1\/public\/signing-invitations\/([^/]+)$/);
   if (invitationMatch?.[1]) {
     assertPublicHost(request, 'sign');
@@ -586,8 +592,8 @@ async function handleMetricsRequest(
   dependencies: ApiDependencies,
   request: Request,
   requestId: string,
+  url: URL,
 ): Promise<Response | null> {
-  const url = new URL(request.url);
   if (!dependencies.metrics) return null;
 
   // The hosting platform's backup job reports here. It sits next to /metrics
@@ -647,9 +653,13 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
   return async (request: Request): Promise<Response> => {
     const requestId = requestIdFrom(request);
     try {
-      const metricsResponse = await handleMetricsRequest(dependencies, request, requestId);
+      // Parsed once and threaded through. Each sub-router used to build its own URL from the same
+      // string, so a single request re-parsed it six or more times. It stays inside the try so a
+      // malformed URL still becomes a mapped error response rather than escaping the handler.
+      const url = new URL(request.url);
+      const metricsResponse = await handleMetricsRequest(dependencies, request, requestId, url);
       if (metricsResponse) return metricsResponse;
-      const publicResponse = await handlePublicRequest(dependencies, request, requestId);
+      const publicResponse = await handlePublicRequest(dependencies, request, requestId, url);
       if (publicResponse) return publicResponse;
       const authResponse = await handleAuthRequest(dependencies, request, requestId);
       if (authResponse) return authResponse;
@@ -664,7 +674,6 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
       const onboardingResponse = await handleOnboardingRequest(dependencies, request, requestId);
       if (onboardingResponse) return onboardingResponse;
       const context = await dependencies.resolveContext(request);
-      const url = new URL(request.url);
       if (request.method === 'GET' && url.pathname === '/v1/signature-policies') {
         await authorize(dependencies, context, 'case:create');
         return json(await dependencies.cases.listPolicies(context), 200, { 'x-request-id': requestId });

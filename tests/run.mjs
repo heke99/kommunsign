@@ -830,6 +830,39 @@ test('role lookups are memoised within a request and never across requests', asy
   assert.equal(attempts, 2);
 });
 
+test('public routes stay reachable behind the public-router prefix guard', async () => {
+  // handlePublicRequest now returns immediately unless the path is under /v1/public/ or
+  // /v1/provider-webhooks/, so it no longer runs a dozen regexes for authenticated traffic. If a
+  // public route ever moved outside those prefixes it would silently stop being reachable, so every
+  // public route must still be handled without ever resolving an authenticated context.
+  let resolvedAuthenticatedContext = 0;
+  const handler = createApiHandler({
+    resolveContext: async () => { resolvedAuthenticatedContext += 1; throw new Error('NOT_AUTHENTICATED'); },
+    authorize: () => {},
+    cases: {},
+  });
+  const publicPaths = [
+    ['/v1/public/signing-invitations/abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG', 'GET'],
+    ['/v1/public/verifications/some-verification-id', 'GET'],
+    ['/v1/provider-webhooks/tic/bankid', 'POST'],
+    ['/v1/provider-webhooks/resend', 'POST'],
+  ];
+  for (const [path, method] of publicPaths) {
+    resolvedAuthenticatedContext = 0;
+    const response = await handler(new Request(`https://api.example${path}`, {
+      method,
+      ...(method === 'POST' ? { headers: { 'content-type': 'application/json' }, body: '{}' } : {}),
+    }));
+    assert.equal(resolvedAuthenticatedContext, 0, `${path} fell through the public router`);
+    assert.ok(response.status >= 400, `${path} should report a handled error, got ${response.status}`);
+  }
+
+  // A path that merely resembles a public prefix must not be routed as public.
+  resolvedAuthenticatedContext = 0;
+  await handler(new Request('https://api.example/v1/publicX/verifications/1'));
+  assert.equal(resolvedAuthenticatedContext, 1, 'a non-public path must reach the authenticated chain');
+});
+
 test('metrics scrapes are memoised without ever serving a failed collect', async () => {
   const { createScrapeMemo } = await import('../dist/apps/api/src/production-adapters/postgres/index.js');
   let clock = 1_000;
