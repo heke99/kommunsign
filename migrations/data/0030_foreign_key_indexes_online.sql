@@ -179,9 +179,11 @@ DROP INDEX CONCURRENTLY IF EXISTS app.scim_provisioning_events_client_id_fk_idx;
 CREATE INDEX CONCURRENTLY scim_provisioning_events_client_id_fk_idx
   ON app.scim_provisioning_events(tenant_id,client_id);
 
+-- Not created: 0021 already indexes app.signature_artifacts(tenant_id,signature_attempt_id) as signature_artifacts_attempt_idx.
+-- This foreign key looked uncovered only because that migration is not yet applied to the
+-- environment this file was generated against. The DROP stays so an environment where this
+-- index was created ahead of 0021 ends up with one index rather than two identical ones.
 DROP INDEX CONCURRENTLY IF EXISTS app.signature_artifacts_signature_attempt_id_fk_idx;
-CREATE INDEX CONCURRENTLY signature_artifacts_signature_attempt_id_fk_idx
-  ON app.signature_artifacts(tenant_id,signature_attempt_id);
 
 DROP INDEX CONCURRENTLY IF EXISTS app.signature_attempts_document_version_id_fk_idx;
 CREATE INDEX CONCURRENTLY signature_attempts_document_version_id_fk_idx
@@ -239,9 +241,11 @@ DROP INDEX CONCURRENTLY IF EXISTS app.signers_identifier_binding_exception_appro
 CREATE INDEX CONCURRENTLY signers_identifier_binding_exception_approved_by_fk_idx
   ON app.signers(tenant_id,identifier_binding_exception_approved_by);
 
+-- Not created: 0021 already indexes app.signing_intent_documents(tenant_id,document_version_id) as signing_intent_documents_version_idx.
+-- This foreign key looked uncovered only because that migration is not yet applied to the
+-- environment this file was generated against. The DROP stays so an environment where this
+-- index was created ahead of 0021 ends up with one index rather than two identical ones.
 DROP INDEX CONCURRENTLY IF EXISTS app.signing_intent_documents_document_version_id_fk_idx;
-CREATE INDEX CONCURRENTLY signing_intent_documents_document_version_id_fk_idx
-  ON app.signing_intent_documents(tenant_id,document_version_id);
 
 DROP INDEX CONCURRENTLY IF EXISTS app.signing_intents_signer_id_fk_idx;
 CREATE INDEX CONCURRENTLY signing_intents_signer_id_fk_idx
