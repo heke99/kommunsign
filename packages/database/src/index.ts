@@ -8,6 +8,11 @@ export interface SqlDatabase {
   transaction<T>(work: (transaction: SqlTransaction) => Promise<T>): Promise<T>;
 }
 
+export const TENANT_CONTEXT_SQL =
+  "select set_config('app.tenant_id', $1, true), set_config('app.actor_kind', $2, true), " +
+  "set_config('app.actor_id', $3, true), set_config('app.request_id', $4, true), " +
+  "set_config('app.auth_method', $5, true)";
+
 export async function withTenantTransaction<T>(
   database: SqlDatabase,
   context: TenantContext,
@@ -15,11 +20,16 @@ export async function withTenantTransaction<T>(
   work: (transaction: SqlTransaction) => Promise<T>,
 ): Promise<T> {
   return database.transaction(async (transaction) => {
-    await transaction.query("select set_config('app.tenant_id', $1, true)", [context.tenantId]);
-    await transaction.query("select set_config('app.actor_kind', $1, true)", [actorKind]);
-    await transaction.query("select set_config('app.actor_id', $1, true)", [context.subjectId]);
-    await transaction.query("select set_config('app.request_id', $1, true)", [context.requestId]);
-    await transaction.query("select set_config('app.auth_method', $1, true)", [context.authMethod]);
+    // One round trip instead of five. Every setting stays transaction-local (is_local = true)
+    // and is applied before work() runs, so RLS policies and audit guards read the same values
+    // through current_setting() as they did when these were issued separately.
+    await transaction.query(TENANT_CONTEXT_SQL, [
+      context.tenantId,
+      actorKind,
+      context.subjectId,
+      context.requestId,
+      context.authMethod,
+    ]);
     return work(transaction);
   });
 }
