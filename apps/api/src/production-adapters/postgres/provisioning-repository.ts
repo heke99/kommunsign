@@ -3,6 +3,7 @@ import { normalizeTenantSlug, platformDefaultHostname } from '../../../../../pac
 import { withTenantTransaction, type SqlDatabase, type SqlTransaction } from '../../../../../packages/database/src/index.js';
 import type { TenantContext } from '../../../../../packages/contracts/src/index.js';
 import type { ProductionInfrastructure } from './infrastructure.js';
+import { validateAndNormalizeBranding } from '../../../../../packages/branding/src/index.js';
 
 export interface ProvisioningExecutionConfiguration {
   readonly rootDomain: string;
@@ -291,16 +292,25 @@ export function createProvisioningRepository(
 
         await runStep(controlDatabase, request, claimed.attemptNumber, 'create_branding_draft', workerId, async (transaction) => {
           const tenantId = await requiredTenantId(transaction, request.id);
-          const designTokens = { primaryColor: '#174A7E', accentColor: '#F2B705' };
-          const supportContact = { email: primaryEmail };
-          const brandingConfiguration = {
+          // Normalised rather than stored as written. The draft is the profile a
+          // tenant edits from, and the pair of text colours is derived from the
+          // background here so that no later reader has to guess which of black
+          // or white is readable on it — a guess is how a customer ends up with
+          // an unreadable signing page and a WCAG 1.4.3 failure they cannot see.
+          const branding = validateAndNormalizeBranding({
             productName: request.organization_name,
             primaryColor: '#174A7E',
             accentColor: '#F2B705',
             supportEmail: primaryEmail,
-            locale: 'sv-SE',
-            status: 'draft',
+          });
+          const designTokens = {
+            primaryColor: branding.primaryColor,
+            accentColor: branding.accentColor,
+            primaryTextColor: branding.primaryTextColor,
+            accentTextColor: branding.accentTextColor,
           };
+          const supportContact = { email: branding.supportEmail ?? primaryEmail };
+          const brandingConfiguration = { ...branding, locale: 'sv-SE', status: 'draft' };
           await transaction.query(
             `insert into control.tenant_branding(tenant_id,display_name,design_tokens,support_contact)
              values($1,$2,$3::jsonb,$4::jsonb)

@@ -14,7 +14,7 @@ const required = [
   'vercel.json','apps/public-website/public/index.html','apps/public-website/public/app.css','scripts/build-public-site.mjs','scripts/build-portals.mjs',
   'apps/onboarding-portal/public/index.html','apps/onboarding-portal/public/app.js','apps/auth-portal/public/index.html','apps/auth-portal/public/app.js','apps/tenant-portal/public/app.js','apps/platform-admin/public/app.js','apps/signer-portal/public/app.js','apps/verification-portal/public/app.js',
   'migrations/control/0006_onboarding_and_activation.sql','migrations/control/0011_managed_accounts_and_password_sessions.sql','migrations/data/0014_managed_organization_accounts.sql','tests/sql/onboarding-control.sql','apps/api/src/onboarding-router.ts','apps/api/src/production-runtime.ts','apps/workers/src/production-runner.ts','packages/onboarding/src/index.ts','packages/readiness/src/index.ts',
-  'packages/auth/src/index.ts','packages/branding/src/index.ts','packages/custom-domains/src/index.ts','packages/invitations/src/index.ts','packages/uploads/src/index.ts',
+  'packages/branding/src/index.ts','packages/custom-domains/src/index.ts','packages/uploads/src/index.ts',
   'sdks/typescript/src/client.ts','sdks/csharp/src/KommunSignClient.cs','sdks/java/src/main/java/se/kommunsign/sdk/KommunSignClient.java','scripts/verify-sdk-sync.mjs',
   'scripts/verify-deployment-config.mjs','scripts/verify-live-deployment.mjs','RAILWAY_API_RUNTIME_SETUP.md','COMPLETE_WEB_API_FIX_REPORT.md',
   'infrastructure/railway/api.railway.json','infrastructure/railway/workers.railway.json','infrastructure/railway/validation-service.railway.json','infrastructure/railway/runtime-services.json',

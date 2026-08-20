@@ -1,0 +1,158 @@
+{
+  "assessedAt": "2026-08-20",
+  "reason": "Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json.",
+  "assessments": {
+    "2024": {
+      "state": "Åtkomst till personuppgifter styrs i tre lager som alla måste hålla: RLS med FORCE på varje tenantbunden tabell, applikationsauktorisering via packages/authorization, och tenantkontext som aldrig kommer från ett fritt requestfält. Tenantkällan avgörs i request-auth.ts och bärs in i databasen av withTenantTransaction; en begäran utan verifierad tenantkälla når ingen rad. Rättighetsbegäranden är särskilt skyddade: identiteten måste vara verifierad och tillhöra just den registrerade innan något lämnas ut. Personnummer lagras krypterat med blind index, loggas aldrig, ligger aldrig i URL och är aldrig primärnyckel.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "apps/api/src/production-adapters/postgres/request-auth.ts, packages/database (withTenantTransaction), migrations/data/0005_rls.sql och 0008, packages/authorization, packages/personal-number, packages/privacy/src/executor.ts.",
+      "evidence": "apps/api/src/production-adapters/postgres/request-auth.ts; packages/database/src/index.ts; packages/authorization/src/index.ts; packages/privacy/src/executor.ts; migrations/data/0005_rls.sql; tests/sql/tenant-isolation.sql",
+      "verification": "tests/sql/tenant-isolation.sql kör mot Postgres och visar att en fråga utan tenantkontext inte ser någon rad. tests/run.mjs täcker behörighet, identitetsverifiering vid rättighetsbegäran och personnummerpolicy.",
+      "status": "PASS",
+      "changeNote": "Evidensen pekade tidigare på packages/tenant-context, som ingen applikationsingång nådde. Regeln var riktig men bevisad mot fel implementation; paketet är borttaget."
+    },
+    "2028": {
+      "state": "Skyddade personuppgifter hanteras inte av tjänsten. En genomtänkt modell för Skatteverkets tre skyddsnivåer fanns i packages/protected-identity, men inget som körs anropade den: orden skyddad, protectedIdentity och protected_identity förekom inte en enda gång i apps/, migrations/ eller packages/personal-number. Det fanns alltså ingen skyddsnivå att bära, ingen menprövning att registrera och inget som avgjorde vad som får visas per utflödeskanal.",
+      "gap": "Hela kravet. En implementation behöver minst tre delar: en skyddsnivå per registrerad som kommer från kunden eller folkbokföringen och inte gissas, ett menprövningsbeslut med grund, beslutsfattare och utgång, och ett beslut per utflödeskanal om vilka fält som får lämna systemet — där logg, analytics, e-postämnesrad och URL alltid räknas som kanaler som lämnar åtkomstkontrollen. Designen finns kvar i git-historiken (packages/protected-identity, borttaget 2026-08-20) och är en rimlig utgångspunkt.",
+      "implementation": "Saknas.",
+      "evidence": "Ingen.",
+      "verification": "Ingen. De tre enhetstesterna som fanns provade paketet, inte tjänsten.",
+      "status": "GAP",
+      "changeNote": "Nedgraderad från PASS. Kravet stod som uppfyllt på ett bibliotek utan anropare."
+    },
+    "2034": {
+      "state": "Samtliga gränssnitt, dialoger och felmeddelanden är på svenska, och felkoder når inte längre användaren. packages/locale är enda tabellen: portalerna laddar messages.js som genereras ur paketet, och varje felväg i de sex portalerna går genom messageFor. En okänd kod ger ett svenskt standardsvar i stället för koden. Tidigare visade signeringsportalen råa koder — en undertecknare som kom för tidigt läste SIGNING_ORDER_BLOCKED på sidan där de skulle skriva under — och plattformsadministrationen hade en egen tabell som hade glidit isär från den första.",
+      "gap": "Ingen.",
+      "implementation": "packages/locale, scripts/generate-portal-messages.mjs, apps/*/public/messages.js, apps/*/public/app.js.",
+      "evidence": "packages/locale/src/index.ts; scripts/generate-portal-messages.mjs; apps/signer-portal/public/app.js; apps/platform-admin/public/app.js; docs/api/error-codes.md",
+      "verification": "tests/run.mjs: testet faller om en dokumenterad felkod saknar svensk text, om en portal slutar ladda tabellen, eller om en portal skaffar sig en egen.",
+      "status": "PASS",
+      "changeNote": "Påståendet om att messageFor var enda vägen från kod till text var inte sant förrän 2026-08-20; portalerna visade koden."
+    },
+    "2035": {
+      "state": "Datum visas som åååå-mm-dd och klockslag som tt:mm av packages/locale, och funktionerna används nu där ett datum faktiskt renderas för en människa: sista giltighetstidpunkten i signeringsinbjudan och påminnelsen. Formateringen görs explicit i stället för med toLocaleString, eftersom den senare svarar med den lokal och tzdata containern råkar ha — en basavbildning med skalad eller gammal tzdata skulle flytta varje angiven deadline en timme utan att något går sönder. E-posten anger dessutom offset, så tidpunkten är entydig för en läsare i annan tidszon.",
+      "gap": "Ingen.",
+      "implementation": "packages/locale: formatSwedishDate, formatSwedishTime, formatSwedishDateTime, formatSwedishTimestampWithOffset, swedishUtcOffsetHours; anropas av renderEmail i apps/workers/src/production-handlers.ts.",
+      "evidence": "packages/locale/src/index.ts; apps/workers/src/production-handlers.ts",
+      "verification": "tests/run.mjs: datum- och tidsformat, sommartidsövergångarnas exakta gränser och datumbyte vid midnatt.",
+      "status": "PASS",
+      "changeNote": "Paketet var korrekt men oanropat; e-posten formaterade med toLocaleString. Rättat 2026-08-20."
+    },
+    "2044": {
+      "state": "Underhållsverktygen har samma skydd och spårbarhet som tjänsten: personlig inloggning, minsta möjliga behörighet och loggning av varje administrativ åtgärd med aktör, tenant och korrelation. Auditloggen är hashkedjad i databasen — audit.append_event är enda skrivvägen och beräknar kedjan i samma transaktion som händelsen — och loggverktygen är åtkomstskyddade.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "migrations/data/0006_functions_and_guards.sql, 0009 och 0016 (audit.append_event), packages/observability, docs/isms/SAKER_UTVECKLING.md.",
+      "evidence": "migrations/data/0006_functions_and_guards.sql; migrations/data/0009_integrity_and_worker_recovery.sql; packages/observability/src/index.ts; docs/isms/SAKER_UTVECKLING.md",
+      "verification": "tests/sql/tenant-isolation.sql och övriga SQL-sviter skriver genom audit.append_event. tests/run.mjs täcker spårbara säkerhetshändelser och maskering.",
+      "status": "PASS",
+      "changeNote": "Evidensen pekade på packages/audit, en andra implementation av hashkedjan som ingen anropade. Kedjan tjänsten faktiskt skriver ligger i databasen; paketet är borttaget."
+    },
+    "3502": {
+      "state": "Uppdelning av ansvar är dokumenterad i docs/isms/SAKER_UTVECKLING.md avsnitt 2, och den viktigaste separationen är verkställd i kod: gallring kräver att godkännaren är någon annan än den som begärde, har retention:execute och inte är leverantörspersonal. Därutöver granskar ingen sin egen ändring, och utrullning kräver godkänd granskning och grön npm run verify.",
+      "gap": "Separationen kring skyddade personuppgifter finns inte i kod — se 2028. Den delen vilar nu enbart på rutin.",
+      "implementation": "packages/retention/src/executor.ts, docs/isms/SAKER_UTVECKLING.md.",
+      "evidence": "packages/retention/src/executor.ts; tests/sql/gallring.sql; docs/isms/SAKER_UTVECKLING.md",
+      "verification": "tests/run.mjs: gallringstest för godkännande av annan än begärande och spärr mot leverantörspersonal. tests/sql/gallring.sql kör samma regler mot databasen.",
+      "status": "PASS",
+      "changeNote": "Hänvisningen till packages/protected-identity är borttagen; den koden nåddes inte."
+    },
+    "3521": {
+      "state": "Minsta möjliga behörighet är genomfört per aktörstyp: API-klienter får bara de scopes integrationen behöver, SCIM-klienter kan inte tilldela roller utanför sin assignable_roles, och federationsmappning avvisar roller utanför tenantens assignableRoles. En användare vars grupp inte är mappad får ingen roll, inte en standardroll. Modellen är dokumenterad i docs/system/BEHORIGHETSMODELL.md.",
+      "gap": "Att leverantörspersonal saknar stående åtkomst till kunddata är i dag en rutin, inte en teknisk kontroll — se 2028.",
+      "implementation": "packages/scim, packages/federation, packages/authorization, docs/system/BEHORIGHETSMODELL.md.",
+      "evidence": "packages/scim/src/index.ts; packages/federation/src/index.ts; packages/authorization/src/index.ts; docs/system/BEHORIGHETSMODELL.md",
+      "verification": "tests/run.mjs: rollmappningstester som visar att en katalogadministratör inte kan eskalera bortom klientens scope. tests/sql/scim-provisioning.sql kör samma gränser mot databasen.",
+      "status": "PASS",
+      "changeNote": "Hänvisningen till packages/protected-identity är borttagen."
+    },
+    "3524": {
+      "state": "Underhållsverktygen är åtkomstskyddade och varje administrativ åtgärd loggas med aktör, tenant och korrelations-ID i en hashkedjad auditlogg som inte går att redigera i efterhand utan att det syns. Metriketiketter är begränsade till en känd lågkardinalitetsmängd, så metrikflödet kan inte bli en omaskerad export av personuppgifter.",
+      "gap": "Break glass-åtkomst finns som tabell i kontrollplanet (control.break_glass_requests) men har ingen applikationsväg; den är i dag en manuell rutin. Åtkomst till skyddade personuppgifter saknar teknisk kontroll — se 2028.",
+      "implementation": "migrations/data/0006 och 0009 (audit.append_event), packages/observability, docs/system/BEHORIGHETSMODELL.md.",
+      "evidence": "migrations/data/0009_integrity_and_worker_recovery.sql; packages/observability/src/index.ts; docs/system/BEHORIGHETSMODELL.md",
+      "verification": "tests/run.mjs: spårbarhetstest för säkerhetshändelser och test för säkra metriketiketter.",
+      "status": "PASS",
+      "changeNote": "Påståendena om samtyckesstyrd supportåtkomst och larmande break glass är borttagna; ingen av dem hade en kodväg."
+    },
+    "3531": {
+      "state": "Samtliga leveranser testas i separat testmiljö före produktion, skild från produktion i nät, databaser, lagring och credentials. Produktionsdata kopieras inte till testmiljön; behövs realistisk volym genereras syntetiska data. Ett testdataset med riktiga personnummer vore en personuppgiftsbehandling utan rättslig grund, och testmiljöer har regelmässigt svagare skydd än produktion — vilket är hela problemet. Produktionsvägarna kan inte använda en testprovider: den enda identitetsadapter som är inkopplad är TIC BankID, och signering vägrar om tenantens BankID-utrullning inte är påslagen och TIC-credentials saknas.",
+      "gap": "Ingen kodbrist.",
+      "implementation": "docs/isms/SAKER_UTVECKLING.md, docs/architecture/environment-configuration.md, apps/api/src/production-adapters/postgres/public-signing-repository.ts (TIC_NOT_CONFIGURED).",
+      "evidence": "docs/isms/SAKER_UTVECKLING.md; docs/architecture/environment-configuration.md; apps/api/src/production-adapters/postgres/public-signing-repository.ts",
+      "verification": "tests/run.mjs och tests/provider-runtime.mjs: produktionsvägen vägrar utan konfigurerad provider.",
+      "status": "PASS",
+      "changeNote": "Hänvisningen till packages/identity-registry är borttagen; registret nåddes inte av någon applikation och kunde därför inte vägra något."
+    },
+    "3535": {
+      "state": "Auditloggen är hashkedjad av databasen själv: audit.append_event är enda skrivvägen, beräknar nästa hash ur föregående och skriver kedjehuvudet i samma transaktion, så manipulation är detekterbar även för den som har skrivrättighet. Loggar bär aldrig lösenord, API-hemligheter, råa token, personnummer eller dokumentinnehåll, vilket framtvingas i kod. Metriketiketter är begränsade till en känd lågkardinalitetsmängd.",
+      "gap": "Ingen.",
+      "implementation": "migrations/data/0006_functions_and_guards.sql, 0009 och 0016 (audit.append_event), packages/observability, docs/operations/OVERVAKNING_OCH_INCIDENT.md avsnitt 6.",
+      "evidence": "migrations/data/0006_functions_and_guards.sql; migrations/data/0009_integrity_and_worker_recovery.sql; packages/observability/src/index.ts; docs/operations/OVERVAKNING_OCH_INCIDENT.md",
+      "verification": "tests/run.mjs: maskeringstest och test för säkra metriketiketter. SQL-sviterna skriver händelser genom audit.append_event och läser tillbaka kedjan.",
+      "status": "PASS",
+      "changeNote": "Evidensen pekade på packages/audit i stället för på kedjan tjänsten skriver."
+    },
+    "3544": {
+      "state": "Säkerhetsåtgärder mot obehörig åtkomst och obehörig ändring finns i flera lager: tenantkontext som avgörs i request-auth.ts och aldrig kommer från ett fritt requestfält, RLS med FORCE på varje tenantbunden tabell, composite foreign keys som bär tenant_id över varje relation, applikationsauktorisering, serverstyrda statusövergångar som klienten aldrig kan sätta, immutabla slutliga dokument, hashkedjad auditlogg och säkerhetsheaders som stänger clickjacking, MIME-sniffing och referrerläckage.",
+      "gap": "Ingen.",
+      "implementation": "apps/api/src/production-adapters/postgres/request-auth.ts, packages/authorization, packages/observability, migrations/data/0005_rls.sql, 0009 och 0010.",
+      "evidence": "apps/api/src/production-adapters/postgres/request-auth.ts; packages/observability/src/index.ts; migrations/data/0009_integrity_and_worker_recovery.sql; migrations/data/0010_immutability_and_evidence_states.sql; tests/sql/tenant-isolation.sql",
+      "verification": "tests/run.mjs: headertest, statusövergångstest och immutabilitetstest. tests/sql/tenant-isolation.sql kör tenantgränsen mot databasen.",
+      "status": "PASS",
+      "changeNote": "Evidensen pekade på packages/tenant-context, som ingen nådde."
+    },
+    "F007": {
+      "state": "Tenantens grafiska profil valideras och normaliseras när den skapas: validateAndNormalizeBranding avvisar otillåtna färgvärden, orimliga namn och osäkra logotyp-URL:er, och härleder läsbar textfärg ur bakgrunden med contrastRatio, så att ingen senare läsare behöver gissa om svart eller vitt är läsbart. Profilen lagras per tenant i control.tenant_branding med versionshistorik.",
+      "gap": "Profilen slår ännu inte igenom i gränssnittet. Portalerna är statiska sidor med en fast palett, och e-postmallarna använder tenantens namn men inte dess färger eller logotyp. Kravet gäller anpassningsbart gränssnitt, och den delen återstår: portalerna behöver läsa den aktiva brandingversionen och rendera den, vilket också är där kontrastkontrollen får sin verkan.",
+      "implementation": "packages/branding, apps/api/src/production-adapters/postgres/provisioning-repository.ts, control.tenant_branding och control.tenant_branding_versions.",
+      "evidence": "packages/branding/src/index.ts; apps/api/src/production-adapters/postgres/provisioning-repository.ts; migrations/control/0002_tenant_profiles.sql",
+      "verification": "tests/security.mjs täcker branding, inklusive avvisning av otillåtna värden. npm run verify:accessibility kontrollerar portalernas fasta färgschema.",
+      "status": "PARTIAL",
+      "changeNote": "Nedgraderad från PASS. Paketet nåddes inte alls före 2026-08-20; nu valideras profilen vid skrivning, men påståendet att den slår igenom i portalerna och e-postmallarna stämde inte."
+    },
+    "F008": {
+      "state": "Sekventiell signering avgörs av app.signing_turn_blocked, som är enda definitionen av vems tur det är. En undertecknare med giltig inbjudningslänk för steg 3 avvisas ändå med SIGNING_ORDER_BLOCKED tills steg 2 är klart: länken bevisar vem personen är, inte att det är dennes tur. Samma predikat styr vilken grupp som bjuds in härnäst och vilka som får påminnelser, så de tre vägarna kan inte komma till olika svar. Predikatet ligger i databasen och inte i en delad modul, eftersom API och worker är separata utrullningar och en delad modul under en rullande release är två versioner.",
+      "gap": "Ingen.",
+      "implementation": "migrations/data/0030_signing_turn_predicate.sql, apps/api/src/production-adapters/postgres/public-signing-repository.ts (loadStartInput), apps/workers/src/signing-groups.ts, app.signers.signing_order.",
+      "evidence": "migrations/data/0030_signing_turn_predicate.sql; apps/api/src/production-adapters/postgres/public-signing-repository.ts; apps/workers/src/signing-groups.ts; tests/sql/signing-turn.sql",
+      "verification": "tests/sql/signing-turn.sql: första steget, blockerade steg, frivillig granskare som inte får stoppa beslutet, och avslag som inte räknas som signerat. tests/sql/pades-signature-chain.sql visar att nästa steg öppnas när föregående är signerat med fullständig beviskedja.",
+      "status": "PASS",
+      "changeNote": "Evidensen pekade på packages/signing-workflow, som ingen applikation nådde. Ordningskontrollen fanns och fungerade, men på två andra ställen."
+    },
+    "F009": {
+      "state": "Parallell signering är samma modell med en enda signeringsgrupp: alla undertecknare delar signing_order, app.signing_turn_blocked svarar aldrig blockerad, och samtliga får agera samtidigt. Ärendet blir klart först när alla obligatoriska har signerat, och ett avslag från en obligatorisk undertecknare avslutar ärendet i stället för att hoppas över — återstående signaturer summerar då inte till ett godkänt beslut.",
+      "gap": "Ingen.",
+      "implementation": "migrations/data/0030_signing_turn_predicate.sql, app.signers.signing_order, apps/api/src/production-adapters/postgres/public-signing-repository.ts (decline), migrations/data/0009 (completion guards).",
+      "evidence": "migrations/data/0030_signing_turn_predicate.sql; apps/api/src/production-adapters/postgres/public-signing-repository.ts; migrations/data/0009_integrity_and_worker_recovery.sql; tests/sql/signing-turn.sql",
+      "verification": "tests/sql/signing-turn.sql täcker det parallella fallet. tests/sql/pades-signature-chain.sql visar att ett ärende inte kan slutföras medan en obligatorisk undertecknare saknas.",
+      "status": "PASS"
+    },
+    "F010": {
+      "state": "Flera dokument signeras i samma signeringsintent. Vid utskick låses samtliga dokumentversioner i ärendet, och intentet får en ordnad ögonblicksbild i app.signing_intent_documents med SHA-256, filnamn, storlek och profil per dokument. Databasens completion-guard kräver att varje dokument i intentet bär en egen validerad signatur på minst policyns PAdES-nivå — att bara kontrollera det senaste dokumentet skulle låta ett flerdokumentsintent bli klart med ett dokument signerat och resten enbart godkända.",
+      "gap": "Ingen.",
+      "implementation": "apps/api/src/production-adapters/postgres/data-database.ts (send), app.signing_intent_documents, migrations/data/0021_pades_signature_chain_guards.sql, migrations/data/0018_document_attachments.sql.",
+      "evidence": "apps/api/src/production-adapters/postgres/data-database.ts; migrations/data/0021_pades_signature_chain_guards.sql; migrations/data/0018_document_attachments.sql; tests/sql/pades-signature-chain.sql",
+      "verification": "tests/sql/pades-signature-chain.sql: ett intent med flera dokument kan inte slutföras förrän varje dokument har en validerad signatur.",
+      "status": "PASS",
+      "changeNote": "Evidensen pekade på buildSigningBundle i packages/signing-workflow. Bindningen görs av utskicksvägen och databasens guards."
+    },
+    "F011": {
+      "state": "Bilagor stöds som en egen dokumentroll: app.documents.document_role skiljer signable från attachment. Vid utskick tas samtliga dokument i ärendet med i signeringsintentets ögonblicksbild, med digest per dokument, så en bilaga som byts ut efter att intentet skapades inte kan passera obemärkt. Bilagor måste vara låsta precis som huvuddokumentet.",
+      "gap": "Rollen får inte den verkan kravet beskriver. Eftersom intentets dokumentmängd är hela ärendet, och databasens completion-guard kräver en validerad signatur för varje rad i intentet, signeras bilagan i praktiken i stället för att enbart bindas in. Det som saknas är att utskicksvägen tar med bilagor i bindningsmaterialet men utanför den mängd som kräver egen signatur, och att guarden läser samma distinktion.",
+      "implementation": "migrations/data/0018_document_attachments.sql (document_role, document_ordinal), apps/api/src/production-adapters/postgres/data-database.ts (send), app.signing_intent_documents.",
+      "evidence": "migrations/data/0018_document_attachments.sql; apps/api/src/production-adapters/postgres/data-database.ts; migrations/data/0021_pades_signature_chain_guards.sql",
+      "verification": "tests/sql/pades-signature-chain.sql visar att varje rad i intentet kräver en validerad signatur — vilket är just det som gör bilagan signerad.",
+      "status": "PARTIAL",
+      "changeNote": "Nedgraderad från PASS. Påståendet att en bilaga binds in utan att signeras stämde för packages/signing-workflow, som ingen nådde, men inte för utskicksvägen."
+    },
+    "F012": {
+      "state": "Påminnelser går bara till undertecknare som faktiskt kan agera. Jobbet frågar app.signing_turn_blocked — samma definition som signeringsvägen använder — och hoppar dessutom över avslutade och utgångna ärenden. Tidigare påmindes varje undertecknare med status invited eller opened oavsett turordning, vilket innebar att undertecknare tre fick tjatande e-post om en handling som skulle vägra öppna sig för dem. Det lär mottagaren att ignorera påminnelser från tjänsten, inklusive den som till slut spelar roll. En påminnelse roterar inbjudningstoken och återkallar den gamla.",
+      "gap": "Påminnelser skickas på begäran från verksamhetsportalen. Ett återkommande schema finns som tabell (app.reminder_schedules) men har ingen skrivare eller läsare.",
+      "implementation": "apps/workers/src/production-handlers.ts (handleReminder), migrations/data/0030_signing_turn_predicate.sql, apps/api/src/production-adapters/postgres/data-database.ts (remind).",
+      "evidence": "apps/workers/src/production-handlers.ts; migrations/data/0030_signing_turn_predicate.sql; tests/sql/signing-turn.sql",
+      "verification": "tests/sql/signing-turn.sql täcker predikatet påminnelsejobbet frågar, inklusive fallet där en giltig inbjudan finns men turen inte har kommit.",
+      "status": "PASS",
+      "changeNote": "Evidensen pekade på decideReminder i packages/signing-workflow, som ingen anropade — och påminnelsejobbet ställde inte frågan alls. Rättat 2026-08-20."
+    }
+  }
+}

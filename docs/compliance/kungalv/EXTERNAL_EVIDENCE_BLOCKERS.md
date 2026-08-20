@@ -3,7 +3,7 @@
 <!-- GENERERAD FIL. Redigera inte för hand.
      Kör `node scripts/build-requirement-matrix.mjs`. -->
 
-Bedömningsdatum: 2026-08-19
+Bedömningsdatum: 2026-08-20
 
 36 av 138 krav kan inte avgöras i kodbasen.
 De kräver avtal, credentials, certifiering, leverantörsevidens eller

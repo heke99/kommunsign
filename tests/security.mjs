@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
-import { createOidcTransaction, verifyOidcCallback } from '../dist/packages/auth/src/index.js';
 import { contrastRatio, validateAndNormalizeBranding } from '../dist/packages/branding/src/index.js';
 import { assertDomainTransition, canonicalHostname } from '../dist/packages/custom-domains/src/index.js';
-import { createInvitationToken, verifyInvitationToken } from '../dist/packages/invitations/src/index.js';
 import { assertMagicBytesMatch, validateUploadMetadata } from '../dist/packages/uploads/src/index.js';
 import { assertResolvedWebhookAddresses, assertSafeWebhookUrl } from '../dist/packages/webhooks/src/index.js';
 
@@ -21,14 +19,12 @@ validateUploadMetadata({ fileName: 'beslut.pdf', mimeType: 'application/pdf', by
 assertMagicBytesMatch('application/pdf', new TextEncoder().encode('%PDF-1.7'));
 assert.throws(() => assertMagicBytesMatch('application/pdf', new TextEncoder().encode('<html>')));
 
-const invitation = await createInvitationToken({
-  tenantId: 't1', signatureCaseId: 'c1', signerId: 's1', expiresAt: new Date(Date.now() + 60_000).toISOString(),
-});
-await verifyInvitationToken(invitation.record, invitation.token);
-await assert.rejects(() => verifyInvitationToken(invitation.record, `${invitation.token}0`));
+// Invitation tokens and the federated login handshake were exercised here
+// against packages no application reached. Both exist in the running service:
+// invitation tokens are minted, blind-indexed, expired and revoked by
+// data-database.ts, signing-groups.ts and public-signing-repository.ts, and
+// tests/sql/document-delivery.sql covers the token guards in the database;
+// the SAML and OIDC handshake, including replay, lives in federation-router.ts
+// and is covered by tests/sql/federation-replay.sql.
 
-const oidc = await createOidcTransaction('https://app.example/callback', new Date('2026-08-02T10:00:00Z'));
-verifyOidcCallback(oidc, { state: oidc.state, nonce: oidc.nonce, redirectUri: oidc.redirectUri, now: new Date('2026-08-02T10:01:00Z') });
-assert.throws(() => verifyOidcCallback(oidc, { state: 'wrong', nonce: oidc.nonce, redirectUri: oidc.redirectUri, now: new Date('2026-08-02T10:01:00Z') }));
-
-console.log('security tests: branding, SSRF, domains, uploads, invitations and OIDC passed');
+console.log('security tests: branding, SSRF, domains and uploads passed');
