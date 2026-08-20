@@ -1,6 +1,6 @@
 {
   "assessedAt": "2026-08-21",
-  "reason": "build-requirement-matrix.mjs now fails when an assessment cites a path that does not resolve on disk. That check found eight dead pointers across six requirements: five rotted when packages were deleted on 2026-08-20, and three named a Java file that has never existed under that name. Correcting them exposed two claims that were wrong independently of the pointer, and those are corrected here too. Original requirements remain immutable in requirements.json.",
+  "reason": "build-requirement-matrix.mjs now fails when an assessment cites a path that does not resolve on disk. That check found eight dead pointers across six requirements: five rotted when packages were deleted on 2026-08-20, and three named a Java file that has never existed under that name. Correcting them exposed two claims that were wrong independently of the pointer, and those are corrected here too. Original requirements remain immutable in requirements.json. A second pass extended the reachability gate to module granularity, which removed packages/signing-engine/src/index.ts and the generic external-signing adapter, and made packages/crypto/src/key-rotation.ts reachable by giving the AES-GCM adapter a real key ring.",
   "assessments": {
     "F002": {
       "state": "Freja-adaptern är implementerad i packages/provider-adapters/src/freja.ts som en adapter för alla tre metoderna (Freja eID, Freja eID Plus, Freja OrgID) bakom ElectronicIdentityProvider. verifyFrejaSignatureClaims genomför hela bindningskontrollen på ett JWS-verifierat svar: algoritm-allowlist, issuer, audience, status, transaktionsreferens, signRef mot signeringsintent, signerad datahash, nonce med engångsförbrukning mot replay, egen åldersgräns utöver svarets expiry, registreringsnivå och subjekttyp. För OrgID krävs dessutom att organisationsidentiteten finns och tillhör rätt organisation. RejectingFrejaSignatureVerifier är default så att en okonfigurerad installation vägrar i stället för att acceptera ett overifierat svar. frejaAssuranceLevel normaliserar BASIC/EXTENDED/PLUS till LOW/SUBSTANTIAL/HIGH så att Freja-vokabulär inte läcker ut i kärnan.",
@@ -59,6 +59,35 @@
       "status": "BLOCKED_EXTERNAL",
       "blocker": "Kommunens IdP-konfiguration: vilken authentication context MobilityGuard sätter vid MFA, så att den kan registreras som krav på tenanten.",
       "changeNote": "Evidensen pekade på packages/auth, borttaget 2026-08-20, och beskrev kravet som helt utanför koden. Kontrollen finns i federationen."
+    },
+    "F001": {
+      "state": "Signeringskedjan är komplett som teknisk pipeline, och stegen genomförs där en signatur faktiskt produceras. apps/workers/src/pades-handlers.ts driver ordningen dokumentlåsning → identitet → signatur → validering → PAdES-antagning mot SignService och validation-service; packages/pades avgör vilken PAdES-nivå den insamlade evidensen faktiskt bär och vägrar registrera en högre; guardsen i migrations/data/0021 vägrar en slutförd signatur som saknar validerad signatur per dokument i intentet eller som inte fortsätter från en befintlig signerad revision. SigningEngineFactory väljer backend per konfigurerad förmåga och BlockedSigningEngine vägrar i produktion när backend, TSA eller nyckelskydd inte är produktionsklara.",
+      "gap": "Ingen kvarvarande kodbrist. Det som återstår är nyckelmaterial och tjänsteavtal: utan CA-utfärdat signeringscertifikat, HSM/fjärr-QSCD och TSA kan ingen kryptografisk signatur skapas oavsett kod.",
+      "implementation": "apps/workers/src/pades-handlers.ts (stegordning och bindning), packages/pades (antagningsgrind), migrations/data/0021_pades_signature_chain_guards.sql (databasens guards), services/signservice (backendval och fail-closed).",
+      "evidence": "apps/workers/src/pades-handlers.ts; packages/pades/src/index.ts; migrations/data/0021_pades_signature_chain_guards.sql; services/signservice/src/main/java/se/kommunsign/signservice/SigningEngineFactory.java; services/signservice/src/main/java/se/kommunsign/signservice/BlockedSigningEngine.java; docs/architecture/adr/0003-signing-backend-dependency-policy.md",
+      "verification": "tests/run.mjs: PAdES-antagningstester. tests/sql/pades-signature-chain.sql kör guardsen mot databasen. verify:e2e:signing skapar en riktig signatur med test-CA och låter validation-service underkänna en ändrad byte.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "CA-utfärdat signeringscertifikat för organisationen, HSM eller fjärr-QSCD för nyckelskydd, samt TSA-avtal för RFC 3161-tidsstämplar. Ingen av dessa kan tillhandahållas av kod.",
+      "changeNote": "Evidensen pekade på packages/signing-engine/src/index.ts, som beskrev exakt rätt felfall men som ingen applikation importerade. Kontrollerna görs av pades-handlers.ts, packages/pades och databasens guards; paketmodulen är borttagen och manifest.ts, som faktiskt anropas, står kvar."
+    },
+    "F013": {
+      "state": "Hela kedjan fram till leverans är implementerad. Dokument kanoniseras till PDF/A-2b och profilen verifieras av validator i stället för att påstås av konverteraren; Office-dokument konverteras serverside till samma profil; arkivexporten vägrar ta emot ett dokument utan verifierad PDF/A-profil; och signaturen läggs till som inkrementell uppdatering så att PDF/A-strukturen och tidigare signaturer bevaras. Ingen PDF/A-konvertering sker efter kryptografisk signering.",
+      "gap": "Ingen kvarvarande kodbrist. Ett signerat dokument kan inte levereras förrän en signatur kan skapas, och det kräver nyckelmaterial som kod inte kan tillhandahålla. Samma blockerare som F001.",
+      "implementation": "packages/document-processing (PDF/A-kanonisering och Office-konvertering), apps/workers/src/pades-handlers.ts (inkrementell signering och leveransartefakt), packages/archive (PDF/A-krav vid export).",
+      "evidence": "packages/document-processing/src/office-ingestion.ts; apps/workers/src/pades-handlers.ts; packages/archive/src/index.ts",
+      "verification": "tests/run.mjs: arkivtest som vägrar dokument utan verifierad PDF/A-profil, samt Office-ingestionstest. verify:e2e:application kör kanonisering och profilvalidering mot körande Gotenberg och veraPDF.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Samma som F001: CA-utfärdat signeringscertifikat, HSM eller fjärr-QSCD, och TSA-avtal.",
+      "changeNote": "Evidensen pekade på packages/signing-engine/src/index.ts, borttaget 2026-08-21."
+    },
+    "3526": {
+      "state": "Nyckelrotation går att genomföra utan att göra data oläsbar. Kryptotjänsten håller en nyckelring i stället för en nyckel: varje kuvert bär versionen det skrevs under, ny text skrivs under den aktiva versionen, och läsning sker under den version kuvertet namnger så länge den versionen inte är pensionerad. Det är runbookens dual read-steg, och det fungerar nu i kod. En pensionerad version vägrar dekryptera — en pensionerad nyckel som ändå läser är inte pensionerad. Nio tabeller bär key_version, så frågan vilka rader som fortfarande ligger på den gamla nyckeln går att besvara, och databasen vägrar markera en rotation verifierad medan någon kolumn rapporterar utestående rader.",
+      "gap": "Blindindex versioneras inte i kuvert, eftersom ett index är en naken digest utan kuvert. Vilken nyckel som skapade det står i radens key_version, och rotation av ett blindindex kräver att samtliga index för en uppslagning räknas om samtidigt. Själva omkrypteringen är en operatörsåtgärd enligt runbooken; det finns inget jobb som kör den.",
+      "implementation": "apps/api/src/adapters/aes-gcm-sensitive-data.ts (nyckelring, versionsbyte i kuvertet), packages/crypto/src/key-rotation.ts (tillståndsmaskin och läs-/skrivregler), migrations/data/0029_key_rotation_backfill.sql, docs/runbooks/KEY_ROTATION.md.",
+      "evidence": "apps/api/src/adapters/aes-gcm-sensitive-data.ts; packages/crypto/src/key-rotation.ts; migrations/data/0029_key_rotation_backfill.sql; docs/runbooks/KEY_ROTATION.md",
+      "verification": "tests/run.mjs: rotationstest som skriver under version 1, aktiverar version 2, läser den gamla raden, skriver en ny under version 2, och sedan ser den gamla vägras när version 1 pensionerats. tests/sql/key-rotation.sql kör tillståndsmaskinen mot databasen.",
+      "status": "PASS",
+      "changeNote": "Kravet stod på PASS medan rotationen var omöjlig att genomföra: adaptern höll en enda nyckel och kuvertets versionsbyte var konstanten 1, så runbookens dual read-steg saknade motsvarighet i kod. En rotation enligt runbooken hade gjort varje ännu inte omkrypterad rad oläsbar. Rättat 2026-08-21."
     }
   }
 }

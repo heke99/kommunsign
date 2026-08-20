@@ -70,9 +70,26 @@ version and leave rows split across three keys with no record of which.
 UPDATE app.key_rotations SET state = 'DUAL_READ' WHERE id = $rotation;
 ```
 
-Then deploy the key ring with the new version in `pending` and the old one still
-`active`. `assertReadableVersion` in `packages/crypto/src/key-rotation.ts` is
-what keeps rows written under either key readable while this runs.
+Then deploy with the new key present and the old one still active:
+
+```
+SENSITIVE_DATA_ENCRYPTION_KEY_BASE64=<version 1, unchanged>
+SENSITIVE_DATA_ENCRYPTION_KEY_V2_BASE64=<the new key>
+```
+
+Do **not** set `SENSITIVE_DATA_ACTIVE_KEY_VERSION` yet. At this point every node
+can read under both versions and still writes under version 1, which is what
+makes the next step safe to start and safe to abandon.
+
+When every node has the new key, point writes at it:
+
+```
+SENSITIVE_DATA_ACTIVE_KEY_VERSION=2
+```
+
+Rows written before this keep working: the version byte in each envelope names
+the key that encrypted it, and `assertReadableVersion` in
+`packages/crypto/src/key-rotation.ts` allows any version that is not retired.
 
 **Do not skip this.** Re-encrypting before dual read is in place makes every
 re-encrypted row unreadable to instances that have not yet picked up the new
@@ -102,8 +119,10 @@ Work in batches, updating `rows_reencrypted` as you go. Batching is what makes
 the operation resumable: a rotation over a large table *will* be interrupted,
 and starting again from the beginning is how a rotation never finishes.
 
-For each batch: read with the old version, write with the new, set
-`key_version = 2` on the row, and add the batch size to `rows_reencrypted`.
+For each batch: read the value and write it straight back. The adapter reads
+under whichever version the envelope names and writes under the active one, so
+re-encryption is a read followed by a write and needs no special key handling.
+Set `key_version = 2` on the row and add the batch size to `rows_reencrypted`.
 Do the row update and the progress update in the same transaction, or a crash
 between them leaves the counter lying in the direction that matters.
 

@@ -13,6 +13,13 @@ export interface SensitiveDataAdapter {
   encryptText(value: string, purpose: string): Promise<Uint8Array>;
   decryptText(value: Uint8Array, purpose: string): Promise<string>;
   blindIndex(value: string, purpose: string): Promise<Uint8Array>;
+  /**
+   * The key version new rows are written under, for the `key_version` column
+   * (migration data/0029). A rotation needs to know which rows are still on the
+   * old key; without the column being written, the answer is a guess and the
+   * rotation cannot report itself finished.
+   */
+  keyVersion?(): number;
 }
 export interface QueueAdapter {
   enqueue(input: { readonly tenantId: string; readonly jobType: string; readonly idempotencyKey: string; readonly payload: Readonly<Record<string, unknown>> }): Promise<{ readonly jobId: string }>;
