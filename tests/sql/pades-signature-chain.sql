@@ -89,7 +89,7 @@ DO $$ BEGIN
     -- Confirm the intended guard fired. Without this the block would also pass
     -- when some unrelated constraint rejected the statement first, which is how
     -- a guard test quietly stops testing the guard.
-    IF position('validated cryptographic signature for every document' in SQLERRM) = 0 THEN
+    IF position('validated cryptographic signature for every signable document' in SQLERRM) = 0 THEN
       RAISE EXCEPTION 'GUARD FAILED: expected guard did not fire, got: %', SQLERRM;
     END IF;
   END;
@@ -202,7 +202,7 @@ DO $$ BEGIN
     -- Confirm the intended guard fired. Without this the block would also pass
     -- when some unrelated constraint rejected the statement first, which is how
     -- a guard test quietly stops testing the guard.
-    IF position('validated cryptographic signature for every document' in SQLERRM) = 0 THEN
+    IF position('validated cryptographic signature for every signable document' in SQLERRM) = 0 THEN
       RAISE EXCEPTION 'GUARD FAILED: expected guard did not fire, got: %', SQLERRM;
     END IF;
   END;
@@ -224,7 +224,7 @@ DO $$ BEGIN
     -- Confirm the intended guard fired. Without this the block would also pass
     -- when some unrelated constraint rejected the statement first, which is how
     -- a guard test quietly stops testing the guard.
-    IF position('validated cryptographic signature for every document' in SQLERRM) = 0 THEN
+    IF position('validated cryptographic signature for every signable document' in SQLERRM) = 0 THEN
       RAISE EXCEPTION 'GUARD FAILED: expected guard did not fire, got: %', SQLERRM;
     END IF;
   END;
@@ -243,6 +243,85 @@ DO $$ BEGIN
   IF (SELECT status::text FROM app.signers WHERE tenant_id='44444444-4444-4444-8444-444444444444' AND id='aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa') <> 'signed' THEN
     RAISE EXCEPTION 'GUARD FAILED: a fully evidenced signer could not be marked signed';
   END IF;
+END $$;
+
+-- ===========================================================================
+-- 7b. An attachment is bound into the intent without being signed.
+--
+--     app.documents has separated signable from attachment since data/0018, but
+--     the guard required a validated signature for every row in the intent, so
+--     an attachment was signed like anything else and the distinction meant
+--     nothing. Being in the intent is what binds it by digest; being signable is
+--     what requires a signature. Two questions, two answers.
+-- ===========================================================================
+\set attachdoc '''88888888-aaaa-4888-8888-888888888888'''
+\set attachversion '''99999999-aaaa-4999-8999-999999999999'''
+
+INSERT INTO app.documents (tenant_id, id, signature_case_id, display_name, document_role)
+VALUES (:tenant, :attachdoc, :caseid, 'bilaga.pdf', 'attachment');
+INSERT INTO app.document_versions (tenant_id, id, document_id, version, status, source_object_key, canonical_object_key, mime_type, byte_size, sha256, pdf_profile)
+VALUES (:tenant, :attachversion, :attachdoc, 1, 'locked', 'bilaga.pdf', 'bilaga-canonical.pdf', 'application/pdf', 512,
+        '6666666666666666666666666666666666666666666666666666666666666666', 'PDF/A-2b');
+INSERT INTO app.signing_intent_documents (tenant_id, signing_intent_id, document_version_id, ordinal, document_sha256, display_name_snapshot, mime_type_snapshot, profile_snapshot, byte_size_snapshot, document_role)
+VALUES (:tenant, :intentid, :attachversion, 2,
+        '6666666666666666666666666666666666666666666666666666666666666666', 'bilaga.pdf', 'application/pdf', 'PDF/A-2b', 512, 'attachment');
+
+DO $$ BEGIN
+  -- The signer above is already 'signed'. Re-running the guard by moving them
+  -- out and back is not possible — 'signed' is terminal — so the assertion is
+  -- that the attachment carries no signature of its own and the case is
+  -- nevertheless in a state the completion guard accepts.
+  IF EXISTS (
+    SELECT 1 FROM app.signature_attempts attempt
+    WHERE attempt.tenant_id = '44444444-4444-4444-8444-444444444444'
+      AND attempt.document_version_id = '99999999-aaaa-4999-8999-999999999999'
+  ) THEN
+    RAISE EXCEPTION 'GUARD FAILED: the attachment acquired a signature attempt of its own';
+  END IF;
+  IF (SELECT count(*) FROM app.signing_intent_documents
+       WHERE tenant_id = '44444444-4444-4444-8444-444444444444'
+         AND signing_intent_id = 'bbbbbbbb-1111-4bbb-8bbb-bbbbbbbbbbbb') <> 2 THEN
+    RAISE EXCEPTION 'GUARD FAILED: the attachment is not bound into the signing intent';
+  END IF;
+END $$;
+
+-- An intent made only of attachments is a signer who signed nothing, and must
+-- be refused rather than waved through by the narrowed guard.
+DO $$
+DECLARE lonely uuid := 'bbbbbbbb-9999-4bbb-8bbb-bbbbbbbbbbbb';
+        onlooker uuid := 'aaaaaaaa-9999-4aaa-8aaa-aaaaaaaaaaaa';
+BEGIN
+  INSERT INTO app.signers (tenant_id, id, signature_case_id, display_name, status, signing_order, required, recipient_reference, identifier_binding_mode, identifier_binding_exception_code, identifier_binding_exception_approved_by, identifier_binding_exception_at)
+  VALUES ('44444444-4444-4444-8444-444444444444', onlooker, '55555555-5555-4555-8555-555555555555', 'Endast bilagor', 'pending', 9, false, 'recipient-onlooker', 'BANKID_DISCOVERED', 'UNKNOWN_AT_INVITATION', '66666666-6666-4666-8666-666666666666', now());
+  INSERT INTO app.signing_intents (tenant_id, id, signature_case_id, signer_id, sequence_group, visible_text, visible_text_sha256, non_visible_payload, non_visible_payload_sha256, evidence_schema_version, identifier_binding_mode, status, issued_at, expires_at)
+  VALUES ('44444444-4444-4444-8444-444444444444', lonely, '55555555-5555-4555-8555-555555555555', onlooker, 9, 'Bilagor',
+          '1111111111111111111111111111111111111111111111111111111111111111', '{}',
+          '1111111111111111111111111111111111111111111111111111111111111111',
+          'kommunsign.bankid-evidence.v2', 'BANKID_DISCOVERED', 'prepared', now(), now() + interval '1 hour');
+  UPDATE app.signing_intents SET status='provider_started' WHERE tenant_id='44444444-4444-4444-8444-444444444444' AND id=lonely;
+  UPDATE app.signing_intents SET status='evidence_collected' WHERE tenant_id='44444444-4444-4444-8444-444444444444' AND id=lonely;
+  UPDATE app.signing_intents SET status='verified' WHERE tenant_id='44444444-4444-4444-8444-444444444444' AND id=lonely;
+  -- Identity is proven for this signer, so the only thing that can refuse the
+  -- transition below is the signable-document check itself.
+  INSERT INTO app.identity_transactions (tenant_id, id, signer_id, document_version_id, provider, provider_reference, state_hash, nonce_hash, status, expires_at, signing_intent_id)
+  VALUES ('44444444-4444-4444-8444-444444444444', 'cccccccc-9999-4ccc-8ccc-cccccccccccc', onlooker, '99999999-aaaa-4999-8999-999999999999', 'TIC_BANKID', 'tic-ref-lonely', '\x00'::bytea, '\x01'::bytea, 'pending', now() + interval '1 hour', lonely);
+  INSERT INTO app.tic_identity_artifacts (tenant_id, identity_transaction_id, signing_intent_id, collect_response_object_key, collect_response_sha256, signature_xml_object_key, signature_xml_sha256, ocsp_response_object_key, ocsp_response_sha256, verification_report_object_key, verification_report_sha256, verification_result, verifier_engine, verifier_policy_version, verified_at)
+  VALUES ('44444444-4444-4444-8444-444444444444', 'cccccccc-9999-4ccc-8ccc-cccccccccccc', lonely, 'collect.json', '1111111111111111111111111111111111111111111111111111111111111111', 'sig.xml', '1111111111111111111111111111111111111111111111111111111111111111', 'ocsp.der', '1111111111111111111111111111111111111111111111111111111111111111', 'report.json', '1111111111111111111111111111111111111111111111111111111111111111',
+          'PASS', 'jdk-xml-dsig/secure-validation-v1', 'kommunsign.bankid-evidence.v2', now());
+  INSERT INTO app.signing_intent_documents (tenant_id, signing_intent_id, document_version_id, ordinal, document_sha256, display_name_snapshot, mime_type_snapshot, profile_snapshot, byte_size_snapshot, document_role)
+  VALUES ('44444444-4444-4444-8444-444444444444', lonely, '99999999-aaaa-4999-8999-999999999999', 1,
+          '6666666666666666666666666666666666666666666666666666666666666666', 'bilaga.pdf', 'application/pdf', 'PDF/A-2b', 512, 'attachment');
+
+  UPDATE app.signers SET status='invited' WHERE tenant_id='44444444-4444-4444-8444-444444444444' AND id=onlooker;
+  UPDATE app.signers SET status='identity_started' WHERE tenant_id='44444444-4444-4444-8444-444444444444' AND id=onlooker;
+  UPDATE app.signers SET status='identity_verified' WHERE tenant_id='44444444-4444-4444-8444-444444444444' AND id=onlooker;
+  UPDATE app.signers SET status='signing' WHERE tenant_id='44444444-4444-4444-8444-444444444444' AND id=onlooker;
+  BEGIN
+    UPDATE app.signers SET status='signed' WHERE tenant_id='44444444-4444-4444-8444-444444444444' AND id=onlooker;
+    RAISE EXCEPTION 'GUARD FAILED: a signer whose intent held only attachments was marked signed';
+  EXCEPTION WHEN raise_exception THEN
+    IF position('at least one signable document' in SQLERRM) = 0 THEN RAISE EXCEPTION 'WRONG GUARD FIRED: %', SQLERRM; END IF;
+  END;
 END $$;
 
 -- ===========================================================================
@@ -486,7 +565,7 @@ DO $$ BEGIN
     RAISE EXCEPTION 'GUARD FAILED: a PAdES-B signature satisfied a policy requiring PAdES-LT';
   EXCEPTION WHEN sqlstate 'P0001' THEN
     IF position('GUARD FAILED' in SQLERRM) > 0 THEN RAISE; END IF;
-    IF position('validated cryptographic signature for every document' in SQLERRM) = 0 THEN
+    IF position('validated cryptographic signature for every signable document' in SQLERRM) = 0 THEN
       RAISE EXCEPTION 'GUARD FAILED: expected guard did not fire, got: %', SQLERRM;
     END IF;
   END;

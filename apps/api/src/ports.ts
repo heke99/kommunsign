@@ -27,6 +27,14 @@ export interface SignatureCaseView {
 export interface AddDocumentInput {
   readonly uploadId: string;
   readonly displayName: string;
+  /**
+   * An attachment is bound into the signature by its digest but is not itself
+   * signed: the signer approved the decision in the light of it, so a later
+   * swap must be detectable, but it is not the instrument being executed.
+   * Defaults to 'signable', which is what every document was before this
+   * existed.
+   */
+  readonly documentRole?: 'signable' | 'attachment';
 }
 export interface DocumentView {
   readonly id: string;

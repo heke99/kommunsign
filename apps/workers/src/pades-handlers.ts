@@ -49,6 +49,7 @@ interface IntentRow {
 
 interface IntentDocumentRow {
   readonly document_version_id: string;
+  readonly document_role: string;
   readonly ordinal: number;
   readonly document_sha256: string;
   readonly display_name_snapshot: string;
@@ -100,7 +101,13 @@ export async function handlePadesCreate(
   const documents = await loadIntentDocuments(database, job.tenantId, signingIntentId);
   if (documents.length === 0) throw permanent('SIGNING_INTENT_HAS_NO_DOCUMENTS');
 
+  // The manifest covers every document in the intent, attachments included:
+  // that is what binds them, and a swapped attachment has to be detectable
+  // because the signer approved the decision in the light of it. Only the
+  // signing loop below narrows to the signable ones.
   await recordManifest(database, infrastructure, job.tenantId, intent, documents);
+  const signableDocuments = documents.filter((document) => document.document_role !== 'attachment');
+  if (signableDocuments.length === 0) throw permanent('SIGNING_INTENT_HAS_NO_SIGNABLE_DOCUMENT');
 
   const requiredLevel = requiredPadesLevel(intent.policy_snapshot);
   if (requiredLevel === 'NONE') throw permanent('ELECTRONIC_SIGNATURE_POLICY_REQUIRES_A_PADES_LEVEL');
@@ -119,7 +126,7 @@ export async function handlePadesCreate(
     );
   });
 
-  for (const document of documents) {
+  for (const document of signableDocuments) {
     const alreadySigned = await tenant(database, job.tenantId, async (tx) => tx.query<{ readonly id: string }>(
       `select artifact.id
          from app.signature_artifacts artifact
@@ -362,13 +369,15 @@ export async function handlePadesValidate(
       signingIntentId, reportSha256, admittedLevel, recordedFormat: state.format, indication: report.indication,
     });
 
-    // The signer is only finished when every document in the intent is admitted.
-    // Marking them signed after the first would be exactly the over-claim this
-    // release exists to remove, one level down.
+    // The signer is only finished when every signable document in the intent is
+    // admitted. Marking them signed after the first would be exactly the
+    // over-claim this release exists to remove, one level down. Attachments are
+    // excluded: they are bound by digest, not signed.
     const outstanding = await tx.query(
       `select 1
          from app.signing_intent_documents sid
         where sid.tenant_id=$1 and sid.signing_intent_id=$2
+          and sid.document_role='signable'
           and not exists (
             select 1 from app.signature_attempts attempt
             where attempt.tenant_id=sid.tenant_id and attempt.signer_id=$3
@@ -510,7 +519,7 @@ async function loadIntent(database: SqlDatabase, tenantId: string, signingIntent
 async function loadIntentDocuments(database: SqlDatabase, tenantId: string, signingIntentId: string): Promise<readonly IntentDocumentRow[]> {
   return tenant(database, tenantId, async (tx) => tx.query<IntentDocumentRow>(
     `select sid.document_version_id, sid.ordinal, sid.document_sha256, sid.display_name_snapshot,
-            sid.mime_type_snapshot, sid.profile_snapshot, sid.byte_size_snapshot,
+            sid.mime_type_snapshot, sid.profile_snapshot, sid.byte_size_snapshot, sid.document_role,
             v.canonical_object_key, v.document_id
        from app.signing_intent_documents sid
        join app.document_versions v on v.tenant_id=sid.tenant_id and v.id=sid.document_version_id

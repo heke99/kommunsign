@@ -144,8 +144,8 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
         if (!grant) throw new Error('UPLOAD_GRANT_NOT_FOUND');
         if (grant.status !== 'uploaded') throw new Error('UPLOAD_NOT_CONFIRMED');
         const document = await transaction.query<{ readonly id: string }>(
-          `insert into app.documents(tenant_id, signature_case_id, display_name) values ($1,$2,$3) returning id`,
-          [context.tenantId, id, cleanText(input.displayName, 1, 300)],
+          `insert into app.documents(tenant_id, signature_case_id, display_name, document_role) values ($1,$2,$3,$4) returning id`,
+          [context.tenantId, id, cleanText(input.displayName, 1, 300), input.documentRole ?? 'signable'],
         );
         const documentId = requireRow(document.rows[0], 'DOCUMENT_INSERT_FAILED').id;
         const version = await transaction.query<DocumentRow>(
@@ -213,11 +213,16 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
         );
         const caseDetails = requireRow(details.rows[0], 'CASE_SEND_EVIDENCE_FAILED');
         const documents = await transaction.query<SigningDocumentRow>(
-          `select d.id as document_id,v.id as document_version_id,d.display_name,v.sha256,v.mime_type,v.byte_size
+          `select d.id as document_id,v.id as document_version_id,d.display_name,v.sha256,v.mime_type,v.byte_size,d.document_role
              from app.documents d join app.document_versions v on v.tenant_id=d.tenant_id and v.document_id=d.id
             where d.tenant_id=$1 and d.signature_case_id=$2
-            order by d.created_at,d.id,v.version desc`, [context.tenantId,id],
+            order by d.document_role desc,d.created_at,d.id,v.version desc`, [context.tenantId,id],
         );
+        // Attachments travel with the intent and are bound by their digest, but
+        // they are not what is being signed. Ordered signable-first so that the
+        // signature and its visible text lead with the decision rather than
+        // with whatever happened to be uploaded earliest.
+        if (!documents.rows.some((document) => document.document_role !== 'attachment')) throw new Error('CASE_SEND_REQUIRES_A_SIGNABLE_DOCUMENT');
         if (!documents.rows.length || documents.rows.length > 20 || documents.rows.some((document) => !document.sha256 || document.mime_type!=='application/pdf')) throw new Error('DOCUMENT_NOT_READY');
         const notReady = await transaction.query<{ readonly count: number|string }>(
           `select count(*) as count from app.documents d join app.document_versions v on v.tenant_id=d.tenant_id and v.document_id=d.id
@@ -243,6 +248,7 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
             ordinal:index+1,documentId:document.document_id,documentVersionId:document.document_version_id,
             displayName:document.display_name,mimeType:'application/pdf' as const,profile:'PDF/A-2b' as const,
             byteSize:Number(document.byte_size),sha256:document.sha256,
+            role:(document.document_role === 'attachment' ? 'attachment' : 'signable') as 'attachment'|'signable',
           }));
           const visibleText = buildBankIdVisibleText(caseDetails, snapshots);
           const payload = canonicalJson({
@@ -256,10 +262,14 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
              values($1,$2,$3,$4,$5,$6,$7,$8,$9,'kommunsign.bankid-evidence.v2',$10,'prepared',$11,$12)`,
             [context.tenantId,signingIntentId,id,signer.id,signer.signing_order,visibleText,await sha256Hex(visibleText),payload,await sha256Hex(payload),signer.identifier_binding_mode,issuedAt.toISOString(),expiresAt.toISOString()],
           );
+          // The role is snapshotted here rather than read back from
+          // app.documents when the guard runs: the question is what this signer
+          // consented to, and reclassifying a document afterwards must not
+          // change the answer retroactively.
           for (const document of snapshots) await transaction.query(
-            `insert into app.signing_intent_documents(tenant_id,signing_intent_id,document_version_id,ordinal,document_sha256,display_name_snapshot,mime_type_snapshot,profile_snapshot,byte_size_snapshot)
-             values($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-            [context.tenantId,signingIntentId,document.documentVersionId,document.ordinal,document.sha256,document.displayName,document.mimeType,document.profile,document.byteSize],
+            `insert into app.signing_intent_documents(tenant_id,signing_intent_id,document_version_id,ordinal,document_sha256,display_name_snapshot,mime_type_snapshot,profile_snapshot,byte_size_snapshot,document_role)
+             values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            [context.tenantId,signingIntentId,document.documentVersionId,document.ordinal,document.sha256,document.displayName,document.mimeType,document.profile,document.byteSize,document.role],
           );
           if (signer.signing_order === firstGroup) {
             const invitationId = crypto.randomUUID();
@@ -730,7 +740,7 @@ interface CaseRow { readonly id:string; readonly tenant_id:string; readonly stat
 interface DocumentRow { readonly id:string; readonly document_id:string; readonly status:string; readonly sha256:string; readonly byte_size:number|string; readonly mime_type:string; }
 interface SignerRow { readonly id:string; readonly signature_case_id:string; readonly display_name:string; readonly status:SignerView['status']; readonly signing_order:number; readonly required:boolean; readonly identifier_binding_mode:'STRICT_PREBOUND'|'BANKID_DISCOVERED'; }
 interface CaseSigningRow { readonly id:string; readonly external_reference:string|null; readonly title:string; readonly policy_id:string; readonly policy_version:number; readonly organization_name:string|null; }
-interface SigningDocumentRow { readonly document_id:string; readonly document_version_id:string; readonly display_name:string; readonly sha256:string; readonly mime_type:string; readonly byte_size:number|string; }
+interface SigningDocumentRow { readonly document_id:string; readonly document_version_id:string; readonly display_name:string; readonly sha256:string; readonly mime_type:string; readonly byte_size:number|string; readonly document_role:string; }
 interface SigningSignerRow { readonly id:string; readonly display_name:string; readonly email_ciphertext:Uint8Array; readonly identifier_binding_mode:'STRICT_PREBOUND'|'BANKID_DISCOVERED'; readonly identifier_binding_exception_code:string|null; readonly signing_order:number; readonly required:boolean; }
 interface UploadRow { readonly id:string; readonly object_key:string; readonly file_name:string; readonly mime_type:string; readonly byte_size:number|string; readonly expected_sha256:string; readonly status:string; }
 interface WebhookRow { readonly id:string; readonly url:string; readonly subscribed_events:readonly string[]; readonly active:boolean; readonly created_at:string|Date; }

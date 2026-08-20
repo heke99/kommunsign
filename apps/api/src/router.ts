@@ -393,10 +393,15 @@ function parseCreateCaseInput(value: unknown): CreateCaseInput {
 }
 function parseAddDocumentInput(value: unknown): AddDocumentInput {
   assertPlainObject(value);
-  assertAllowedKeys(value, ['uploadId', 'displayName']);
+  assertAllowedKeys(value, ['uploadId', 'displayName', 'documentRole']);
+  const role = value.documentRole === undefined ? 'signable' : value.documentRole;
+  if (role !== 'signable' && role !== 'attachment') {
+    throw new ApiRequestError('VALIDATION_ERROR', 'documentRole must be signable or attachment', 422, { field: 'documentRole' });
+  }
   return {
     uploadId: requireUuid(requireString(value.uploadId, 'uploadId', 36, 36), 'uploadId'),
     displayName: requireString(value.displayName, 'displayName', 1, 200),
+    documentRole: role,
   };
 }
 function parseAddSignerInput(value: unknown): AddSignerInput {

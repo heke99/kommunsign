@@ -459,19 +459,37 @@ await step('a second case reaches the identity boundary', async () => {
   }, { 'idempotency-key': randomUUID() }), 201, 'create second case');
   secondCaseId = created.id;
   expect(await tenant('POST', `/v1/signature-cases/${secondCaseId}/documents`, {
-    uploadId: grant.id, displayName: 'Delegationsbeslut.pdf',
+    uploadId: grant.id, displayName: 'Delegationsbeslut.pdf', documentRole: 'signable',
   }, { 'idempotency-key': randomUUID() }), 202, 'attach second document');
 
-  await waitFor('the second document to become ready', async () => {
+  // An attachment on the same case. It must end up bound into the signing
+  // intent by its digest and must not acquire a signature of its own — the
+  // signer approved the decision in the light of it, but it is not the
+  // instrument being executed.
+  const attachmentGrant = expect(await tenant('POST', '/v1/uploads', {
+    fileName: 'bilaga.pdf', mimeType: 'application/pdf', byteSize: pdf.byteLength, sha256: pdfSha256,
+  }, { 'idempotency-key': randomUUID() }), 201, 'create attachment upload');
+  const attachmentUploaded = await fetch(attachmentGrant.uploadUrl, { method: 'PUT', headers: attachmentGrant.requiredHeaders ?? {}, body: pdf });
+  if (!attachmentUploaded.ok) throw new Error(`the object store refused the attachment grant: ${attachmentUploaded.status}`);
+  expect(await tenant('POST', `/v1/uploads/${attachmentGrant.id}/complete`, undefined, { 'idempotency-key': randomUUID() }), 200, 'complete attachment upload');
+  expect(await tenant('POST', `/v1/signature-cases/${secondCaseId}/documents`, {
+    uploadId: attachmentGrant.id, displayName: 'Bilaga.pdf', documentRole: 'attachment',
+  }, { 'idempotency-key': randomUUID() }), 202, 'attach the attachment');
+
+  await waitFor('both documents on the second case to become ready', async () => {
     const rows = await data`
-      select v.canonical_object_key, v.status::text as version_status
+      select count(*)::int as ready
         from app.documents d
         join app.document_versions v on v.tenant_id = d.tenant_id and v.document_id = d.id
        where d.tenant_id = ${tenantId} and d.signature_case_id = ${secondCaseId}
-       order by v.version desc limit 1`;
-    const row = rows[0];
-    if (String(row?.version_status ?? '').includes('reject')) throw new Error(`the second document was rejected: ${row.version_status}`);
-    return row?.canonical_object_key ? row : null;
+         and v.canonical_object_key is not null`;
+    const rejected = await data`
+      select count(*)::int as rejected
+        from app.documents d
+        join app.document_versions v on v.tenant_id = d.tenant_id and v.document_id = d.id
+       where d.tenant_id = ${tenantId} and d.signature_case_id = ${secondCaseId} and v.status::text = 'rejected'`;
+    if (rejected[0]?.rejected) throw new Error('a document on the second case was rejected');
+    return rows[0]?.ready === 2 ? rows[0] : null;
   }, { timeoutMs: 180_000 });
 
   const signer = expect(await tenant('POST', `/v1/signature-cases/${secondCaseId}/signers`, {
@@ -645,7 +663,24 @@ await step('the real jobs sign, validate and complete the case', async () => {
     return row?.signer_status === 'signed' ? row : null;
   }, { timeoutMs: 240_000, intervalMs: 3000 });
   if (!completed.validated) throw new Error('the signer reached signed without an independently validated signature');
-  return `${completed.artifacts} artifact(s) ${completed.format}, ${completed.validated} validated, case ${completed.case_status}`;
+
+  // F011: the attachment is in the intent, and carries no signature.
+  const bound = await data`
+    select sid.document_role, count(*)::int as documents,
+           (select count(*)::int from app.signature_attempts attempt
+             where attempt.tenant_id = sid.tenant_id and attempt.signer_id = ${secondSignerId}
+               and attempt.document_version_id = sid.document_version_id) as attempts
+      from app.signing_intent_documents sid
+      join app.signing_intents si on si.tenant_id = sid.tenant_id and si.id = sid.signing_intent_id
+     where sid.tenant_id = ${tenantId} and si.signer_id = ${secondSignerId}
+     group by sid.document_role, sid.document_version_id, sid.tenant_id`;
+  const attachments = bound.filter((row) => row.document_role === 'attachment');
+  if (attachments.length !== 1) throw new Error(`expected exactly one attachment in the intent, found ${attachments.length}`);
+  if (attachments[0].attempts !== 0) throw new Error('the attachment acquired a signature of its own');
+  const signable = bound.filter((row) => row.document_role === 'signable');
+  if (!signable.length || signable.some((row) => row.attempts === 0)) throw new Error('a signable document was left unsigned');
+
+  return `${completed.artifacts} artifact(s) ${completed.format}, ${completed.validated} validated, attachment bound unsigned, case ${completed.case_status}`;
 });
 
 await step('an evidence package and an archive export are built by real jobs', async () => {
