@@ -30,6 +30,21 @@ export interface PostgresPoolOptions {
   readonly idleTimeoutSeconds?: number;
 }
 
+/**
+ * Whether this connection string goes through Supabase's transaction pooler.
+ *
+ * Same test the production migration workflow uses, for the same reason: what the pooler can and
+ * cannot do differs from a direct connection in ways that are silent until they are expensive.
+ */
+export function pooledConnection(connectionUrl: string): boolean {
+  try {
+    const url = new URL(connectionUrl);
+    return url.hostname.endsWith('pooler.supabase.com') || url.port === '6543';
+  } catch {
+    return false;
+  }
+}
+
 function boundedOption(value: number | undefined, fallback: number, minimum: number, maximum: number): number {
   if (value === undefined) return fallback;
   if (!Number.isInteger(value) || value < minimum || value > maximum) throw new Error('POSTGRES_POOL_OPTION_INVALID');
@@ -98,7 +113,12 @@ export async function createPostgresDatabase(
     connect_timeout: 15,
     max_lifetime: 60 * 30,
     application_name: applicationName,
-    prepare: true,
+    // Prepared statements are worth having on a direct connection and actively harmful through a
+    // transaction pooler. In transaction mode each transaction can land on a different backend, so
+    // a statement prepared on one is never found on the next: every query pays Parse before it can
+    // Bind and Execute. Measured against production that was exactly two round trips per query
+    // where one would do -- half the cost of a trivial read.
+    prepare: !pooledConnection(connectionUrl),
     transform: { undefined: null },
   });
 
