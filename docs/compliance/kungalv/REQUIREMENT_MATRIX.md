@@ -4,7 +4,7 @@
      Kör `node scripts/build-requirement-matrix.mjs` efter ändring i
      requirements.json, assessments.json eller daterad assessment override. -->
 
-Bedömningsdatum: 2026-08-20
+Bedömningsdatum: 2026-08-21
 
 Den historiska bedömningen kompletteras med daterade overrides endast när en ny verifiering visar att en äldre status inte längre är korrekt. Kravtexten hämtas alltid oförändrad från källutdraget.
 
@@ -60,12 +60,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | Signering |
 | Nuläge | Freja-adaptern är implementerad i packages/provider-adapters/src/freja.ts som en adapter för alla tre metoderna (Freja eID, Freja eID Plus, Freja OrgID) bakom ElectronicIdentityProvider. verifyFrejaSignatureClaims genomför hela bindningskontrollen på ett JWS-verifierat svar: algoritm-allowlist, issuer, audience, status, transaktionsreferens, signRef mot signeringsintent, signerad datahash, nonce med engångsförbrukning mot replay, egen åldersgräns utöver svarets expiry, registreringsnivå och subjekttyp. För OrgID krävs dessutom att organisationsidentiteten finns och tillhör rätt organisation. RejectingFrejaSignatureVerifier är default så att en okonfigurerad installation vägrar i stället för att acceptera ett overifierat svar. frejaAssuranceLevel normaliserar BASIC/EXTENDED/PLUS till LOW/SUBSTANTIAL/HIGH så att Freja-vokabulär inte läcker ut i kärnan. |
-| Gap | Ingen kvarvarande kodbrist. JWS-signaturverifieringen körs i identity-service (FrejaJwsVerifier) och kräver Frejas roterande verifieringsnycklar samt mTLS-klientcertifikat. |
-| Lösning | packages/provider-adapters/src/freja.ts (adapter och bindningskontroll), services/identity-service FrejaJwsVerifier (JWS-verifiering), identity-registry (metoderna spärrade tills credentials finns). |
-| Kodevidens | packages/provider-adapters/src/freja.ts; services/identity-service/src/main/java/se/kommunsign/identity/FrejaJwsVerifier.java; packages/identity-registry/src/index.ts |
-| Verifiering | tests/run.mjs: fyra Freja-tester (intentbindning, replay och tidsfönster, assurance och OrgID-organisationsidentitet, fail-closed verifierare) samt tre registertester. |
+| Gap | Två kodbrister utöver credentials. FrejaSignatureVerifier — gränssnittet som faktiskt verifierar signaturen — har ingen implementation alls; RejectingFrejaSignatureVerifier är den enda, och den vägrar. Bindningskontrollerna körs alltså aldrig mot något. Och adaptern importeras inte av någon applikationsingång, så inget flöde kan nå den. Byggstenen som finns är CompactJwsVerifier i services/commons, som verifierar exakt den konstruktion Freja använder och nu har egna tester i reaktorn. |
+| Lösning | packages/provider-adapters/src/freja.ts (adapter och bindningskontroll), services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java (JWS-verifiering, delad med OIDC). |
+| Kodevidens | packages/provider-adapters/src/freja.ts; services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java; services/commons/src/test/java/se/kommunsign/commons/CompactJwsVerifierTest.java |
+| Verifiering | tests/run.mjs: fyra Freja-tester (intentbindning, replay och tidsfönster, assurance och OrgID-organisationsidentitet, fail-closed verifierare). mvn -B test: åtta JWS-tester inklusive alg: none, dubblerad alg och nyckeltypsförväxling. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Freja produktionscredentials: relying party-avtal med Freja eID AB, mTLS-klientcertifikat, samt organisationsregistrering för OrgID. Utan dessa kan ingen skarp Freja-transaktion initieras. När de finns sätts productionReady=true i identity-registry och samma bindningstester körs mot skarp evidens. |
+| Blockerare | Freja produktionscredentials: relying party-avtal med Freja eID AB, mTLS-klientcertifikat, samt organisationsregistrering för OrgID. Utan dessa kan ingen skarp Freja-transaktion initieras. Credentials räcker dock inte: de två kodbristerna ovan måste också åtgärdas innan adaptern kan användas. |
+| Bedömningskälla | Override 2026-08-21: build-requirement-matrix.mjs now fails when an assessment cites a path that does not resolve on disk. That check found eight dead pointers across six requirements: five rotted when packages were deleted on 2026-08-20, and three named a Java file that has never existed under that name. Correcting them exposed two claims that were wrong independently of the pointer, and those are corrected here too. Original requirements remain immutable in requirements.json. |
 
 ### F003 — BLOCKED_EXTERNAL
 
@@ -74,13 +75,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Signering med BankID och Freja+ för medborgare och personer utanför organisationen |
 | Typ | SKA |
 | Kategori | Signering |
-| Nuläge | BankID via TIC är implementerat och productionReady i identity-registry. Freja+ delar nu den fullt implementerade Freja-adaptern med JWS-bindningskontroll, replayskydd och assurance-normalisering, och kräver bara credentials för att aktiveras. Båda metoderna erbjuds via identity-registry utan att kärnan namnger en provider. |
-| Gap | Ingen kvarvarande kodbrist för medborgarsignering. Kvarstår produktionscredentials för respektive provider. |
-| Lösning | packages/identity-registry (metodval per förmåga), packages/provider-adapters/src/tic-bankid.ts, packages/provider-adapters/src/freja.ts. |
-| Kodevidens | packages/identity-registry/src/index.ts; packages/provider-adapters/src/tic-bankid.ts; packages/provider-adapters/src/freja.ts |
-| Verifiering | tests/run.mjs: fyra Freja-tester, två TIC-adaptertester och tre registertester. |
+| Nuläge | BankID via TIC är implementerat, inkopplat och kört: signeringsvägen startar en TIC-session, tar emot webhooken, hämtar evidensen och vägrar när den inte verifierar — det senare körs av verify:e2e:application mot körande tjänster. Freja-adaptern är skriven och bindningskontrollerad men inte inkopplad, och saknar dessutom en JWS-verifierare (se F002). Kärnan namnger ingen provider: valet görs av tenantens signeringsinställningar, inte av ett providernamn i koden. |
+| Gap | För BankID: ingen kodbrist, bara produktionscredentials. För Freja: se F002 — adaptern har ingen anropare och ingen JWS-verifierare. |
+| Lösning | packages/provider-adapters/src/tic-bankid.ts (inkopplad via apps/api/src/production-adapters/postgres/public-signing-repository.ts), packages/provider-adapters/src/freja.ts (ej inkopplad), app.tenant_signing_settings. |
+| Kodevidens | packages/provider-adapters/src/tic-bankid.ts; apps/api/src/production-adapters/postgres/public-signing-repository.ts; packages/provider-adapters/src/freja.ts |
+| Verifiering | tests/run.mjs: fyra Freja-tester och två TIC-adaptertester. verify:e2e:application kör TIC-vägen mot körande tjänster och visar att overifierad evidens aldrig blir en underskrift. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | TIC produktionscredentials för BankID och Freja relying party-avtal. Båda är avtals- och credentialfrågor utanför kodbasen. |
+| Blockerare | TIC produktionscredentials för BankID och Freja relying party-avtal. |
+| Bedömningskälla | Override 2026-08-21: build-requirement-matrix.mjs now fails when an assessment cites a path that does not resolve on disk. That check found eight dead pointers across six requirements: five rotted when packages were deleted on 2026-08-20, and three named a Java file that has never existed under that name. Correcting them exposed two claims that were wrong independently of the pointer, and those are corrected here too. Original requirements remain immutable in requirements.json. |
 
 ### F004 — BLOCKED_EXTERNAL
 
@@ -90,13 +92,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | Inloggning |
 | Referens | För närvarande Mobility Guard |
-| Nuläge | packages/federation implementerar en protokollneutral workforce-federation för både SAML 2.0 och OIDC. Ingen kod namnger MobilityGuard, Entra eller någon annan IdP: kravet är förmågan, och att ansluta en annan IdP är en konfigurationsrad. verifyWorkforceAssertion normaliserar båda protokollen till en assertion och avgör sedan i ett enda beslut om den får logga in någon: signaturverifiering, aktiverad provider, issuer, audience, destination, InResponseTo/state mot en inloggning vi själva startat (IdP-initierade flöden avvisas), notBefore/notOnOrAfter, egen maxålder på IdP-sessionen, engångsförbrukad assertion-ID mot replay, samt krävd authentication context. Tenant hämtas alltid ur den bundna konfigurationen och aldrig ur meddelandet (AGENTS.md regel 1). mapWorkforceIdentity mappar IdP-grupper till roller deny-by-default: omappad grupp ger inget, användare utan mappad grupp avvisas i stället för att få en defaultroll, och en mappning mot en roll utanför tenantens assignableRoles är ett fel i stället för en tyst tilldelning. resolveLogoutTargets avslutar exakt de sessioner IdP:n namngivit. Migration control/0017 ersätter den leverantörsspecifika provider_key-listan med generiska GENERIC_OIDC/GENERIC_SAML, och lägger till rollmappningstabell och assertion-ledger. |
+| Nuläge | packages/federation implementerar en protokollneutral workforce-federation för både SAML 2.0 och OIDC. Ingen kod namnger MobilityGuard, Entra eller någon annan IdP: kravet är förmågan, och att ansluta en annan IdP är en konfigurationsrad. verifyWorkforceAssertion normaliserar båda protokollen till en assertion och avgör sedan i ett enda beslut om den får logga in någon: signaturverifiering, aktiverad provider, issuer, audience, destination, InResponseTo/state mot en inloggning vi själva startat (IdP-initierade flöden avvisas), notBefore/notOnOrAfter, egen maxålder på IdP-sessionen, engångsförbrukad assertion-ID mot replay, samt krävd authentication context. Tenant hämtas alltid ur den bundna konfigurationen och aldrig ur meddelandet. mapWorkforceIdentity mappar IdP-grupper till roller deny-by-default: omappad grupp ger inget, användare utan mappad grupp avvisas i stället för att få en defaultroll, och en mappning mot en roll utanför tenantens assignableRoles är ett fel i stället för en tyst tilldelning. resolveLogoutTargets avslutar exakt de sessioner IdP:n namngivit. Migration control/0017 ersätter den leverantörsspecifika provider_key-listan med generiska GENERIC_OIDC/GENERIC_SAML, och lägger till rollmappningstabell och assertion-ledger. Signaturkontrollen av ett id_token görs av validation-service, som delar CompactJwsVerifier med Freja-vägen. |
 | Gap | Ingen kvarvarande kodbrist. Anslutning mot MobilityGuard kräver kommunens metadata och signeringscertifikat. |
-| Lösning | packages/federation (protokollneutral assertion-antagning, rollmappning, single logout), migrations/control/0017_workforce_federation.sql. |
-| Kodevidens | packages/federation/src/index.ts; migrations/control/0017_workforce_federation.sql; migrations/control/verify_workforce_federation.sql; packages/auth/src/index.ts |
-| Verifiering | tests/run.mjs: fyra federationstester (requestbindning, replay och tidsfönster, deny-by-default rollmappning, single logout) samt OIDC-vägen i tests/security.mjs. |
+| Lösning | packages/federation (protokollneutral assertion-antagning, rollmappning, single logout), apps/api/src/federation-router.ts, migrations/control/0017_workforce_federation.sql. |
+| Kodevidens | packages/federation/src/index.ts; apps/api/src/federation-router.ts; migrations/control/0017_workforce_federation.sql; migrations/control/verify_workforce_federation.sql; services/validation-service/src/main/java/se/kommunsign/validation/OidcTokenValidator.java |
+| Verifiering | tests/run.mjs: fyra federationstester (requestbindning, replay och tidsfönster, deny-by-default rollmappning, single logout). tests/sql/federation-replay.sql kör replayskyddet mot databasen. mvn -B test: OidcTokenValidatorTest. |
 | Status | BLOCKED_EXTERNAL |
 | Blockerare | Kungälvs IdP-metadata (EntityID, SSO-endpoint, signeringscertifikat) samt registrering av Kommunsign som service provider hos MobilityGuard. Ren konfigurationsleverans från kommunen; koden är på plats och verifieras med samma tester när metadatan finns. |
+| Bedömningskälla | Override 2026-08-21: build-requirement-matrix.mjs now fails when an assessment cites a path that does not resolve on disk. That check found eight dead pointers across six requirements: five rotted when packages were deleted on 2026-08-20, and three named a Java file that has never existed under that name. Correcting them exposed two claims that were wrong independently of the pointer, and those are corrected here too. Original requirements remain immutable in requirements.json. |
 
 ### F005 — PASS
 
@@ -139,7 +142,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/branding/src/index.ts; apps/api/src/production-adapters/postgres/provisioning-repository.ts; migrations/control/0002_tenant_profiles.sql |
 | Verifiering | tests/security.mjs täcker branding, inklusive avvisning av otillåtna värden. npm run verify:accessibility kontrollerar portalernas fasta färgschema. |
 | Status | PARTIAL |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### F008 — PASS
 
@@ -154,7 +156,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0030_signing_turn_predicate.sql; apps/api/src/production-adapters/postgres/public-signing-repository.ts; apps/workers/src/signing-groups.ts; tests/sql/signing-turn.sql |
 | Verifiering | tests/sql/signing-turn.sql: första steget, blockerade steg, frivillig granskare som inte får stoppa beslutet, och avslag som inte räknas som signerat. tests/sql/pades-signature-chain.sql visar att nästa steg öppnas när föregående är signerat med fullständig beviskedja. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### F009 — PASS
 
@@ -169,7 +170,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0030_signing_turn_predicate.sql; apps/api/src/production-adapters/postgres/public-signing-repository.ts; migrations/data/0009_integrity_and_worker_recovery.sql; tests/sql/signing-turn.sql |
 | Verifiering | tests/sql/signing-turn.sql täcker det parallella fallet. tests/sql/pades-signature-chain.sql visar att ett ärende inte kan slutföras medan en obligatorisk undertecknare saknas. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### F010 — PASS
 
@@ -184,7 +184,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/production-adapters/postgres/data-database.ts; migrations/data/0021_pades_signature_chain_guards.sql; migrations/data/0018_document_attachments.sql; tests/sql/pades-signature-chain.sql |
 | Verifiering | tests/sql/pades-signature-chain.sql: ett intent med flera dokument kan inte slutföras förrän varje dokument har en validerad signatur. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### F011 — PARTIAL
 
@@ -199,7 +198,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0018_document_attachments.sql; apps/api/src/production-adapters/postgres/data-database.ts; migrations/data/0021_pades_signature_chain_guards.sql |
 | Verifiering | tests/sql/pades-signature-chain.sql visar att varje rad i intentet kräver en validerad signatur — vilket är just det som gör bilagan signerad. |
 | Status | PARTIAL |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### F012 — PASS
 
@@ -214,7 +212,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/workers/src/production-handlers.ts; migrations/data/0030_signing_turn_predicate.sql; tests/sql/signing-turn.sql |
 | Verifiering | tests/sql/signing-turn.sql täcker predikatet påminnelsejobbet frågar, inklusive fallet där en giltig inbjudan finns men turen inte har kommit. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### F013 — BLOCKED_EXTERNAL
 
@@ -502,7 +499,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/production-adapters/postgres/request-auth.ts; packages/database/src/index.ts; packages/authorization/src/index.ts; packages/privacy/src/executor.ts; migrations/data/0005_rls.sql; tests/sql/tenant-isolation.sql |
 | Verifiering | tests/sql/tenant-isolation.sql kör mot Postgres och visar att en fråga utan tenantkontext inte ser någon rad. tests/run.mjs täcker behörighet, identitetsverifiering vid rättighetsbegäran och personnummerpolicy. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 2025 — PASS
 
@@ -565,7 +561,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | Ingen. |
 | Verifiering | Ingen. De tre enhetstesterna som fanns provade paketet, inte tjänsten. |
 | Status | GAP |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 2029 — BLOCKED_EXTERNAL
 
@@ -659,7 +654,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/locale/src/index.ts; scripts/generate-portal-messages.mjs; apps/signer-portal/public/app.js; apps/platform-admin/public/app.js; docs/api/error-codes.md |
 | Verifiering | tests/run.mjs: testet faller om en dokumenterad felkod saknar svensk text, om en portal slutar ladda tabellen, eller om en portal skaffar sig en egen. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 2035 — PASS
 
@@ -675,7 +669,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/locale/src/index.ts; apps/workers/src/production-handlers.ts |
 | Verifiering | tests/run.mjs: datum- och tidsformat, sommartidsövergångarnas exakta gränser och datumbyte vid midnatt. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 2036 — PASS
 
@@ -816,7 +809,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0006_functions_and_guards.sql; migrations/data/0009_integrity_and_worker_recovery.sql; packages/observability/src/index.ts; docs/isms/SAKER_UTVECKLING.md |
 | Verifiering | tests/sql/tenant-isolation.sql och övriga SQL-sviter skriver genom audit.append_event. tests/run.mjs täcker spårbara säkerhetshändelser och maskering. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 2045 — PASS
 
@@ -981,10 +973,11 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Område | Systemdokumentation |
 | Nuläge | docs/system/BEHORIGHETSMODELL.md beskriver behörighetskontrollens uppbyggnad: de tre lager som alla måste hålla (tenantkontext, row level security med FORCE, applikationsauktorisering), aktörstyper med omfattning, roller och rättigheter, de två gränser som är hårdkodade för att skydda kunden mot leverantören, automatisk rolltilldelning deny-by-default, livscykel och spårbarhet, samt minsta möjliga behörighet. |
 | Gap | Ingen. |
-| Lösning | docs/system/BEHORIGHETSMODELL.md, packages/authorization, packages/tenant-context, migrations/data/0005_rls.sql. |
-| Kodevidens | docs/system/BEHORIGHETSMODELL.md; packages/authorization/src/index.ts; migrations/data/0005_rls.sql |
-| Verifiering | tests/run.mjs: behörighets-, tenantkälls- och gallringstester. tests/security.mjs täcker åtkomstvägarna. |
+| Lösning | docs/system/BEHORIGHETSMODELL.md, packages/authorization, apps/api/src/production-adapters/postgres/request-auth.ts, migrations/data/0005_rls.sql. |
+| Kodevidens | docs/system/BEHORIGHETSMODELL.md; packages/authorization/src/index.ts; apps/api/src/production-adapters/postgres/request-auth.ts; migrations/data/0005_rls.sql |
+| Verifiering | tests/run.mjs: behörighets- och gallringstester. tests/sql/tenant-isolation.sql kör tenantgränsen mot databasen. tests/security.mjs täcker åtkomstvägarna. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-21: build-requirement-matrix.mjs now fails when an assessment cites a path that does not resolve on disk. That check found eight dead pointers across six requirements: five rotted when packages were deleted on 2026-08-20, and three named a Java file that has never existed under that name. Correcting them exposed two claims that were wrong independently of the pointer, and those are corrected here too. Original requirements remain immutable in requirements.json. |
 
 ### 2060 — PASS
 
@@ -1251,12 +1244,13 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Typ | SKA |
 | Kategori | 10 - Inloggning och behörighet |
 | Område | Behörighet |
-| Nuläge | Åtkomst till funktioner och information begränsas per användarroll i tre lager som alla måste hålla: tenantkontext som aldrig kommer ur ett fritt requestfält, RLS med FORCE på varje tenantbunden tabell, och applikationsauktorisering i packages/authorization. Roller ligger per tenant i app.roles med rättigheter som verb på resurs, och tilldelas via app.role_assignments mot ett medlemskap, valfritt avgränsat till en enhet. API-klienter begränsas dessutom av scopes. Modellen är dokumenterad i docs/system/BEHORIGHETSMODELL.md. |
+| Nuläge | Åtkomst till funktioner och information begränsas per användarroll i tre lager som alla måste hålla: tenantkontext som aldrig kommer ur ett fritt requestfält utan avgörs i request-auth.ts, RLS med FORCE på varje tenantbunden tabell, och applikationsauktorisering i packages/authorization. Roller ligger per tenant i app.roles med rättigheter som verb på resurs, och tilldelas via app.role_assignments mot ett medlemskap, valfritt avgränsat till en enhet. API-klienter begränsas dessutom av scopes. Modellen är dokumenterad i docs/system/BEHORIGHETSMODELL.md. |
 | Gap | Ingen. |
-| Lösning | packages/authorization, packages/tenant-context, migrations/data/0005_rls.sql och 0008, docs/system/BEHORIGHETSMODELL.md. |
-| Kodevidens | packages/authorization/src/index.ts; migrations/data/0008_rls_for_extended_model.sql; docs/system/BEHORIGHETSMODELL.md |
-| Verifiering | tests/run.mjs: behörighetstester, tenantkälltest, gallringsbehörighet och SCIM-rollmappning. tests/security.mjs täcker åtkomstvägarna. |
+| Lösning | packages/authorization, apps/api/src/production-adapters/postgres/request-auth.ts, migrations/data/0005_rls.sql och 0008, docs/system/BEHORIGHETSMODELL.md. |
+| Kodevidens | packages/authorization/src/index.ts; apps/api/src/production-adapters/postgres/request-auth.ts; migrations/data/0008_rls_for_extended_model.sql; docs/system/BEHORIGHETSMODELL.md |
+| Verifiering | tests/run.mjs: behörighetstester, gallringsbehörighet och SCIM-rollmappning. tests/sql/tenant-isolation.sql och tests/sql/scim-provisioning.sql kör gränserna mot databasen. |
 | Status | PASS |
+| Bedömningskälla | Override 2026-08-21: build-requirement-matrix.mjs now fails when an assessment cites a path that does not resolve on disk. That check found eight dead pointers across six requirements: five rotted when packages were deleted on 2026-08-20, and three named a Java file that has never existed under that name. Correcting them exposed two claims that were wrong independently of the pointer, and those are corrected here too. Original requirements remain immutable in requirements.json. |
 
 ### 2082 — PASS
 
@@ -1347,7 +1341,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/retention/src/executor.ts; tests/sql/gallring.sql; docs/isms/SAKER_UTVECKLING.md |
 | Verifiering | tests/run.mjs: gallringstest för godkännande av annan än begärande och spärr mot leverantörspersonal. tests/sql/gallring.sql kör samma regler mot databasen. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 3503 — PENDING_ADOPTION
 
@@ -1619,7 +1612,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | packages/scim/src/index.ts; packages/federation/src/index.ts; packages/authorization/src/index.ts; docs/system/BEHORIGHETSMODELL.md |
 | Verifiering | tests/run.mjs: rollmappningstester som visar att en katalogadministratör inte kan eskalera bortom klientens scope. tests/sql/scim-provisioning.sql kör samma gränser mot databasen. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 3522 — BLOCKED_EXTERNAL
 
@@ -1628,13 +1620,14 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Krav | Inloggningen ska vara flerfaktorsbaserad i enlighet med kraven som följer av ELN0700. Endast utfärdare godkända av E-legitimationsnämnden (minst nivå 3) eller anslutna inom eIDAS (minst nivå substantial) rekommenderas. Se vägledning för tillitsnivå 3 (LoA3) för detaljer. |
 | Typ | BÖR |
 | ISO | A.9.4 Styrning av åtkomst till system och tillämpningar — A.9.4.2 Säkra inloggningsrutiner |
-| Nuläge | Inloggning sker via kommunens IdP där MFA hanteras. Kravet är BÖR. |
-| Gap | Beror på MobilityGuard-konfigurationen som inte är verifierad. |
-| Lösning | Kräv MFA i federationskonfigurationen. |
-| Kodevidens | packages/auth/src/index.ts |
-| Verifiering | Ingen. |
+| Nuläge | Inloggning för kommunens personal sker via kommunens egen IdP, och det är där MFA beslutas och genomförs. Kommunsign kan kräva att IdP:n intygar det: verifyWorkforceAssertion avvisar en assertion vars authentication context inte är den tenanten kräver, vilket är hur ett MFA-krav blir kontrollerbart i stället för antaget. Kravet är BÖR. |
+| Gap | Ingen kodbrist. Vilken authentication context som ska krävas är en konfigurationsuppgift som beror på hur MobilityGuard är uppsatt hos kommunen. |
+| Lösning | packages/federation (requiredAuthenticationContext), migrations/control/0017_workforce_federation.sql. |
+| Kodevidens | packages/federation/src/index.ts; migrations/control/0017_workforce_federation.sql |
+| Verifiering | tests/run.mjs: federationstest som avvisar en assertion med fel authentication context. |
 | Status | BLOCKED_EXTERNAL |
-| Blockerare | Kommunens IdP-konfiguration. |
+| Blockerare | Kommunens IdP-konfiguration: vilken authentication context MobilityGuard sätter vid MFA, så att den kan registreras som krav på tenanten. |
+| Bedömningskälla | Override 2026-08-21: build-requirement-matrix.mjs now fails when an assessment cites a path that does not resolve on disk. That check found eight dead pointers across six requirements: five rotted when packages were deleted on 2026-08-20, and three named a Java file that has never existed under that name. Correcting them exposed two claims that were wrong independently of the pointer, and those are corrected here too. Original requirements remain immutable in requirements.json. |
 
 ### 3524 — PASS
 
@@ -1649,7 +1642,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0009_integrity_and_worker_recovery.sql; packages/observability/src/index.ts; docs/system/BEHORIGHETSMODELL.md |
 | Verifiering | tests/run.mjs: spårbarhetstest för säkerhetshändelser och test för säkra metriketiketter. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 3525 — BLOCKED_EXTERNAL
 
@@ -1751,7 +1743,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | docs/isms/SAKER_UTVECKLING.md; docs/architecture/environment-configuration.md; apps/api/src/production-adapters/postgres/public-signing-repository.ts |
 | Verifiering | tests/run.mjs och tests/provider-runtime.mjs: produktionsvägen vägrar utan konfigurerad provider. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 3532 — PASS
 
@@ -1809,7 +1800,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | migrations/data/0006_functions_and_guards.sql; migrations/data/0009_integrity_and_worker_recovery.sql; packages/observability/src/index.ts; docs/operations/OVERVAKNING_OCH_INCIDENT.md |
 | Verifiering | tests/run.mjs: maskeringstest och test för säkra metriketiketter. SQL-sviterna skriver händelser genom audit.append_event och läser tillbaka kedjan. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 3536 — BLOCKED_EXTERNAL
 
@@ -1923,7 +1913,6 @@ Ingen rad är obehandlad: generatorn misslyckas om ett krav saknar bedömning.
 | Kodevidens | apps/api/src/production-adapters/postgres/request-auth.ts; packages/observability/src/index.ts; migrations/data/0009_integrity_and_worker_recovery.sql; migrations/data/0010_immutability_and_evidence_states.sql; tests/sql/tenant-isolation.sql |
 | Verifiering | tests/run.mjs: headertest, statusövergångstest och immutabilitetstest. tests/sql/tenant-isolation.sql kör tenantgränsen mot databasen. |
 | Status | PASS |
-| Bedömningskälla | Override 2026-08-20: Reachability audit: a gate that builds the import graph from the application entry points found twelve packages under packages/ that no deployed process reached, and seventeen PASS requirements citing them as implementation. Each was resolved one of two ways. Where the function is genuinely enforced elsewhere — in the database or in the request path — the evidence below points at the code that actually runs, and the unreachable package was deleted. Where the function existed only in the unreachable package, the requirement is downgraded. Two requirements moved down as a result. Original requirements remain immutable in requirements.json. |
 
 ### 3545 — PASS
 

@@ -1,0 +1,64 @@
+{
+  "assessedAt": "2026-08-21",
+  "reason": "build-requirement-matrix.mjs now fails when an assessment cites a path that does not resolve on disk. That check found eight dead pointers across six requirements: five rotted when packages were deleted on 2026-08-20, and three named a Java file that has never existed under that name. Correcting them exposed two claims that were wrong independently of the pointer, and those are corrected here too. Original requirements remain immutable in requirements.json.",
+  "assessments": {
+    "F002": {
+      "state": "Freja-adaptern är implementerad i packages/provider-adapters/src/freja.ts som en adapter för alla tre metoderna (Freja eID, Freja eID Plus, Freja OrgID) bakom ElectronicIdentityProvider. verifyFrejaSignatureClaims genomför hela bindningskontrollen på ett JWS-verifierat svar: algoritm-allowlist, issuer, audience, status, transaktionsreferens, signRef mot signeringsintent, signerad datahash, nonce med engångsförbrukning mot replay, egen åldersgräns utöver svarets expiry, registreringsnivå och subjekttyp. För OrgID krävs dessutom att organisationsidentiteten finns och tillhör rätt organisation. RejectingFrejaSignatureVerifier är default så att en okonfigurerad installation vägrar i stället för att acceptera ett overifierat svar. frejaAssuranceLevel normaliserar BASIC/EXTENDED/PLUS till LOW/SUBSTANTIAL/HIGH så att Freja-vokabulär inte läcker ut i kärnan.",
+      "gap": "Två kodbrister utöver credentials. FrejaSignatureVerifier — gränssnittet som faktiskt verifierar signaturen — har ingen implementation alls; RejectingFrejaSignatureVerifier är den enda, och den vägrar. Bindningskontrollerna körs alltså aldrig mot något. Och adaptern importeras inte av någon applikationsingång, så inget flöde kan nå den. Byggstenen som finns är CompactJwsVerifier i services/commons, som verifierar exakt den konstruktion Freja använder och nu har egna tester i reaktorn.",
+      "implementation": "packages/provider-adapters/src/freja.ts (adapter och bindningskontroll), services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java (JWS-verifiering, delad med OIDC).",
+      "evidence": "packages/provider-adapters/src/freja.ts; services/commons/src/main/java/se/kommunsign/commons/CompactJwsVerifier.java; services/commons/src/test/java/se/kommunsign/commons/CompactJwsVerifierTest.java",
+      "verification": "tests/run.mjs: fyra Freja-tester (intentbindning, replay och tidsfönster, assurance och OrgID-organisationsidentitet, fail-closed verifierare). mvn -B test: åtta JWS-tester inklusive alg: none, dubblerad alg och nyckeltypsförväxling.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Freja produktionscredentials: relying party-avtal med Freja eID AB, mTLS-klientcertifikat, samt organisationsregistrering för OrgID. Utan dessa kan ingen skarp Freja-transaktion initieras. Credentials räcker dock inte: de två kodbristerna ovan måste också åtgärdas innan adaptern kan användas.",
+      "changeNote": "Evidensen pekade på services/identity-service/.../FrejaJwsVerifier.java, som aldrig har funnits, och på packages/identity-registry, som togs bort 2026-08-20. Påståendet att bara credentials återstod var därmed också fel."
+    },
+    "F003": {
+      "state": "BankID via TIC är implementerat, inkopplat och kört: signeringsvägen startar en TIC-session, tar emot webhooken, hämtar evidensen och vägrar när den inte verifierar — det senare körs av verify:e2e:application mot körande tjänster. Freja-adaptern är skriven och bindningskontrollerad men inte inkopplad, och saknar dessutom en JWS-verifierare (se F002). Kärnan namnger ingen provider: valet görs av tenantens signeringsinställningar, inte av ett providernamn i koden.",
+      "gap": "För BankID: ingen kodbrist, bara produktionscredentials. För Freja: se F002 — adaptern har ingen anropare och ingen JWS-verifierare.",
+      "implementation": "packages/provider-adapters/src/tic-bankid.ts (inkopplad via apps/api/src/production-adapters/postgres/public-signing-repository.ts), packages/provider-adapters/src/freja.ts (ej inkopplad), app.tenant_signing_settings.",
+      "evidence": "packages/provider-adapters/src/tic-bankid.ts; apps/api/src/production-adapters/postgres/public-signing-repository.ts; packages/provider-adapters/src/freja.ts",
+      "verification": "tests/run.mjs: fyra Freja-tester och två TIC-adaptertester. verify:e2e:application kör TIC-vägen mot körande tjänster och visar att overifierad evidens aldrig blir en underskrift.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "TIC produktionscredentials för BankID och Freja relying party-avtal.",
+      "changeNote": "Evidensen pekade på packages/identity-registry, borttaget 2026-08-20. Påståendet att Freja 'kräver bara credentials för att aktiveras' stämde inte."
+    },
+    "F004": {
+      "state": "packages/federation implementerar en protokollneutral workforce-federation för både SAML 2.0 och OIDC. Ingen kod namnger MobilityGuard, Entra eller någon annan IdP: kravet är förmågan, och att ansluta en annan IdP är en konfigurationsrad. verifyWorkforceAssertion normaliserar båda protokollen till en assertion och avgör sedan i ett enda beslut om den får logga in någon: signaturverifiering, aktiverad provider, issuer, audience, destination, InResponseTo/state mot en inloggning vi själva startat (IdP-initierade flöden avvisas), notBefore/notOnOrAfter, egen maxålder på IdP-sessionen, engångsförbrukad assertion-ID mot replay, samt krävd authentication context. Tenant hämtas alltid ur den bundna konfigurationen och aldrig ur meddelandet. mapWorkforceIdentity mappar IdP-grupper till roller deny-by-default: omappad grupp ger inget, användare utan mappad grupp avvisas i stället för att få en defaultroll, och en mappning mot en roll utanför tenantens assignableRoles är ett fel i stället för en tyst tilldelning. resolveLogoutTargets avslutar exakt de sessioner IdP:n namngivit. Migration control/0017 ersätter den leverantörsspecifika provider_key-listan med generiska GENERIC_OIDC/GENERIC_SAML, och lägger till rollmappningstabell och assertion-ledger. Signaturkontrollen av ett id_token görs av validation-service, som delar CompactJwsVerifier med Freja-vägen.",
+      "gap": "Ingen kvarvarande kodbrist. Anslutning mot MobilityGuard kräver kommunens metadata och signeringscertifikat.",
+      "implementation": "packages/federation (protokollneutral assertion-antagning, rollmappning, single logout), apps/api/src/federation-router.ts, migrations/control/0017_workforce_federation.sql.",
+      "evidence": "packages/federation/src/index.ts; apps/api/src/federation-router.ts; migrations/control/0017_workforce_federation.sql; migrations/control/verify_workforce_federation.sql; services/validation-service/src/main/java/se/kommunsign/validation/OidcTokenValidator.java",
+      "verification": "tests/run.mjs: fyra federationstester (requestbindning, replay och tidsfönster, deny-by-default rollmappning, single logout). tests/sql/federation-replay.sql kör replayskyddet mot databasen. mvn -B test: OidcTokenValidatorTest.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Kungälvs IdP-metadata (EntityID, SSO-endpoint, signeringscertifikat) samt registrering av Kommunsign som service provider hos MobilityGuard. Ren konfigurationsleverans från kommunen; koden är på plats och verifieras med samma tester när metadatan finns.",
+      "changeNote": "Evidensen pekade på packages/auth, borttaget 2026-08-20. Den PKCE-transaktion paketet innehöll användes inte av federationsvägen, som binder med state och nonce."
+    },
+    "2059": {
+      "state": "docs/system/BEHORIGHETSMODELL.md beskriver behörighetskontrollens uppbyggnad: de tre lager som alla måste hålla (tenantkontext, row level security med FORCE, applikationsauktorisering), aktörstyper med omfattning, roller och rättigheter, de två gränser som är hårdkodade för att skydda kunden mot leverantören, automatisk rolltilldelning deny-by-default, livscykel och spårbarhet, samt minsta möjliga behörighet.",
+      "gap": "Ingen.",
+      "implementation": "docs/system/BEHORIGHETSMODELL.md, packages/authorization, apps/api/src/production-adapters/postgres/request-auth.ts, migrations/data/0005_rls.sql.",
+      "evidence": "docs/system/BEHORIGHETSMODELL.md; packages/authorization/src/index.ts; apps/api/src/production-adapters/postgres/request-auth.ts; migrations/data/0005_rls.sql",
+      "verification": "tests/run.mjs: behörighets- och gallringstester. tests/sql/tenant-isolation.sql kör tenantgränsen mot databasen. tests/security.mjs täcker åtkomstvägarna.",
+      "status": "PASS",
+      "changeNote": "Pekaren till packages/tenant-context ersatt med request-auth.ts, som är där tenantkällan faktiskt avgörs."
+    },
+    "2081": {
+      "state": "Åtkomst till funktioner och information begränsas per användarroll i tre lager som alla måste hålla: tenantkontext som aldrig kommer ur ett fritt requestfält utan avgörs i request-auth.ts, RLS med FORCE på varje tenantbunden tabell, och applikationsauktorisering i packages/authorization. Roller ligger per tenant i app.roles med rättigheter som verb på resurs, och tilldelas via app.role_assignments mot ett medlemskap, valfritt avgränsat till en enhet. API-klienter begränsas dessutom av scopes. Modellen är dokumenterad i docs/system/BEHORIGHETSMODELL.md.",
+      "gap": "Ingen.",
+      "implementation": "packages/authorization, apps/api/src/production-adapters/postgres/request-auth.ts, migrations/data/0005_rls.sql och 0008, docs/system/BEHORIGHETSMODELL.md.",
+      "evidence": "packages/authorization/src/index.ts; apps/api/src/production-adapters/postgres/request-auth.ts; migrations/data/0008_rls_for_extended_model.sql; docs/system/BEHORIGHETSMODELL.md",
+      "verification": "tests/run.mjs: behörighetstester, gallringsbehörighet och SCIM-rollmappning. tests/sql/tenant-isolation.sql och tests/sql/scim-provisioning.sql kör gränserna mot databasen.",
+      "status": "PASS",
+      "changeNote": "Pekaren till packages/tenant-context ersatt med request-auth.ts."
+    },
+    "3522": {
+      "state": "Inloggning för kommunens personal sker via kommunens egen IdP, och det är där MFA beslutas och genomförs. Kommunsign kan kräva att IdP:n intygar det: verifyWorkforceAssertion avvisar en assertion vars authentication context inte är den tenanten kräver, vilket är hur ett MFA-krav blir kontrollerbart i stället för antaget. Kravet är BÖR.",
+      "gap": "Ingen kodbrist. Vilken authentication context som ska krävas är en konfigurationsuppgift som beror på hur MobilityGuard är uppsatt hos kommunen.",
+      "implementation": "packages/federation (requiredAuthenticationContext), migrations/control/0017_workforce_federation.sql.",
+      "evidence": "packages/federation/src/index.ts; migrations/control/0017_workforce_federation.sql",
+      "verification": "tests/run.mjs: federationstest som avvisar en assertion med fel authentication context.",
+      "status": "BLOCKED_EXTERNAL",
+      "blocker": "Kommunens IdP-konfiguration: vilken authentication context MobilityGuard sätter vid MFA, så att den kan registreras som krav på tenanten.",
+      "changeNote": "Evidensen pekade på packages/auth, borttaget 2026-08-20, och beskrev kravet som helt utanför koden. Kontrollen finns i federationen."
+    }
+  }
+}

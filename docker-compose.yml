@@ -91,13 +91,6 @@ services:
     depends_on:
       postgres-data: { condition: service_healthy }
       redis: { condition: service_healthy }
-  identity-service:
-    profiles: ["runtime"]
-    build:
-      context: .
-      dockerfile: infrastructure/docker/identity-service.Dockerfile
-    environment: { PORT: "8083" }
-    ports: ["8083:8083"]
   sign-service:
     profiles: ["runtime"]
     build:

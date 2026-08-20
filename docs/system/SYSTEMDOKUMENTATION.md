@@ -31,7 +31,7 @@ initieras alltid från webbläsaren eller från kommunens katalog utåt.
 | PostgreSQL | 15 eller senare, med `pgcrypto` |
 | Objektlagring | S3-kompatibel, privat som standard |
 | Redis | För köer och rate limiting |
-| Java | 21 för gränstjänsterna signservice, validation-service och identity-service |
+| Java | 21 för gränstjänsterna signservice och validation-service |
 | Container | Dokumentprocessorn (qpdf, malware-skanning, PDF/A) |
 
 ## 2. Systemdesign

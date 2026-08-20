@@ -6,7 +6,7 @@
  * file may correct an older assessment when a fresh verification disproves it.
  * Requirement text is never overridden.
  */
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { glob, readdir, readFile, writeFile } from 'node:fs/promises';
 
 const base = 'docs/compliance/kungalv';
 const requirements = JSON.parse(await readFile(`${base}/requirements.json`, 'utf8'));
@@ -47,6 +47,50 @@ const allowedStatuses = new Set(['PASS', 'PARTIAL', 'GAP', 'PENDING_ADOPTION', '
 for (const requirement of requirements.requirements) {
   const status = assessments[requirement.id]?.status;
   if (!allowedStatuses.has(status)) throw new Error(`Requirement ${requirement.id} has invalid status: ${status}`);
+}
+
+// Every path an assessment names must resolve to something on disk.
+//
+// Without this, evidence rots silently: a package is deleted or renamed and the
+// requirement keeps citing it, so a reader following the pointer finds nothing
+// and has no way to tell whether the control was removed or the pointer was.
+// That is worse than no pointer at all, because it still reads as proof.
+//
+// Pointers are written loosely on purpose — `apps/*/public/index.html` covers
+// six portals, `services/validation-service/.../Foo.java` elides a deep Java
+// package path — so each one is treated as a glob, with `...` meaning `**`, and
+// has to match at least one file or directory.
+const REPOSITORY_ROOTS = ['apps', 'packages', 'migrations', 'scripts', 'tests', 'docs', 'services', 'sdks', 'infrastructure', 'upstream', '.github'];
+
+function citedPaths(text) {
+  const found = new Set();
+  for (const token of (text ?? '').split(/[\s;,()]+/)) {
+    const candidate = token.replace(/[.,;:]+$/, '').trim();
+    if (!candidate.includes('/')) continue;
+    if (!REPOSITORY_ROOTS.includes(candidate.split('/')[0])) continue;
+    found.add(candidate);
+  }
+  return found;
+}
+
+const unresolved = [];
+for (const requirement of requirements.requirements) {
+  const assessment = assessments[requirement.id];
+  for (const field of ['evidence', 'implementation']) {
+    for (const cited of citedPaths(assessment[field])) {
+      // Migrations are cited by number in running prose — "migrations/data/0009
+      // och 0010" reads better than the full slugs, and the number is the part
+      // that identifies the migration.
+      const numbered = /^migrations\/(control|data)\/\d{4}$/.test(cited);
+      const pattern = cited.replaceAll('...', '**') + (numbered ? '_*' : '');
+      let matched = false;
+      for await (const _ of glob(pattern)) { matched = true; break; }
+      if (!matched) unresolved.push(`${requirement.id} (${field}): ${cited}`);
+    }
+  }
+}
+if (unresolved.length > 0) {
+  throw new Error(`Assessments cite paths that do not exist:\n  ${unresolved.join('\n  ')}`);
 }
 
 const cell = (value) => (value ?? '—').replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim();

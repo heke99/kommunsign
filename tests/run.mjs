@@ -1396,6 +1396,21 @@ test('a federated assertion is admitted only when it answers our own login reque
   // AGENTS.md rule 1: tenant comes from the bound configuration, never the message.
   assert.equal(await fedCode({}, {}, { tenantId: '00000000-0000-4000-8000-0000000000b2' }), 'FEDERATION_TENANT_MISMATCH');
   assert.equal(await fedCode({ subject: '   ' }, {}, {}), 'FEDERATION_SUBJECT_MISSING');
+
+  // The tenant's MFA requirement is only a requirement if an assertion that
+  // does not meet it is refused. This is how "MFA is handled by the customer's
+  // IdP" becomes something Kommunsign can check rather than assume (krav 3522):
+  // the IdP states how it authenticated, and a single-factor login is rejected
+  // even though it is perfectly signed and otherwise valid.
+  assert.equal(
+    await fedCode({ authnContext: 'urn:oasis:names:tc:SAML:2.0:ac:classes:Password' }),
+    'FEDERATION_AUTHN_CONTEXT_TOO_LOW',
+  );
+  // An IdP that says nothing about how it authenticated is not evidence of MFA.
+  assert.equal(await fedCode({ authnContext: null }), 'FEDERATION_AUTHN_CONTEXT_TOO_LOW');
+  // A tenant that requires nothing accepts what its IdP sends — the check is a
+  // tenant policy, not a global one.
+  assert.equal(await fedCode({ authnContext: null }, { requiredAuthnContexts: [] }), 'NO_ERROR');
 });
 
 test('a federated assertion expires, cannot be replayed, and carries a fresh enough session', async () => {

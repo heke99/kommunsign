@@ -74,8 +74,8 @@ authorised a document the signer never saw.
 ## Build consequence
 
 `services/signservice` and `services/validation-service` are now Maven modules.
-`scripts/build-java.sh` stays javac-only and offline for `identity-service` and
-the Java SDK; the dependency-bearing services are built by
+`scripts/build-java.sh` stays javac-only and offline for the Java SDK; the
+dependency-bearing services are built by
 `scripts/build-java-maven.sh` (`npm run verify:java:maven`) in a dedicated CI job
 with a Maven cache.
 
@@ -116,3 +116,14 @@ linked into the TypeScript core.
   recorded as `BLOCKED_EXTERNAL` with their exact blockers. Without a TSA the
   backend can only reach PAdES-B, and a policy demanding more is refused rather
   than quietly downgraded.
+
+## Amendment, 2026-08-21
+
+`services/identity-service` is gone. It held a health endpoint that answered
+`MTLS_CERTIFICATE_REQUIRED` and a `main()` that self-tested
+`CompactJwsVerifier` — outside the Maven reactor, so `mvn -B test` never saw it.
+The verifier's coverage moved into the reactor as
+`services/commons/.../CompactJwsVerifierTest`, which covers the three cases the
+self-test made plus five it did not, including `alg: none`, duplicate `alg`
+members and key-type confusion. When Freja credentials arrive, the client is a
+new module in the reactor, not a resurrection of that directory.
