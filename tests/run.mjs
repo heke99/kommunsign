@@ -831,6 +831,61 @@ test('role lookups are memoised within a request and never across requests', asy
   assert.equal(attempts, 2);
 });
 
+test('platform roles come back with the subject status, and never outlive their request', async () => {
+  const { GatewayRequestAuthenticator } = await import('../dist/apps/api/src/production-adapters/postgres/request-auth.js');
+  // A platform request used to pay three control-plane transactions before doing any work: the
+  // session, a status check, and a role lookup per permission checked. Status and roles are asked
+  // about the same subject at the same instant, so they travel together now.
+  const queries = [];
+  const controlDatabase = {
+    transaction: async (work) => work({
+      query: async (text, parameters) => {
+        queries.push(text.replace(/\s+/g, ' ').trim());
+        // An unrecognised key must grant nothing rather than being passed through.
+        if (text.includes('platform_subjects')) return { rows: [{ id: parameters[0], role_keys: ['platform_operations', 'not_a_role'] }], rowCount: 1 };
+        return { rows: [{ role_key: 'platform_operations' }], rowCount: 1 };
+      },
+    }),
+  };
+  const hmacKey = 'k'.repeat(48);
+  const now = new Date('2026-08-20T00:00:00Z');
+  const authenticator = new GatewayRequestAuthenticator(
+    { resolve: async () => { throw new Error('hostname resolution is not part of the platform path'); } },
+    controlDatabase,
+    { hmacKey, now: () => now },
+  );
+
+  const subjectId = '33333333-3333-4333-8333-333333333333';
+  const signedRequest = async (requestId) => {
+    const timestamp = String(Math.floor(now.getTime() / 1000));
+    const payload = ['platform', 'GET', '/v1/platform/organizations', 'api.example', subjectId, requestId, 'session', timestamp].join('\n');
+    const key = await nodeCrypto.createHmac('sha256', hmacKey).update(payload).digest('hex');
+    return new Request('https://api.example/v1/platform/organizations', {
+      headers: {
+        'x-kommunsign-subject-id': subjectId,
+        'x-request-id': requestId,
+        'x-kommunsign-gateway-timestamp': timestamp,
+        'x-kommunsign-gateway-signature': key,
+        'x-kommunsign-auth-method': 'session',
+      },
+    });
+  };
+
+  const context = await authenticator.resolvePlatformContext(await signedRequest('11111111-1111-4111-8111-111111111111'));
+  const afterResolve = queries.length;
+  assert.equal(afterResolve, 1, 'status and roles must be one round trip, not two');
+  // Two permission checks in one request must not each go back to the database.
+  assert.deepEqual(await authenticator.platformRoles(context), ['platform_operations']);
+  assert.deepEqual(await authenticator.platformRoles(context), ['platform_operations']);
+  assert.equal(queries.length, afterResolve, 'roles resolved with the context must not be re-read');
+
+  // A different request must read again, so revoking a role takes effect at once rather than
+  // whenever a cache happens to expire.
+  await authenticator.platformRoles({ ...context, requestId: '22222222-2222-4222-8222-222222222222' });
+  assert.equal(queries.length, afterResolve + 1);
+  assert.match(queries.at(-1), /platform_role_assignments/);
+});
+
 test('paged listings fetch one row beyond the page so a cursor can be emitted', async () => {
   const { createDataRepositories } = await import('../dist/apps/api/src/production-adapters/postgres/data-database.js');
   const limits = [];
