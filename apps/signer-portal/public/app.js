@@ -28,11 +28,35 @@ function createDocumentCard(item){
   const link=document.createElement('a');link.className='button-link';link.target='_blank';link.rel='noopener noreferrer';link.referrerPolicy='no-referrer';link.href=`${API_BASE}${invitationPath(`/documents/${encodeURIComponent(item.id)}`)}`;link.textContent='Öppna exakt handling';
   article.append(heading,meta,window.document.createTextNode('SHA-256: '),hash,link);return article;
 }
+/**
+ * The tenant's graphic profile, applied to the variables the stylesheet already
+ * uses. Set as custom properties rather than as inline style attributes, which
+ * the strict CSP would refuse.
+ *
+ * The text colours come from the API, derived there from the backgrounds, so
+ * this page never has to guess whether black or white is readable on a colour
+ * the customer chose. Absent branding leaves the default palette, which is the
+ * one npm run verify:accessibility has checked.
+ */
+function applyBranding(branding){
+  if(!branding)return;
+  const root=document.documentElement.style;
+  root.setProperty('--brand',branding.primaryColor);
+  root.setProperty('--brand-dark',branding.accentColor);
+  root.setProperty('--brand-text',branding.primaryTextColor);
+  root.setProperty('--accent-text',branding.accentTextColor);
+  if(branding.logoUrl){
+    const logo=document.getElementById('brand-logo');
+    if(logo){logo.src=branding.logoUrl;logo.alt=`${branding.productName} logotyp`;logo.classList.remove('hidden');}
+  }
+}
+
 async function loadInvitation(){
   if(!/^[A-Za-z0-9_-]{43,512}$/.test(invitationToken)){setStatus('status','Inbjudningslänken saknas eller är ogiltig.','error');return;}
   try{
     const data=await api(invitationPath());
-    $('brand').textContent=data.organizationName;
+    applyBranding(data.branding);
+    $('brand').textContent=data.branding?.productName||data.organizationName;
     $('organization').textContent=data.organizationName;
     $('case-title').textContent=data.caseTitle;
     $('case-reference').textContent=data.caseReference;

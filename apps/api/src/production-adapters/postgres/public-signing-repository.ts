@@ -4,7 +4,8 @@ import { randomToken, isSafeOpaqueToken } from '../../../../../packages/crypto/s
 import { sha256Hex } from '../../../../../packages/crypto/src/hash.js';
 import { TicBankIdProvider, verifyTicWebhook, parseAndHashTicWebhookEnvelope, assertTicWebhookBinding } from '../../../../../packages/provider-adapters/src/tic-bankid.js';
 import { ResendEmailProvider } from '../../../../../packages/provider-adapters/src/email.js';
-import type { PublicSigningRepository, ProviderWebhookRepository, PublicVerificationRepository, PublicSigningInvitationView, PublicBankIdSessionView } from '../../ports.js';
+import type { PublicSigningRepository, ProviderWebhookRepository, PublicVerificationRepository, PublicSigningInvitationView, PublicBankIdSessionView, TenantBrandingView } from '../../ports.js';
+import { validateAndNormalizeBranding } from '../../../../../packages/branding/src/index.js';
 import type { ProductionInfrastructure } from './infrastructure.js';
 import { createEvidenceZip, verifyEvidenceZip } from '../../../../../packages/evidence/src/zip.js';
 
@@ -20,6 +21,7 @@ export function createPublicRepositories(
   database: SqlDatabase,
   infrastructure: ProductionInfrastructure,
   configuration: Readonly<Record<string,string|undefined>>,
+  controlDatabase?: SqlDatabase,
 ): PublicRepositorySet {
   const ticEnabled=configuration.TIC_BANKID_ENABLED?.toLowerCase()==='true';
   const tic=ticEnabled ? new TicBankIdProvider({
@@ -32,7 +34,7 @@ export function createPublicRepositories(
   }) : null;
 
   const publicSigning: PublicSigningRepository={
-    async getInvitation(token){const resolved=await resolveInvitation(database,infrastructure,token);return tenant(database,resolved.tenantId,async tx=>invitationView(tx,resolved));},
+    async getInvitation(token){const resolved=await resolveInvitation(database,infrastructure,token);const view=await tenant(database,resolved.tenantId,async tx=>invitationView(tx,resolved));const branding=await activeBranding(controlDatabase,resolved.tenantId);return branding?{...view,branding}:view;},
     async markOpened(token){const resolved=await resolveInvitation(database,infrastructure,token);await tenant(database,resolved.tenantId,async tx=>{
       const row=await validInvitation(tx,resolved,true);
       await tx.query(`update app.signer_invitations set first_opened_at=coalesce(first_opened_at,now()) where tenant_id=$1 and id=$2`,[resolved.tenantId,resolved.invitationId]);
@@ -122,6 +124,45 @@ export function createPublicRepositories(
 }
 
 interface InvitationResolution{readonly tenantId:string;readonly invitationId:string;readonly signerId:string;readonly tokenHash:Uint8Array;}
+/**
+ * The tenant's active graphic profile, from the control plane.
+ *
+ * Read here rather than resolved from the request's hostname: the signer portal
+ * is served from the platform's own host, so the hostname says nothing about
+ * whose document this is. The invitation does.
+ *
+ * A tenant with no active version gets no branding and the portal keeps its
+ * default palette. Failing the whole invitation because a colour is missing
+ * would be the wrong trade by a wide margin.
+ */
+async function activeBranding(controlDatabase:SqlDatabase|undefined,tenantId:string):Promise<TenantBrandingView|undefined>{
+  if(!controlDatabase)return undefined;
+  try{
+    const result=await controlDatabase.transaction(async tx=>tx.query<{readonly configuration:Record<string,unknown>}>(
+      `select configuration from control.tenant_branding_versions where tenant_id=$1 and active order by version desc limit 1`,[tenantId]));
+    const stored=result.rows[0]?.configuration;
+    if(!stored)return undefined;
+    const branding=validateAndNormalizeBranding({
+      productName:String(stored.productName??''),
+      primaryColor:String(stored.primaryColor??''),
+      accentColor:String(stored.accentColor??''),
+      ...(typeof stored.logoUrl==='string'?{logoUrl:stored.logoUrl}:{}),
+      ...(typeof stored.supportEmail==='string'?{supportEmail:stored.supportEmail}:{}),
+    });
+    return {
+      productName:branding.productName,primaryColor:branding.primaryColor,accentColor:branding.accentColor,
+      primaryTextColor:branding.primaryTextColor,accentTextColor:branding.accentTextColor,
+      ...(branding.logoUrl?{logoUrl:branding.logoUrl}:{}),
+      ...(branding.supportEmail?{supportEmail:branding.supportEmail}:{}),
+    };
+  }catch{
+    // A stored profile that no longer validates is not a reason to refuse a
+    // signature. The portal falls back to its default palette, which is known
+    // to meet contrast.
+    return undefined;
+  }
+}
+
 async function resolveInvitation(database:SqlDatabase,infrastructure:ProductionInfrastructure,token:string):Promise<InvitationResolution>{if(!isSafeOpaqueToken(token))throw new Error('INVITATION_INVALID');const tokenHash=await infrastructure.sensitiveData.blindIndex(token,'signer.invitation_token');return database.transaction(async tx=>{const result=await tx.query<{readonly tenant_id:string;readonly invitation_id:string;readonly signer_id:string}>(`select * from app.resolve_public_invitation($1)`,[tokenHash]);const row=requireRow(result.rows[0],'INVITATION_INVALID');return{tenantId:row.tenant_id,invitationId:row.invitation_id,signerId:row.signer_id,tokenHash};});}
 async function validInvitation(tx:SqlTransaction,resolved:InvitationResolution,lock:boolean){const result=await tx.query<{readonly signer_id:string;readonly expires_at:string|Date;readonly revoked_at:string|null;readonly used_at:string|null}>(`select signer_id,expires_at,revoked_at,used_at from app.signer_invitations where tenant_id=$1 and id=$2 ${lock?'for update':''}`,[resolved.tenantId,resolved.invitationId]);const row=requireRow(result.rows[0],'INVITATION_INVALID');if(row.revoked_at||row.used_at)throw new Error('INVITATION_REVOKED');if(new Date(row.expires_at).getTime()<=Date.now())throw new Error('INVITATION_EXPIRED');return row;}
 async function invitationView(tx:SqlTransaction,resolved:InvitationResolution):Promise<PublicSigningInvitationView>{const result=await tx.query<InvitationViewRow>(`select i.id as invitation_id,i.expires_at,s.id as signer_id,s.signature_case_id,s.display_name,s.status::text as signer_status,s.identifier_binding_mode,c.title,c.external_reference,coalesce(o.legal_name,'Kommunsign-tenant') as organization_name,si.visible_text from app.signer_invitations i join app.signers s on s.tenant_id=i.tenant_id and s.id=i.signer_id join app.signature_cases c on c.tenant_id=s.tenant_id and c.id=s.signature_case_id left join app.organizations o on o.tenant_id=c.tenant_id join app.signing_intents si on si.tenant_id=s.tenant_id and si.signer_id=s.id where i.tenant_id=$1 and i.id=$2 and i.revoked_at is null and i.used_at is null and i.expires_at>now() and si.status in ('prepared','provider_started','evidence_collected','verified','packaged') order by si.created_at desc limit 1`,[resolved.tenantId,resolved.invitationId]);const row=requireRow(result.rows[0],'INVITATION_INVALID');const docs=await tx.query<{readonly document_id:string;readonly display_name_snapshot:string;readonly document_sha256:string;readonly byte_size_snapshot:number|string;readonly ordinal:number}>(`select d.id as document_id,sid.display_name_snapshot,sid.document_sha256,sid.byte_size_snapshot,sid.ordinal from app.signing_intents si join app.signing_intent_documents sid on sid.tenant_id=si.tenant_id and sid.signing_intent_id=si.id join app.document_versions v on v.tenant_id=sid.tenant_id and v.id=sid.document_version_id join app.documents d on d.tenant_id=v.tenant_id and d.id=v.document_id where si.tenant_id=$1 and si.signer_id=$2 and si.status in ('prepared','provider_started','evidence_collected','verified','packaged') order by si.created_at desc,sid.ordinal`,[resolved.tenantId,row.signer_id]);return{invitationId:row.invitation_id,signerId:row.signer_id,signatureCaseId:row.signature_case_id,organizationName:row.organization_name,caseReference:row.external_reference??row.signature_case_id,caseTitle:row.title,signerDisplayName:row.display_name,status:row.signer_status,expiresAt:new Date(row.expires_at).toISOString(),identifierBindingMode:row.identifier_binding_mode,visibleText:row.visible_text,documents:docs.rows.map(d=>({id:d.document_id,displayName:d.display_name_snapshot,sha256:d.document_sha256,byteSize:Number(d.byte_size_snapshot),mimeType:'application/pdf',profile:'PDF/A-2b',ordinal:d.ordinal}))};}

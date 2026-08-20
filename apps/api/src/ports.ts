@@ -512,6 +512,23 @@ export interface PublicSigningDocumentView {
   readonly profile: 'PDF/A-2b';
   readonly ordinal: number;
 }
+/**
+ * The tenant's graphic profile, as the signer's page should render it.
+ *
+ * Colours are normalised and the text colours are derived from the backgrounds
+ * by packages/branding, so no consumer has to work out whether black or white
+ * is readable — guessing wrong is how a customer ends up with an unreadable
+ * signing page and a WCAG 1.4.3 failure they cannot see.
+ */
+export interface TenantBrandingView {
+  readonly productName: string;
+  readonly primaryColor: string;
+  readonly accentColor: string;
+  readonly primaryTextColor: string;
+  readonly accentTextColor: string;
+  readonly logoUrl?: string;
+  readonly supportEmail?: string;
+}
 export interface PublicSigningInvitationView {
   readonly invitationId: string;
   readonly signerId: string;
@@ -525,6 +542,8 @@ export interface PublicSigningInvitationView {
   readonly identifierBindingMode: 'STRICT_PREBOUND' | 'BANKID_DISCOVERED';
   readonly visibleText: string;
   readonly documents: readonly PublicSigningDocumentView[];
+  /** Absent when the tenant has no active profile; the portal keeps its default. */
+  readonly branding?: TenantBrandingView;
 }
 export interface PublicBankIdSessionView {
   readonly sessionId: string;

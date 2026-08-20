@@ -366,13 +366,21 @@ await step('the signer opens the invitation and sees the document', async () => 
   const signHost = new URL(required('SIGNER_FALLBACK_URL')).hostname;
   const invitation = expect(await send('GET', `/v1/public/signing-invitations/${invitationToken}`, { host: signHost }), 200, 'read invitation');
   if (!invitation.documents?.length) throw new Error('the invitation showed no documents');
+  // F007: the tenant's profile reaches the page the signer actually looks at.
+  // Provisioning seeds it and activates it; before that it was written inactive
+  // and no tenant had a profile any portal could read.
+  if (!invitation.branding) throw new Error('the invitation carried no tenant branding');
+  if (!/^#[0-9a-f]{6}$/i.test(invitation.branding.primaryColor)) throw new Error('the branding colour is not normalised');
+  if (!['#000000', '#ffffff'].includes(invitation.branding.primaryTextColor)) {
+    throw new Error('the branding carries no derived readable text colour');
+  }
   expect(await send('POST', `/v1/public/signing-invitations/${invitationToken}/opened`, { host: signHost, 'content-type': 'application/json' }, '{}'), 200, 'mark opened');
 
   // The signer must be able to read exactly what they are about to sign.
   const documentId = invitation.documents[0].documentId ?? invitation.documents[0].id;
   const shown = await send('GET', `/v1/public/signing-invitations/${invitationToken}/documents/${documentId}`, { host: signHost });
   if (shown.status !== 200) throw new Error(`the document was not shown: ${shown.status}`);
-  return `${invitation.documents.length} document(s) shown to the signer`;
+  return `${invitation.documents.length} document(s) shown, branded ${invitation.branding.primaryColor}`;
 });
 
 // ---------------------------------------------------------------------------

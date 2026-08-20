@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { contrastRatio, validateAndNormalizeBranding } from '../dist/packages/branding/src/index.js';
 import { assertDomainTransition, canonicalHostname } from '../dist/packages/custom-domains/src/index.js';
 import { assertMagicBytesMatch, validateUploadMetadata } from '../dist/packages/uploads/src/index.js';
@@ -7,6 +8,19 @@ import { assertResolvedWebhookAddresses, assertSafeWebhookUrl } from '../dist/pa
 assert.throws(() => validateAndNormalizeBranding({ productName: '<script>x</script>', primaryColor: '#174a7e', accentColor: '#f2b705' }));
 const branding = validateAndNormalizeBranding({ productName: 'Kungälvs kommun', primaryColor: '#174a7e', accentColor: '#f2b705', logoUrl: 'https://cdn.example/logo.svg' });
 assert.ok(contrastRatio(branding.primaryColor, branding.primaryTextColor) >= 4.5);
+// The profile is only a profile if a page can render it. These are the exact
+// values the signer portal writes into --brand and --brand-text, and the
+// contrast between them is what makes the page readable rather than merely
+// coloured.
+assert.equal(branding.primaryTextColor, '#ffffff');
+assert.ok(contrastRatio(branding.accentColor, branding.accentTextColor) >= 4.5);
+const portalScript = await readFile('apps/signer-portal/public/app.js', 'utf8');
+assert.match(portalScript, /setProperty\('--brand',\s*branding\.primaryColor\)/);
+assert.match(portalScript, /setProperty\('--brand-text',\s*branding\.primaryTextColor\)/);
+// Inline style attributes are refused by the portal build's CSP check, so the
+// profile has to arrive as custom properties or not at all.
+assert.doesNotMatch(portalScript, /\.style\s*=\s*`/);
+
 assert.throws(() => assertSafeWebhookUrl('http://example.com/hook'));
 assert.throws(() => assertSafeWebhookUrl('https://127.0.0.1/hook'));
 assert.throws(() => assertResolvedWebhookAddresses(['10.0.0.2']));
@@ -27,4 +41,4 @@ assert.throws(() => assertMagicBytesMatch('application/pdf', new TextEncoder().e
 // the SAML and OIDC handshake, including replay, lives in federation-router.ts
 // and is covered by tests/sql/federation-replay.sql.
 
-console.log('security tests: branding, SSRF, domains and uploads passed');
+console.log('security tests: branding applied to the portal, SSRF, domains and uploads passed');

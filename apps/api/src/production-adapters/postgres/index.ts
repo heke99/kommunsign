@@ -32,7 +32,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
     const infrastructure = await loadProductionInfrastructure(process.env);
     const data = withKeysetListRepositories(dataDatabase, createDataRepositories(dataDatabase, infrastructure));
     const signingSourceUploads = createSigningSourceUploadRepository(dataDatabase, infrastructure);
-    const publicRepositories = createPublicRepositories(dataDatabase, infrastructure, process.env);
+    const publicRepositories = createPublicRepositories(dataDatabase, infrastructure, process.env, controlDatabase);
     const domains = createDomainRepository(controlDatabase);
     const resolver = new TenantHostnameResolver(domains, {
       trustProxy: booleanEnvironment('TRUST_PROXY', true),

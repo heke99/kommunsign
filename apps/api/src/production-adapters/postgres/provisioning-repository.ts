@@ -321,11 +321,18 @@ export function createProvisioningRepository(
                updated_at=now()`,
             [tenantId, request.organization_name, designTokens, supportContact],
           );
+          // Active from the start. Seeding it inactive meant no tenant ever had
+          // a profile the portals could read, so the graphic profile existed as
+          // a row and nowhere else. A tenant that has not customised anything
+          // gets the default palette either way — the difference is that now
+          // the mechanism is live, and editing the profile changes what a
+          // signer sees.
           await transaction.query(
             `insert into control.tenant_branding_versions(tenant_id,version,configuration,active,created_by)
-             values($1,1,$2::jsonb,false,$3)
+             values($1,1,$2::jsonb,true,$3)
              on conflict(tenant_id,version) do update set
-               configuration=excluded.configuration`,
+               configuration=excluded.configuration,
+               active=true`,
             [tenantId, brandingConfiguration, request.requested_by],
           );
           return `tenant:${tenantId}:branding:1`;
