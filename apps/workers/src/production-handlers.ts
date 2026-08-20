@@ -9,6 +9,7 @@ import { ValidationServiceClient } from '../../../packages/validation-client/src
 import { DevelopmentEmailProvider, ResendEmailProvider, EmailProviderError } from '../../../packages/provider-adapters/src/email.js';
 import type { EmailMessage, EmailProvider } from '../../../packages/email/src/index.js';
 import { sha256Hex } from '../../../packages/crypto/src/hash.js';
+import { storedBytesMatchGrant } from '../../../packages/uploads/src/index.js';
 import { canonicalJson, type CanonicalJsonValue } from '../../../packages/crypto/src/canonical-json.js';
 import { base64Encode } from '../../../packages/crypto/src/base64.js';
 import { randomToken } from '../../../packages/crypto/src/tokens.js';
@@ -79,7 +80,7 @@ async function handleDocumentScan(database: SqlDatabase, infrastructure: Product
   const documentVersionId = uuidPayload(job.payload, 'documentVersionId');
   const loaded = await tenant(database, job.tenantId, async (tx) => {
     const result = await tx.query<DocumentSourceRow>(
-      `select v.id,v.document_id,d.signature_case_id,v.source_object_key,v.mime_type,v.byte_size,v.status,
+      `select v.id,v.document_id,d.signature_case_id,v.source_object_key,v.mime_type,v.byte_size,v.sha256,v.status,
               coalesce(s.maximum_document_bytes,52428800) maximum_document_bytes,
               coalesce(s.maximum_document_pages,500) maximum_document_pages
          from app.document_versions v
@@ -99,6 +100,22 @@ async function handleDocumentScan(database: SqlDatabase, infrastructure: Product
   const artifact = await infrastructure.objectStorage.downloadObject(context, row.source_object_key, { contentType: 'application/pdf', fileName: 'source.pdf' });
   if (artifact.bytes.byteLength !== Number(row.byte_size) || row.mime_type !== 'application/pdf') {
     await rejectDocument(database, infrastructure, job.tenantId, row, 'DOCUMENT_PDF_POLICY_REJECTED', { expectedBytes: Number(row.byte_size), actualBytes: artifact.bytes.byteLength });
+    return;
+  }
+  // The bytes stored must be the bytes the uploader committed to. This used to be checked while
+  // confirming the upload, which meant downloading the whole file from Stockholm and hashing it
+  // inside the operator's own request, holding an advisory lock the entire time. It is checked
+  // here instead: this step has already downloaded the file for the malware scan, so the check
+  // costs a hash rather than a cross-region transfer, and it still happens before anything can
+  // move the document towards ready. A file swapped after the signed URL was issued is rejected
+  // exactly as it was before -- only later, and out of the user's way.
+  if (!storedBytesMatchGrant({
+    expectedSha256: row.sha256,
+    actualSha256: await sha256Hex(artifact.bytes),
+    expectedByteSize: Number(row.byte_size),
+    actualByteSize: artifact.bytes.byteLength,
+  })) {
+    await rejectDocument(database, infrastructure, job.tenantId, row, 'DOCUMENT_HASH_MISMATCH', {});
     return;
   }
   const malware = await services.clam.scan(artifact.bytes);
@@ -713,7 +730,7 @@ function escapeHtml(value:string):string { return value.replace(/[&<>"']/g,(char
 function safeFileName(value:string):string { const cleaned=value.replace(/[\\/\0\r\n]/g,'_').replace(/[^\p{L}\p{N}._ -]/gu,'_').trim();return cleaned.toLowerCase().endsWith('.pdf')?cleaned:`${cleaned}.pdf`; }
 function createReceiptPdf(title:string,reference:string,organization:string,signerCount:number,signedAt:string):Uint8Array { const lines=["Kommunsign signeringskvitto",`Organisation: ${organization}`,`Ärende: ${reference}`,`Titel: ${title}`,`Antal verifierade signerare: ${signerCount}`,`Senast verifierad: ${signedAt}`,"Detta kvitto är inte den signerade originalhandlingen."];const escaped=lines.map((line)=>line.replace(/([\\()])/g,'\\$1'));let content='BT /F1 12 Tf 50 790 Td ';for(const [index,line] of escaped.entries())content+=`${index?'0 -22 Td ':''}(${line}) Tj `;content+='ET';const objects=["<< /Type /Catalog /Pages 2 0 R >>","<< /Type /Pages /Kids [3 0 R] /Count 1 >>","<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",`<< /Length ${UTF8.encode(content).byteLength} >>\nstream\n${content}\nendstream`,`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`];let pdf='%PDF-1.4\n';const offsets=[0];for(let i=0;i<objects.length;i++){offsets.push(UTF8.encode(pdf).byteLength);pdf+=`${i+1} 0 obj\n${objects[i]}\nendobj\n`;}const xref=UTF8.encode(pdf).byteLength;pdf+=`xref\n0 ${objects.length+1}\n0000000000 65535 f \n`;for(let i=1;i<offsets.length;i++)pdf+=`${String(offsets[i]).padStart(10,'0')} 00000 n \n`;pdf+=`trailer\n<< /Size ${objects.length+1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;return UTF8.encode(pdf); }
 
-interface DocumentSourceRow { readonly id:string;readonly document_id:string;readonly signature_case_id:string;readonly source_object_key:string;readonly mime_type:string;readonly byte_size:number|string;readonly status:string;readonly maximum_document_bytes:number|string;readonly maximum_document_pages:number|string; }
+interface DocumentSourceRow { readonly id:string;readonly document_id:string;readonly signature_case_id:string;readonly source_object_key:string;readonly mime_type:string;readonly byte_size:number|string;readonly sha256:string;readonly status:string;readonly maximum_document_bytes:number|string;readonly maximum_document_pages:number|string; }
 interface CanonicalizeRow { readonly id:string;readonly document_id:string;readonly signature_case_id:string;readonly source_object_key:string;readonly status:string;readonly source_page_count:number|string;readonly maximum_document_bytes:number|string;readonly maximum_document_pages:number|string; }
 interface CollectRow { readonly id:string;readonly provider_reference:string;readonly status:string;readonly signing_intent_id:string;readonly signature_case_id:string;readonly signer_id:string; }
 interface ValidationRow { readonly id:string;readonly provider_reference:string;readonly status:string;readonly raw_evidence_object_key:string|null;readonly signing_intent_id:string;readonly signature_case_id:string;readonly signer_id:string;readonly visible_text:string;readonly non_visible_payload:string;readonly identifier_binding_mode:'STRICT_PREBOUND'|'BANKID_DISCOVERED';readonly expected_identifier_ciphertext:Uint8Array|null; }
