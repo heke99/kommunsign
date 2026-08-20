@@ -5,6 +5,7 @@ interface ProductionWorkerAdapter {
   readonly repository: DurableJobRepository;
   readonly handlers: Readonly<Record<DurableJobType, (job: DurableJob) => Promise<void>>>;
   readonly close?: () => Promise<void>;
+  readonly onJobReady?: (handler: () => void) => Promise<() => Promise<void>>;
 }
 interface ProductionWorkerModule {
   readonly createProductionWorkerAdapter?: (configuration: Readonly<Record<string, string>>) => Promise<ProductionWorkerAdapter> | ProductionWorkerAdapter;
@@ -39,17 +40,37 @@ const maximumPollMilliseconds=boundedInteger('WORKER_POLL_MAX_MILLISECONDS','300
 const pollBackoffFactor=boundedInteger('WORKER_POLL_BACKOFF_FACTOR','2',1,10);
 let idlePollMilliseconds=pollMilliseconds;
 let stopping=false;
-for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{stopping=true;});
+for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{stopping=true;wake();});
+
+// Backing off is what keeps an idle queue from hammering the database, but on its own it also means
+// a document can sit for the length of the backoff before anything looks at it. The database now
+// signals when a job becomes claimable (migration 0035), so the sleep is interrupted instead of
+// waited out: idle costs stay low AND a new job is picked up immediately. If the subscription cannot
+// be established the loop still polls, just less promptly.
+let wake:()=>void=()=>{};
+const sleepUntilWorkOrTimeout=(milliseconds:number):Promise<void>=>new Promise((resolve)=>{
+  const timer=setTimeout(()=>{wake=()=>{};resolve();},milliseconds);
+  wake=()=>{clearTimeout(timer);wake=()=>{};resolve();};
+});
+let unlisten:(()=>Promise<void>)|null=null;
+try{
+  unlisten=await adapter.onJobReady?.(()=>wake())??null;
+}catch(cause){
+  console.error(JSON.stringify({level:'warn',event:'worker_wakeup_unavailable',
+    code:cause instanceof Error&&/^[A-Z][A-Z0-9_]{2,79}$/.test(cause.message)?cause.message:'LISTEN_FAILED'}));
+}
+
 while(!stopping){
   const jobs=await adapter.repository.claim(workerId,claimLimit,leaseSeconds);
   await Promise.all(jobs.map((job)=>processClaimedJob(adapter.repository,workerId,job,adapter.handlers)));
   if(jobs.length===0){
     // Jitter keeps a restarted fleet from re-synchronising into a thundering herd.
     const jittered=idlePollMilliseconds*(0.8+Math.random()*0.4);
-    await new Promise((resolve)=>setTimeout(resolve,Math.round(jittered)));
+    await sleepUntilWorkOrTimeout(Math.round(jittered));
     idlePollMilliseconds=Math.min(idlePollMilliseconds*pollBackoffFactor,maximumPollMilliseconds);
   } else {
     idlePollMilliseconds=pollMilliseconds;
   }
 }
+await unlisten?.().catch(()=>undefined);
 await adapter.close?.();

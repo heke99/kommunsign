@@ -28,7 +28,7 @@ async function validatePortal(name, source) {
 // filename from a hash of the contents makes a stale response impossible by construction, which is
 // what lets vercel.json serve these immutable for a year. The HTML documents stay `no-store` --
 // they are per-authenticated-host and they are what points at the current hash.
-const FINGERPRINTED = /^(app|qr|office-upload)\.(js|css)$/;
+const FINGERPRINTED = /^(app|qr|office-upload|hash-worker)\.(js|css)$/;
 // vercel.json rewrites this public prefix onto the auth portal's build directory.
 const PATH_ALIASES = [['/auth-assets/', '__portals/auth/']];
 

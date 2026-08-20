@@ -136,6 +136,23 @@ export class ClamAvInstreamClient {
 
 export class QpdfInspector {
   constructor(private readonly command = 'qpdf', private readonly timeoutMs = 30_000) {}
+  /**
+   * The version of the binary this process is going to run.
+   *
+   * Asked once. Inspecting a document spawned qpdf five times, each of which re-read the whole
+   * file, and a document is inspected twice -- once in the scan and once after conversion -- so
+   * ten process starts per document. The binary cannot change underneath a running process, so
+   * this one is asked for once and kept.
+   */
+  private versionOnce: Promise<string> | null = null;
+  private async version(): Promise<string> {
+    if (!this.versionOnce) {
+      this.versionOnce = run(this.command, ['--version'], this.timeoutMs)
+        .then((result) => cleanVersion(result.stdout))
+        .catch((cause: unknown) => { this.versionOnce = null; throw cause; });
+    }
+    return this.versionOnce;
+  }
   async inspect(bytes: Uint8Array, limits: { readonly maximumBytes: number; readonly maximumPages: number }): Promise<PdfInspectionReport> {
     validatePdfUploadMetadata({ fileName: 'document.pdf', mimeType: 'application/pdf', byteSize: bytes.byteLength, policy: { maximumBytes: limits.maximumBytes, maximumPages: limits.maximumPages } });
     const fs = await dynamicImport('node:fs/promises') as FsPromisesModule;
@@ -145,7 +162,7 @@ export class QpdfInspector {
     const file = path.join(directory, 'source.pdf');
     try {
       await fs.writeFile(file, bytes);
-      const version = cleanVersion((await run(this.command, ['--version'], this.timeoutMs)).stdout);
+      const version = await this.version();
       // --warning-exit-0 on every invocation, not only --check.
       //
       // qpdf exits 3 when it recovered from something it wants to mention, and
@@ -159,9 +176,14 @@ export class QpdfInspector {
       await run(this.command, ['--check', '--warning-exit-0', file], this.timeoutMs);
       const pages = Number((await run(this.command, ['--show-npages', '--warning-exit-0', file], this.timeoutMs)).stdout.trim());
       if (!Number.isSafeInteger(pages) || pages < 1 || pages > limits.maximumPages) throw new Error('DOCUMENT_PAGE_LIMIT_EXCEEDED');
-      const encryptionOutput = (await run(this.command, ['--show-encryption', '--warning-exit-0', file], this.timeoutMs)).stdout;
-      const encrypted = !/File is not encrypted/i.test(encryptionOutput);
       const jsonOutput = (await run(this.command, ['--json', '--warning-exit-0', file], this.timeoutMs, 25 * 1024 * 1024)).stdout;
+      // --json already reports whether the file is encrypted, so asking again with
+      // --show-encryption was a second process start reading the same file to learn the same
+      // thing. If this qpdf's JSON does not say -- an older or newer shape than expected -- the
+      // separate call is still made rather than guessing, because an encrypted document that
+      // reads as unencrypted is one that gets sent for signing.
+      const encrypted = encryptedFromJson(jsonOutput)
+        ?? !/File is not encrypted/i.test((await run(this.command, ['--show-encryption', '--warning-exit-0', file], this.timeoutMs)).stdout);
       const staticFindings = (await inspectPdfBytes(bytes)).findings;
       const normalizedFindings: PdfPolicyFinding[] = [...staticFindings];
       for (const [code, pattern] of Object.entries({
@@ -177,7 +199,28 @@ export class QpdfInspector {
     } finally { await fs.rm(directory, { recursive: true, force: true }); }
   }
   async health(): Promise<{ readonly healthy: true; readonly version: string }> {
+    // Deliberately not the memoised value: health is asked in order to find out whether the binary
+    // can actually be run right now, and a remembered answer cannot tell anyone that.
     return { healthy: true, version: cleanVersion((await run(this.command, ['--version'], this.timeoutMs)).stdout) };
+  }
+}
+
+/**
+ * Whether qpdf's JSON says the document is encrypted, or null when it does not say.
+ *
+ * null means "ask qpdf directly", never "not encrypted": a shape this does not recognise must not
+ * quietly become a passing document.
+ */
+export function encryptedFromJson(output: string): boolean | null {
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const encrypt: unknown = (parsed as Record<string, unknown>)['encrypt'];
+    if (typeof encrypt !== 'object' || encrypt === null) return null;
+    const value: unknown = (encrypt as Record<string, unknown>)['encrypted'];
+    return typeof value === 'boolean' ? value : null;
+  } catch {
+    return null;
   }
 }
 

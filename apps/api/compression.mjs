@@ -16,8 +16,19 @@ function negotiatedEncoding(request) {
   return null;
 }
 
-function compressible(request, pathname, status, headers, body) {
-  if (body.length < MINIMUM_COMPRESSED_BYTES) return null;
+/**
+ * The encoding to use, judged from the response metadata alone.
+ *
+ * Split out from compressible() so a response can be judged before its body has been read: a
+ * document is streamed straight to the socket, and buffering it only to discover it is a PDF and
+ * therefore not compressible is exactly the copy that had to go.
+ *
+ * byteLength is the declared content-length when there is one, and null when the length is not
+ * known yet. Unknown is treated as "large enough to be worth compressing", since the only bodies
+ * that reach here without a length are streamed ones.
+ */
+function compressibleResponse(request, pathname, status, headers, byteLength) {
+  if (byteLength !== null && byteLength < MINIMUM_COMPRESSED_BYTES) return null;
   if (status === 204 || status === 304) return null;
   if (headers['content-encoding']) return null;
   if (!COMPRESSIBLE_TYPE.test(String(headers['content-type'] ?? ''))) return null;
@@ -26,6 +37,10 @@ function compressible(request, pathname, status, headers, body) {
   // leaks the secret through the compressed length. These bodies are small, so this costs nothing.
   if (pathname.startsWith('/v1/auth/')) return null;
   return negotiatedEncoding(request);
+}
+
+function compressible(request, pathname, status, headers, body) {
+  return compressibleResponse(request, pathname, status, headers, body.length);
 }
 
 async function compress(encoding, body) {
@@ -41,4 +56,4 @@ async function compress(encoding, body) {
     : compressGzip(body, { level: 6 });
 }
 
-export { negotiatedEncoding, compressible, compress };
+export { negotiatedEncoding, compressible, compressibleResponse, compress };

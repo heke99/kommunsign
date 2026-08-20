@@ -35,6 +35,36 @@ const OFFICE_EXTENSION_BY_MIME: Readonly<Record<(typeof OFFICE_SOURCE_MIME_TYPES
 };
 const MACRO_OFFICE_EXTENSIONS = ['.docm', '.xlsm', '.pptm', '.dotm', '.xltm', '.potm'] as const;
 
+/**
+ * Whether the bytes actually in storage are the bytes the uploader committed to.
+ *
+ * The uploader declares a size and a SHA-256 before it is given a signed URL, and the file then
+ * travels to storage without passing through this system. Nothing about that guarantees the object
+ * that arrived is the object that was described: the URL could be used for different bytes
+ * entirely. This is the check that closes that gap, and until it has passed, a document must not
+ * move towards a state where it can be signed.
+ *
+ * It is deliberately a plain function over four values rather than a step inside one handler. Where
+ * the check runs has changed once already -- it used to run while confirming the upload, at the
+ * cost of a cross-region download inside the user's own request -- and the point of pulling it out
+ * is that moving it again cannot quietly weaken it.
+ */
+export function storedBytesMatchGrant(input: {
+  readonly expectedSha256: string;
+  readonly actualSha256: string;
+  readonly expectedByteSize: number;
+  readonly actualByteSize: number;
+}): boolean {
+  const expected = input.expectedSha256.trim().toLowerCase();
+  const actual = input.actualSha256.trim().toLowerCase();
+  // An unparseable hash is not a match. Treating a malformed value as "nothing to compare" is how a
+  // check like this stops being a check.
+  if (!SHA256.test(expected) || !SHA256.test(actual)) return false;
+  if (!Number.isSafeInteger(input.expectedByteSize) || !Number.isSafeInteger(input.actualByteSize)) return false;
+  if (input.expectedByteSize !== input.actualByteSize) return false;
+  return expected === actual;
+}
+
 export function validateUploadMetadata(
   input: UploadMetadata,
   policy: { readonly allowedMimeTypes: readonly string[]; readonly maximumBytes: number },

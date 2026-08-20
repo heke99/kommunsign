@@ -105,6 +105,7 @@ import {
 } from '../dist/apps/workers/src/platform-handlers.js';
 import { handlePrivacyRequestExecute } from '../dist/apps/workers/src/privacy-handlers.js';
 import { handleScimRequest } from '../dist/apps/api/src/scim-router.js';
+import { createKeepAliveFetch } from '../dist/apps/api/src/adapters/keep-alive-fetch.js';
 import { handleFederationRequest } from '../dist/apps/api/src/federation-router.js';
 import {
   PROMETHEUS_COUNTERS, PROMETHEUS_GAUGES, PROMETHEUS_UNFED_SERIES, renderPrometheus,
@@ -830,6 +831,61 @@ test('role lookups are memoised within a request and never across requests', asy
   assert.equal(attempts, 2);
 });
 
+test('platform roles come back with the subject status, and never outlive their request', async () => {
+  const { GatewayRequestAuthenticator } = await import('../dist/apps/api/src/production-adapters/postgres/request-auth.js');
+  // A platform request used to pay three control-plane transactions before doing any work: the
+  // session, a status check, and a role lookup per permission checked. Status and roles are asked
+  // about the same subject at the same instant, so they travel together now.
+  const queries = [];
+  const controlDatabase = {
+    transaction: async (work) => work({
+      query: async (text, parameters) => {
+        queries.push(text.replace(/\s+/g, ' ').trim());
+        // An unrecognised key must grant nothing rather than being passed through.
+        if (text.includes('platform_subjects')) return { rows: [{ id: parameters[0], role_keys: ['platform_operations', 'not_a_role'] }], rowCount: 1 };
+        return { rows: [{ role_key: 'platform_operations' }], rowCount: 1 };
+      },
+    }),
+  };
+  const hmacKey = 'k'.repeat(48);
+  const now = new Date('2026-08-20T00:00:00Z');
+  const authenticator = new GatewayRequestAuthenticator(
+    { resolve: async () => { throw new Error('hostname resolution is not part of the platform path'); } },
+    controlDatabase,
+    { hmacKey, now: () => now },
+  );
+
+  const subjectId = '33333333-3333-4333-8333-333333333333';
+  const signedRequest = async (requestId) => {
+    const timestamp = String(Math.floor(now.getTime() / 1000));
+    const payload = ['platform', 'GET', '/v1/platform/organizations', 'api.example', subjectId, requestId, 'session', timestamp].join('\n');
+    const key = await nodeCrypto.createHmac('sha256', hmacKey).update(payload).digest('hex');
+    return new Request('https://api.example/v1/platform/organizations', {
+      headers: {
+        'x-kommunsign-subject-id': subjectId,
+        'x-request-id': requestId,
+        'x-kommunsign-gateway-timestamp': timestamp,
+        'x-kommunsign-gateway-signature': key,
+        'x-kommunsign-auth-method': 'session',
+      },
+    });
+  };
+
+  const context = await authenticator.resolvePlatformContext(await signedRequest('11111111-1111-4111-8111-111111111111'));
+  const afterResolve = queries.length;
+  assert.equal(afterResolve, 1, 'status and roles must be one round trip, not two');
+  // Two permission checks in one request must not each go back to the database.
+  assert.deepEqual(await authenticator.platformRoles(context), ['platform_operations']);
+  assert.deepEqual(await authenticator.platformRoles(context), ['platform_operations']);
+  assert.equal(queries.length, afterResolve, 'roles resolved with the context must not be re-read');
+
+  // A different request must read again, so revoking a role takes effect at once rather than
+  // whenever a cache happens to expire.
+  await authenticator.platformRoles({ ...context, requestId: '22222222-2222-4222-8222-222222222222' });
+  assert.equal(queries.length, afterResolve + 1);
+  assert.match(queries.at(-1), /platform_role_assignments/);
+});
+
 test('paged listings fetch one row beyond the page so a cursor can be emitted', async () => {
   const { createDataRepositories } = await import('../dist/apps/api/src/production-adapters/postgres/data-database.js');
   const limits = [];
@@ -950,6 +1006,7 @@ test('request body ceilings match the limits each route actually declares', asyn
 });
 
 test('responses compress except where compressing would leak a secret', async () => {
+  const { compressibleResponse } = await import('../apps/api/compression.mjs');
   const { compress, compressible } = await import('../apps/api/compression.mjs');
   const { brotliDecompress, gunzip } = await import('node:zlib');
   const { promisify } = await import('node:util');
@@ -970,6 +1027,21 @@ test('responses compress except where compressing would leak a secret', async ()
 
   assert.equal(compressible(brotliClient, '/v1/x', 200, json, Buffer.alloc(100)), null, 'small bodies');
   assert.equal(compressible(brotliClient, '/v1/x', 200, { 'content-type': 'application/pdf' }, big), null, 'already compressed');
+
+  // Large bodies are handed to the socket as they arrive rather than being buffered, so the
+  // decision has to be made from the headers alone, before a body exists. A document must still
+  // be refused compression when the length is not known yet -- the type is what disqualifies it,
+  // not the size.
+  assert.equal(compressibleResponse(brotliClient, '/v1/x', 200, { 'content-type': 'application/pdf' }, null), null);
+  assert.equal(compressibleResponse(brotliClient, '/v1/auth/session', 200, json, null), null, 'BREACH: never on an auth body');
+  assert.equal(compressibleResponse(brotliClient, '/v1/x', 200, json, null), 'br', 'unknown length is not a reason to skip');
+  assert.equal(compressibleResponse(brotliClient, '/v1/x', 200, json, 100), null, 'a declared small body still skips');
+
+  // The streamed path must stop reading from storage when the client goes away, or a cancelled
+  // download keeps pulling a 20 MB file across regions for nobody.
+  const dispatchSource = await readFile('apps/api/server.mjs', 'utf8');
+  assert.match(dispatchSource, /Readable\.fromWeb\(fetchResponse\.body\)/);
+  assert.match(dispatchSource, /response\.on\('close'[\s\S]{0,120}?source\.destroy\(\)/);
   assert.equal(compressible(brotliClient, '/v1/x', 304, json, big), null, 'not modified');
   assert.equal(compressible(brotliClient, '/v1/x', 200, { ...json, 'content-encoding': 'gzip' }, big), null, 'double encoding');
 
@@ -991,6 +1063,23 @@ test('API authorizes every case operation', async () => {
   await handler(new Request(`https://api.example/v1/signature-cases/${view.id}/send`, { method: 'POST', headers: { 'idempotency-key': 'request-12345678' } }));
   await handler(new Request(`https://api.example/v1/signature-cases/${view.id}/cancel`, { method: 'POST', headers: { 'idempotency-key': 'request-12345678' } }));
   assert.deepEqual(permissions, ['case:read', 'case:read', 'case:send', 'case:cancel']);
+});
+
+test('signing policies may be cached by the browser, but never by anything shared', async () => {
+  // The tenant portal asks for policies on every load and pays three transactions for an answer
+  // that changes rarely, so this response is allowed into the browser's cache for a minute. That
+  // is only safe with Vary: Cookie -- without it an intermediary can hand one authenticated
+  // tenant's policies to the next, which is a cross-tenant leak caused entirely by a header.
+  const handler = createApiHandler({
+    resolveContext: async () => ({ tenantId: 'tenant', source: 'api-client', subjectId: 'subject', requestId: 'ctx', authMethod: 'development' }),
+    authorize: () => {},
+    cases: { listPolicies: async () => [] },
+  });
+  const response = await handler(new Request('https://api.example/v1/signature-policies'));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'private, max-age=60');
+  assert.match(response.headers.get('vary') ?? '', /Cookie/);
+  assert.doesNotMatch(response.headers.get('cache-control') ?? '', /public/);
 });
 
 test('audit chain covers actor, resource and payload fields', async () => {
@@ -1104,6 +1193,14 @@ test('unified Vercel deployment builds all portals and uses customer-facing prod
   assert.ok(config.routes.some((entry) => entry.dest === '/__portals/tenant/index.html'));
   assert.ok(config.routes.some((entry) => entry.headers?.['Content-Security-Policy']));
   assert.ok(config.routes.some((entry) => entry.handle === 'filesystem'));
+  // The tenant portal PUTs a document straight to the storage origin its upload grant points at.
+  // The shared policy only names the API, so the browser refused that request before it ever left
+  // the page and every upload failed silently. The host-scoped policy is what makes uploading work
+  // at all, so it is pinned here rather than left to whoever next edits the route table.
+  const tenantPolicy = config.routes.filter((entry) => entry.headers?.['Content-Security-Policy']
+    && entry.has?.some((condition) => condition.type === 'host' && condition.value === 'app.kommunsign.se')).pop();
+  assert.ok(tenantPolicy, 'the tenant portal needs a Content-Security-Policy of its own');
+  assert.match(tenantPolicy.headers['Content-Security-Policy'], /connect-src [^;]*https:\/\/[a-z0-9]+\.supabase\.co/);
 });
 
 test('provenance gate pins donors and reports zero unverified imports', async () => {
@@ -4241,6 +4338,72 @@ test('s3 adapter signs writes with a signature an independent SigV4 reproduces',
     authorization,
     `AWS4-HMAC-SHA256 Credential=${s3Settings.S3_ACCESS_KEY_ID}/${expected.scope}, SignedHeaders=${expected.signedHeaders}, Signature=${expected.signature}`,
   );
+});
+
+test('the keep-alive fetch answers for what the auth provider sends and defers on everything else', async () => {
+  // Node's fetch closes an idle connection after four seconds, so an endpoint as quiet as login
+  // paid for a TLS handshake almost every time. This client exists to hold that connection open,
+  // which is only acceptable while it behaves identically to fetch for anything it does not
+  // handle -- the failure mode of getting that wrong is a request that silently goes somewhere
+  // else, or goes without the headers it was given.
+  const deferred = [];
+  const fallback = async (input, init) => { deferred.push({ input: String(input), init }); return new Response('{}', { status: 200 }); };
+  const keepAlive = createKeepAliveFetch(fallback);
+
+  // Plaintext is what local development uses; it is not this client's job.
+  await keepAlive('http://127.0.0.1:9999/auth/v1/token', { method: 'POST', body: '{}' });
+  // A Headers instance and a Request object both carry more than a plain object can express.
+  await keepAlive('https://auth.example.org/x', { headers: new Headers({ 'x-a': 'b' }) });
+  await keepAlive(new Request('https://auth.example.org/x'));
+  // A binary body is not something this client claims to send.
+  await keepAlive('https://auth.example.org/x', { method: 'POST', body: new Uint8Array([1, 2]) });
+  assert.equal(deferred.length, 4, 'every unsupported shape must reach the fallback unchanged');
+  assert.equal(deferred[1].init.headers.get('x-a'), 'b');
+
+  // An abort has to arrive named as an abort: the auth provider tells a timeout apart from an
+  // outage by that name alone, and reports 504 or 503 accordingly.
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    keepAlive('https://auth.example.org/auth/v1/token', { method: 'POST', body: '{}', signal: controller.signal }),
+    (error) => error.name === 'AbortError',
+  );
+  assert.equal(deferred.length, 4, 'a supported request must not also reach the fallback');
+});
+
+test('s3 adapter confirms a bucket once per adapter, and never remembers a failed confirmation', async () => {
+  // Every upload grant used to ask storage whether the bucket exists first -- a cross-region call
+  // on the critical path of every upload, answering a question that cannot change while the
+  // service runs.
+  const adapter = createS3ObjectStorageAdapter(s3Settings);
+  const first = await withCapturedFetch(
+    () => adapter.createUploadGrant(s3Context, {
+      objectKey: `${s3TenantId}/quarantine/a.pdf`, mimeType: 'application/pdf',
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    }),
+    () => s3Response(200),
+  );
+  assert.equal(first.captured.filter((call) => call.method === 'HEAD').length, 1);
+
+  const second = await withCapturedFetch(
+    () => adapter.createUploadGrant(s3Context, {
+      objectKey: `${s3TenantId}/quarantine/b.pdf`, mimeType: 'application/pdf',
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    }),
+    () => s3Response(200),
+  );
+  assert.equal(second.captured.length, 0, 'a confirmed bucket must not be confirmed again');
+
+  // A memo that remembered failures would turn one bad moment into a bucket the process can never
+  // use again, so a fresh adapter must retry and must be able to succeed afterwards.
+  const failing = createS3ObjectStorageAdapter(s3Settings);
+  const grant = () => failing.createUploadGrant(s3Context, {
+    objectKey: `${s3TenantId}/quarantine/c.pdf`, mimeType: 'application/pdf',
+    expiresAt: new Date(Date.now() + 600_000).toISOString(),
+  });
+  await assert.rejects(withCapturedFetch(grant, () => s3Response(500)));
+  const retried = await withCapturedFetch(grant, () => s3Response(200));
+  assert.equal(retried.captured.filter((call) => call.method === 'HEAD').length, 1);
 });
 
 test('s3 adapter refuses to overwrite an object that already exists', async () => {

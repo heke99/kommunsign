@@ -20,6 +20,7 @@ import type {
   PageInput, RecordPrivacyRequestInput, TemplateInput, UploadGrantInput, WebhookEndpointInput,
 } from './ports.js';
 import type { IssueScimClientInput } from './production-adapters/postgres/scim-repository.js';
+import { cacheHeaders } from '../../../packages/observability/src/index.js';
 
 const MAX_JSON_BODY_BYTES = 128 * 1024;
 const MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
@@ -50,10 +51,14 @@ export class ApiRequestError extends Error {
 }
 
 function json(body: unknown, status = 200, headers?: HeadersInit): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers },
-  });
+  // Header names are case-insensitive; object spread is not. A caller passing Cache-Control over
+  // the default cache-control kept *both* keys, and Headers then joined them into
+  // "no-store, private, max-age=60" -- an override that silently did the opposite of what it said,
+  // since no-store wins in every cache. Normalising the names first is what makes an override
+  // actually override.
+  const merged = new Headers({ 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+  for (const [name, value] of new Headers(headers)) merged.set(name, value);
+  return new Response(JSON.stringify(body), { status, headers: merged });
 }
 function error(code: string, message: string, requestId: string, status: number, details?: Readonly<Record<string, unknown>>): Response {
   const body: ApiErrorBody = { error: { code, message, requestId, ...(details ? { details } : {}) } };
@@ -68,6 +73,11 @@ function artifactResponse(artifact: DownloadArtifact, requestId: string): Respon
     'x-request-id': requestId,
   };
   if (artifact.sha256) headers['digest'] = `sha-256=${artifact.sha256}`;
+  // Stated explicitly because the server streams this body to the socket rather than buffering it,
+  // and a Response built from bytes does not expose a content-length of its own. Without it the
+  // download would go out chunked, and a browser downloading a 20 MB document would have no idea
+  // how far along it is.
+  headers['content-length'] = String(artifact.bytes.byteLength);
   return new Response(artifact.bytes, { status: 200, headers });
 }
 function idFromPath(pathname: string): string | null {
@@ -681,7 +691,15 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
       const context = await dependencies.resolveContext(request);
       if (request.method === 'GET' && url.pathname === '/v1/signature-policies') {
         await authorize(dependencies, context, 'case:create');
-        return json(await dependencies.cases.listPolicies(context), 200, { 'x-request-id': requestId });
+        // Signing policies are tenant-scoped, small, and change rarely, but the tenant portal asks
+        // for them on every load and pays three transactions for the answer. PRIVATE_CACHEABLE was
+        // written and tested in packages/observability and never used anywhere; this is what it is
+        // for. Vary: Cookie is the load-bearing part -- without it an intermediary could serve one
+        // authenticated tenant's policies to the next.
+        return json(await dependencies.cases.listPolicies(context), 200, {
+          'x-request-id': requestId,
+          ...cacheHeaders('PRIVATE_CACHEABLE'),
+        });
       }
       if (request.method === 'POST' && url.pathname === '/v1/signature-cases') {
         await authorize(dependencies, context, 'case:create');

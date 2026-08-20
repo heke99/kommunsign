@@ -17,10 +17,20 @@ const supportedTypes: readonly DurableJobType[] = [
   'REMINDER_SEND', 'CASE_EXPIRE', 'ARCHIVE_EXPORT', 'RETENTION_EXECUTE',
 ];
 
+/** Matches the channel the app.notify_durable_job trigger publishes on (migration 0035). */
+const DURABLE_JOB_CHANNEL = 'kommunsign_durable_job';
+
 interface AdapterResult {
   readonly repository: DurableJobRepository;
   readonly handlers: Readonly<Record<DurableJobType, (job: DurableJob) => Promise<void>>>;
   readonly close: () => Promise<void>;
+  /**
+   * Subscribe to the wake-up channel a durable job fires when it becomes claimable.
+   *
+   * Lets the runner interrupt its poll backoff instead of sleeping through it. Optional: if the
+   * subscription cannot be established the runner still polls, just less promptly.
+   */
+  readonly onJobReady?: (handler: () => void) => Promise<() => Promise<void>>;
 }
 
 interface DurableJobRow {
@@ -94,6 +104,9 @@ export async function createProductionWorkerAdapter(
     return {
       repository,
       handlers,
+      async onJobReady(handler) {
+        return dataDatabase.listen(DURABLE_JOB_CHANNEL, () => handler());
+      },
       async close() {
         await Promise.allSettled([controlDatabase.close(), dataDatabase.close()]);
       },

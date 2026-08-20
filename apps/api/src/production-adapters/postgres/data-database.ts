@@ -328,8 +328,13 @@ export function createUploadRepository(database: SqlDatabase, infrastructure: Pr
   return {
     async create(context, input, key, payloadHash) {
       return tenantTx(database, context, async (transaction) => idempotent(transaction, context.tenantId, 'upload:create', key, payloadHash, async () => {
-        const userId = await requireUserId(transaction, context);
-        validateUpload(input);
+        // The tenant's own limit decides, not just the shared ceiling: the ceiling allows 100 MB
+        // while a tenant's scan limit defaults to 50 MB, so a 60 MB file was uploaded in full and
+        // only then rejected by the worker. One extra column on a query this transaction already
+        // runs is what it costs to refuse before a byte moves.
+        const uploader = await requireUploader(transaction, context);
+        const userId = uploader.userId;
+        validateUpload(input, uploader.maximumDocumentBytes);
         const id = crypto.randomUUID();
         const safeFileName = cleanFileName(input.fileName);
         const objectKey = `${context.tenantId}/quarantine/${id}/${safeFileName}`;
@@ -352,8 +357,13 @@ export function createUploadRepository(database: SqlDatabase, infrastructure: Pr
         if (grant.status !== 'issued') throw new Error('UPLOAD_GRANT_NOT_ACTIVE');
         const object = await infrastructure.objectStorage.headObject(context, grant.object_key);
         if (object.byteSize !== Number(grant.byte_size)) throw new Error('UPLOAD_OBJECT_MISMATCH');
-        const actualSha256 = object.sha256 ?? await sha256Hex((await infrastructure.objectStorage.downloadObject(context, grant.object_key, { contentType:grant.mime_type,fileName:grant.file_name })).bytes);
-        if (actualSha256 !== grant.expected_sha256) throw new Error('UPLOAD_OBJECT_MISMATCH');
+        // The declared hash is verified against the stored bytes in DOCUMENT_SCAN, which downloads
+        // the file anyway. Verifying it here meant pulling the whole object back from Stockholm
+        // and hashing it inside the operator's request, while holding an advisory lock and a row
+        // lock, so concurrent uploads from one tenant queued behind each other. A checksum the
+        // storage backend reports for free is still compared, since that costs nothing; only the
+        // download was removed, and a document still cannot reach ready without a verified hash.
+        if (object.sha256 && object.sha256 !== grant.expected_sha256) throw new Error('UPLOAD_OBJECT_MISMATCH');
         await transaction.query(`update app.upload_grants set status='uploaded',uploaded_at=now() where tenant_id=$1 and id=$2`,[context.tenantId,uploadId]);
         await appendOutbox(transaction,context.tenantId,'upload',uploadId,'document.uploaded',{uploadId,sha256:grant.expected_sha256,byteSize:Number(grant.byte_size)});
         return { id:grant.id,status:'uploaded' as const,sha256:grant.expected_sha256,byteSize:Number(grant.byte_size) };
@@ -695,6 +705,15 @@ function actorKind(context: TenantContext): 'internal_user'|'external_client'|'w
   if (context.authMethod === 'trusted_service') return 'trusted_service';
   return 'internal_user';
 }
+/** The uploading user and the tenant's document size limit, in one round trip rather than two. */
+async function requireUploader(transaction: SqlTransaction, context: TenantContext): Promise<{ readonly userId: string; readonly maximumDocumentBytes: number }> {
+  const result = await transaction.query<{ readonly id: string; readonly maximum_document_bytes: number|string }>(
+    `select u.id, coalesce(s.maximum_document_bytes, 52428800) as maximum_document_bytes
+       from app.users u left join app.tenant_signing_settings s on s.tenant_id = u.tenant_id
+      where u.tenant_id=$1 and u.external_subject=$2 and u.disabled_at is null limit 1`, [context.tenantId,context.subjectId]);
+  const row = requireRow(result.rows[0], 'TENANT_SUBJECT_NOT_PROVISIONED');
+  return { userId: row.id, maximumDocumentBytes: Number(row.maximum_document_bytes) };
+}
 async function requireUserId(transaction: SqlTransaction, context: TenantContext): Promise<string> {
   const result = await transaction.query<{ readonly id: string }>(`select id from app.users where tenant_id=$1 and external_subject=$2 and disabled_at is null limit 1`, [context.tenantId,context.subjectId]);
   return requireRow(result.rows[0], 'TENANT_SUBJECT_NOT_PROVISIONED').id;
@@ -728,9 +747,10 @@ function cleanFileName(value: string): string {
   if (!cleaned || cleaned === '.' || cleaned === '..') throw new Error('FILE_NAME_INVALID');
   return cleaned;
 }
-function validateUpload(input: UploadGrantInput): void {
+function validateUpload(input: UploadGrantInput, maximumBytes: number): void {
   if (input.mimeType !== 'application/pdf') throw new Error('UPLOAD_MIME_TYPE_NOT_ALLOWED');
-  if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1 || input.byteSize > 104_857_600) throw new Error('UPLOAD_SIZE_INVALID');
+  const ceiling = Math.min(104_857_600, Number.isSafeInteger(maximumBytes) && maximumBytes > 0 ? maximumBytes : 104_857_600);
+  if (!Number.isSafeInteger(input.byteSize) || input.byteSize < 1 || input.byteSize > ceiling) throw new Error('UPLOAD_SIZE_INVALID');
   if (!/^[0-9a-f]{64}$/.test(input.sha256)) throw new Error('UPLOAD_SHA256_INVALID');
 }
 function requireRow<T>(row: T | undefined, code: string): T { if (!row) throw new Error(code); return row; }

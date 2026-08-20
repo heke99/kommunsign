@@ -1,7 +1,9 @@
 import { createServer } from 'node:http';
 import { isIP } from 'node:net';
 import { timingSafeEqual } from 'node:crypto';
-import { compress, compressible } from './compression.mjs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { compress, compressibleResponse } from './compression.mjs';
 import { bodyLimitFor } from './request-limits.mjs';
 
 const port = Number.parseInt(process.env.PORT ?? '3001', 10);
@@ -155,9 +157,32 @@ async function dispatch(request, response) {
       ...(body ? { body } : {}),
     });
     const fetchResponse = await applicationHandler(fetchRequest);
-    let responseBody = Buffer.from(await fetchResponse.arrayBuffer());
     const headers = Object.fromEntries(fetchResponse.headers.entries());
-    const encoding = compressible(request, requestPath, fetchResponse.status, headers, responseBody);
+    const declared = Number(headers['content-length']);
+    const declaredLength = Number.isSafeInteger(declared) && declared >= 0 ? declared : null;
+    const encoding = compressibleResponse(request, requestPath, fetchResponse.status, headers, declaredLength);
+
+    // Every document download used to be read fully into an ArrayBuffer and then copied into a
+    // Buffer, on top of the copy the storage adapter had already made -- three or four copies of
+    // the same file resident at once, per concurrent request. At 20 MB and a handful of users
+    // that is the difference between the container coping and not. A body that will not be
+    // compressed is now handed to the socket as it arrives.
+    //
+    // Only the uncompressed path streams. Compression needs the whole body anyway, and the
+    // allowlist means the bodies that qualify are JSON and text, which the router built in memory
+    // to begin with; streaming those would buy nothing and would mean holding a compressor open
+    // across the response.
+    if (!encoding && fetchResponse.body) {
+      response.writeHead(fetchResponse.status, { ...headers, ...corsHeaders(request) });
+      const source = Readable.fromWeb(fetchResponse.body);
+      // If the client disconnects mid-download, stop pulling bytes from storage rather than
+      // finishing a transfer nobody is reading.
+      response.on('close', () => { if (!source.destroyed) source.destroy(); });
+      await pipeline(source, response);
+      return;
+    }
+
+    let responseBody = Buffer.from(await fetchResponse.arrayBuffer());
     if (encoding) {
       responseBody = await compress(encoding, responseBody);
       headers['content-encoding'] = encoding;

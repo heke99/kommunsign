@@ -85,6 +85,10 @@ export async function createProductionDependencies(configuration: ProductionRunt
         anonKey: requiredEnvironment('SUPABASE_AUTH_ANON_KEY'),
         serviceRoleKey: requiredEnvironment('SUPABASE_AUTH_SERVICE_ROLE_KEY'),
         requestTimeoutMs: integerEnvironment('SUPABASE_AUTH_REQUEST_TIMEOUT_MS', 10_000, 1_000, 60_000),
+        // Logins are infrequent enough that the built-in fetch had closed its connection to
+        // Stockholm again by the time the next one arrived, so each login began with a DNS
+        // lookup and a TLS handshake before the password was even sent.
+        http: createKeepAliveFetch(),
       }, authTiming),
       {
         rootDomain: requiredEnvironment('KOMMUNSIGN_ROOT_DOMAIN'),
@@ -165,6 +169,7 @@ function proxyProvider(): 'vercel' | 'cloudflare' | 'railway' | 'none' {
 
 export { createPostgresDatabase, type PostgresDatabase } from './sql-database.js';
 import { postgresTimingSnapshot } from './sql-database.js';
+import { createKeepAliveFetch } from '../../adapters/keep-alive-fetch.js';
 export { createDomainRepository } from './domain-repository.js';
 export { createDomainManagementRepository } from './domain-management-repository.js';
 export { createTenantRepository } from './tenant-repository.js';
