@@ -5,8 +5,6 @@ import type { ApiDependencies } from './ports.js';
 export interface ProductionRuntimeConfiguration {
   readonly controlDatabaseUrl: string;
   readonly dataDatabaseUrl: string;
-  readonly objectStorageEndpoint?: string;
-  readonly queueEndpoint?: string;
   readonly environment: 'production';
 }
 
@@ -37,8 +35,6 @@ export async function createHandler(): Promise<(request: Request) => Promise<Res
   const configuration: ProductionRuntimeConfiguration = {
     controlDatabaseUrl: requiredEnvironment('CONTROL_DATABASE_URL'),
     dataDatabaseUrl: requiredEnvironment('DATA_DATABASE_URL'),
-    ...(process.env.OBJECT_STORAGE_ENDPOINT?.trim() ? { objectStorageEndpoint: process.env.OBJECT_STORAGE_ENDPOINT.trim() } : {}),
-    ...(process.env.QUEUE_ENDPOINT?.trim() ? { queueEndpoint: process.env.QUEUE_ENDPOINT.trim() } : {}),
     environment: 'production',
   };
   const adapter = await import(moduleName) as ProductionAdapterModule;

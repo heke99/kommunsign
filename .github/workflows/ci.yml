@@ -125,7 +125,7 @@ jobs:
           POSTGRES_DB: kommunsign_control
         ports: ['5433:5432']
         options: >-
-          --health-cmd "pg_isready -U kommunsign" --health-interval 5s
+          --health-cmd "pg_isready -U kommunsign -d kommunsign_control" --health-interval 5s
           --health-timeout 5s --health-retries 20
       postgres-data:
         image: postgres:17.10-bookworm
@@ -135,7 +135,7 @@ jobs:
           POSTGRES_DB: kommunsign_data
         ports: ['5434:5432']
         options: >-
-          --health-cmd "pg_isready -U kommunsign" --health-interval 5s
+          --health-cmd "pg_isready -U kommunsign -d kommunsign_data" --health-interval 5s
           --health-timeout 5s --health-retries 20
     env:
       CONTROL_DATABASE_URL: postgresql://kommunsign:local-change-me@127.0.0.1:5433/kommunsign_control
