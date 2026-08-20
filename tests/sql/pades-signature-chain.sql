@@ -255,6 +255,16 @@ VALUES (:tenant, 'cccccccc-2222-4ccc-8ccc-cccccccccccc', :signer2id, :versionid,
 INSERT INTO app.signature_attempts (tenant_id, id, signer_id, document_version_id, identity_transaction_id, attempt_number, status, document_sha256, provider)
 VALUES (:tenant, 'dddddddd-2222-4ddd-8ddd-dddddddddddd', :signer2id, :versionid, 'cccccccc-2222-4ccc-8ccc-cccccccccccc', 1, 'prepared', :canonical, 'TIC_BANKID');
 
+-- The turn predicate, against the one state that is expensive to reach: a
+-- signer who is signed because a complete evidence chain says so. Step 2 was
+-- blocked before that happened; it must be open now. signing-turn.sql covers
+-- the rest of the predicate, which does not need a signature to demonstrate.
+DO $$ BEGIN
+  IF app.signing_turn_blocked('44444444-4444-4444-8444-444444444444', 'aaaaaaaa-2222-4aaa-8aaa-aaaaaaaaaaaa') THEN
+    RAISE EXCEPTION 'GUARD FAILED: step 2 stayed blocked after step 1 was fully evidenced and signed';
+  END IF;
+END $$;
+
 DO $$ BEGIN
   BEGIN
     -- The canonical hash is not any signed revision, so continuing from it once

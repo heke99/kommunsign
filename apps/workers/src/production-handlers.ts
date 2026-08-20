@@ -472,12 +472,25 @@ async function handleEmailSend(database: SqlDatabase, infrastructure: Production
   }
 }
 
+/**
+ * Reminds the signers who can actually act, and nobody else.
+ *
+ * The three conditions below are not defensive extras. A reminder to someone
+ * whose turn has not come teaches them that reminders from this service are
+ * noise, and the one that matters later gets ignored with the rest; a reminder
+ * on a closed or expired case invites an attempt that is guaranteed to fail.
+ * The turn question is answered by app.signing_turn_blocked so that this job
+ * and the endpoint that starts a signature cannot disagree about it.
+ */
 async function handleReminder(database: SqlDatabase, infrastructure: ProductionInfrastructure, job: DurableJob): Promise<void> {
   const signatureCaseId = uuidPayload(job.payload, 'signatureCaseId');
   await tenant(database, job.tenantId, async (tx) => {
     const result = await tx.query<ReminderRow>(
       `select s.id,s.email_ciphertext,c.expires_at from app.signers s join app.signature_cases c on c.tenant_id=s.tenant_id and c.id=s.signature_case_id
-        where s.tenant_id=$1 and s.signature_case_id=$2 and s.status in ('invited','opened') and s.hard_bounced_at is null and s.complained_at is null`, [job.tenantId, signatureCaseId]);
+        where s.tenant_id=$1 and s.signature_case_id=$2 and s.status in ('invited','opened') and s.hard_bounced_at is null and s.complained_at is null
+          and c.status in ('sent','in_progress','partially_signed')
+          and (c.expires_at is null or c.expires_at > now())
+          and not app.signing_turn_blocked(s.tenant_id, s.id)`, [job.tenantId, signatureCaseId]);
     for (const signer of result.rows) {
       await tx.query(`update app.signer_invitations set revoked_at=now() where tenant_id=$1 and signer_id=$2 and used_at is null and revoked_at is null`, [job.tenantId, signer.id]);
       const invitationId = crypto.randomUUID(); const token = randomToken(32);

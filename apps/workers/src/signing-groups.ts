@@ -11,7 +11,9 @@ const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
  * Extracted so that both the identity chain and the signature chain call the
  * same implementation. Two copies of "whose turn is it now" would eventually
  * disagree, and the way that disagreement surfaces is a signer being asked to
- * sign before the person whose approval theirs depends on.
+ * sign before the person whose approval theirs depends on. The predicate itself
+ * lives in app.signing_turn_blocked (migration data/0030) so that the API, this
+ * job and the reminder job cannot drift apart across a rolling deployment.
  */
 export async function activateNextSigningGroup(
   tx: SqlTransaction,
@@ -21,7 +23,7 @@ export async function activateNextSigningGroup(
 ): Promise<void> {
   const next = await tx.query<{ readonly signing_order: number }>(
     `select min(s.signing_order) signing_order from app.signers s where s.tenant_id=$1 and s.signature_case_id=$2 and s.status='pending'
-      and not exists(select 1 from app.signers lower where lower.tenant_id=s.tenant_id and lower.signature_case_id=s.signature_case_id and lower.signing_order<s.signing_order and lower.required and lower.status<>'signed')`,
+      and not app.signing_turn_blocked(s.tenant_id, s.id)`,
     [tenantId, signatureCaseId],
   );
   const group = next.rows[0]?.signing_order;

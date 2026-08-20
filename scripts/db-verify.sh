@@ -14,6 +14,7 @@ psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/data/verify.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/data/verify_organization_creation.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/tenant-isolation.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/pades-signature-chain.sql
+psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/signing-turn.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/webhook-delivery.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/archive-export.sql
 psql "$DATA_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/gallring.sql
