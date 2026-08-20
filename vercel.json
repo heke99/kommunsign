@@ -34,7 +34,7 @@
       "continue": true
     },
     {
-      "src": "^/(?:[A-Za-z0-9_-]+/)*(?:app|qr|office-upload)\\.[A-Za-z0-9_-]{16}\\.(?:css|js)$",
+      "src": "^/(?:[A-Za-z0-9_-]+/)*(?:app|qr|office-upload|hash-worker)\\.[A-Za-z0-9_-]{16}\\.(?:css|js)$",
       "headers": {
         "Cache-Control": "public, max-age=31536000, immutable"
       },
@@ -164,7 +164,7 @@
       "dest": "/__portals/auth/$1"
     },
     {
-      "src": "/((?:app|office-upload)\\.[A-Za-z0-9_-]{16}\\.(?:css|js))",
+      "src": "/((?:app|office-upload|hash-worker)\\.[A-Za-z0-9_-]{16}\\.(?:css|js))",
       "has": [
         {
           "type": "host",
