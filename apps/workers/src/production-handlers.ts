@@ -15,6 +15,7 @@ import { randomToken } from '../../../packages/crypto/src/tokens.js';
 import { createEvidenceManifest, type EvidenceFile } from '../../../packages/evidence/src/index.js';
 import { createEvidenceZip } from '../../../packages/evidence/src/zip.js';
 import { normalizeSwedishPersonalNumber } from '../../../packages/personal-number/src/index.js';
+import { formatSwedishTimestampWithOffset } from '../../../packages/locale/src/index.js';
 import { activateNextSigningGroup } from './signing-groups.js';
 import { createPadesJobHandlers, type PadesServices } from './pades-handlers.js';
 import { createWebhookJobHandlers, createWebhookServices } from './webhook-handlers.js';
@@ -659,7 +660,12 @@ function trustAnchors(configuration: Readonly<Record<string,string>>): readonly 
 
 function renderEmail(templateKey: string, payload: Record<string,unknown>, organization: string, services: Services): {readonly subject:string;readonly text:string;readonly html:string} {
   const token = requiredString(payload.invitationToken, 'EMAIL_TEMPLATE_TOKEN_MISSING');
-  const expiresAt = new Date(requiredString(payload.expiresAt, 'EMAIL_TEMPLATE_EXPIRY_MISSING')).toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm' });
+  // formatSwedishDateTime rather than toLocaleString: the latter answers with
+  // whatever locale and tzdata the container happens to ship, and a base image
+  // with stripped or stale tzdata would move every stated deadline by an hour
+  // without anything failing. The signer reads this as the moment their link
+  // stops working.
+  const expiresAt = formatSwedishTimestampWithOffset(requiredString(payload.expiresAt, 'EMAIL_TEMPLATE_EXPIRY_MISSING'));
   const url = `${services.signUrl}/?token=${encodeURIComponent(token)}`;
   const reminder = templateKey === 'signature_reminder';
   if (!['signature_invitation','signature_reminder'].includes(templateKey)) throw permanent('EMAIL_TEMPLATE_NOT_IMPLEMENTED');

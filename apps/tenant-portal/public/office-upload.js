@@ -25,10 +25,10 @@
 
     const caseId = byId('document-case').value;
     try {
-      if (macroExtensions.includes(extension)) throw new Error('OFFICE_MACRO_FORMAT_REJECTED');
+      if (macroExtensions.includes(extension)) throw new Error(messageFor('OFFICE_MACRO_FORMAT_REJECTED'));
       const mimeType = formats.get(extension);
-      if (!mimeType) throw new Error('OFFICE_FORMAT_NOT_SUPPORTED');
-      if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > OFFICE_MAX_BYTES) throw new Error('OFFICE_TOO_LARGE');
+      if (!mimeType) throw new Error(messageFor('OFFICE_FORMAT_NOT_SUPPORTED'));
+      if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > OFFICE_MAX_BYTES) throw new Error(messageFor('OFFICE_TOO_LARGE'));
 
       status('document-status', 'Kontrollerar Office-filen och beräknar SHA-256 lokalt.');
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -70,7 +70,7 @@
       );
       renderPreview();
     } catch (error) {
-      status('document-status', error instanceof Error ? error.message : 'OFFICE_UPLOAD_FAILED', 'error');
+      status('document-status', error instanceof Error ? error.message : messageFor('OFFICE_UPLOAD_FAILED'), 'error');
     }
   }, true);
 
@@ -83,7 +83,7 @@
   function assertContainer(extension, bytes) {
     if (extension === '.rtf') {
       if (bytes.length < 5 || bytes[0] !== 0x7b || bytes[1] !== 0x5c || bytes[2] !== 0x72 || bytes[3] !== 0x74 || bytes[4] !== 0x66) {
-        throw new Error('OFFICE_MAGIC_BYTES_MISMATCH');
+        throw new Error(messageFor('OFFICE_MAGIC_BYTES_MISMATCH'));
       }
       return;
     }
@@ -91,6 +91,6 @@
       && ((bytes[2] === 0x03 && bytes[3] === 0x04)
         || (bytes[2] === 0x05 && bytes[3] === 0x06)
         || (bytes[2] === 0x07 && bytes[3] === 0x08));
-    if (!zip) throw new Error('OFFICE_MAGIC_BYTES_MISMATCH');
+    if (!zip) throw new Error(messageFor('OFFICE_MAGIC_BYTES_MISMATCH'));
   }
 })();

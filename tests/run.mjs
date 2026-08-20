@@ -98,7 +98,7 @@ import {
 } from '../dist/packages/document-processing/src/office-ingestion.js';
 import {
   formatSwedishDate, formatSwedishDateTime, formatSwedishTime,
-  formatSwedishTimestampWithOffset, messageFor, swedishUtcOffsetHours,
+  formatSwedishTimestampWithOffset, hasSwedishMessage, messageFor, swedishUtcOffsetHours,
 } from '../dist/packages/locale/src/index.js';
 import {
   handleApplicationDeadline, handleCertificateMonitor, handleTenantActivation, handleTenantReadiness,
@@ -2899,6 +2899,40 @@ test('dates and times render in the Swedish standard regardless of host locale',
   const unknown = messageFor('SOME_INTERNAL_CODE_42');
   assert.doesNotMatch(unknown, /SOME_INTERNAL_CODE_42/);
   assert.match(unknown, /Något gick fel/);
+});
+
+test('every documented error code has Swedish text, and no portal shows a raw code', async () => {
+  // The portals are static pages: they receive a stable code from the API and
+  // are the last place it can still be turned into something a person can act
+  // on. Before this was centralised, a signer could read SIGNING_ORDER_BLOCKED
+  // on the page where they were trying to sign a decision.
+  const documented = new Set(
+    [...(await readFile('docs/api/error-codes.md', 'utf8')).matchAll(/`([A-Z][A-Z0-9_]{3,})`/g)].map((match) => match[1]),
+  );
+  // Webhook and provider-transport codes never reach a browser; they are
+  // answers to a provider, not to a person.
+  const notUserFacing = new Set([
+    'TIC_WEBHOOK_SIGNATURE_INVALID', 'TIC_WEBHOOK_REPLAYED',
+    'EMAIL_WEBHOOK_SIGNATURE_INVALID', 'EMAIL_WEBHOOK_REPLAYED',
+    'EMAIL_TEMPORARY_FAILURE', 'EMAIL_PERMANENT_FAILURE',
+    'EMAIL_PROVIDER_NOT_CONFIGURED', 'EMAIL_COMPLIANCE_APPROVAL_REQUIRED',
+  ]);
+  const missing = [...documented].filter((code) => !notUserFacing.has(code) && !hasSwedishMessage(code));
+  assert.deepEqual(missing, [], `documented codes without Swedish text: ${missing.join(', ')}`);
+
+  const portals = ['auth-portal', 'onboarding-portal', 'platform-admin', 'tenant-portal', 'signer-portal', 'verification-portal'];
+  const generated = await readFile('apps/signer-portal/public/messages.js', 'utf8');
+  for (const portal of portals) {
+    const script = await readFile(`apps/${portal}/public/messages.js`, 'utf8');
+    assert.equal(script, generated, `${portal}: messages.js drifted from the generated copy`);
+    const html = await readFile(`apps/${portal}/public/index.html`, 'utf8');
+    assert.match(html, /messages\.js/, `${portal}: does not load the Swedish messages`);
+    const app = await readFile(`apps/${portal}/public/app.js`, 'utf8');
+    assert.match(app, /messageFor\(/, `${portal}: does not route error codes through messageFor`);
+    // A second table would drift from packages/locale, and the copy that drifts
+    // is always the one nobody reads until the error happens.
+    assert.doesNotMatch(app, /errorLabels\s*=/, `${portal}: keeps its own error text table`);
+  }
 });
 
 // --- Control-plane platform jobs -------------------------------------------

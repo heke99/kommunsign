@@ -13,7 +13,7 @@ async function api(path,options={}){
   const response=await fetch(`${API_BASE}${path}`,{cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer',...options,headers:{accept:'application/json',...(options.body?{'content-type':'application/json'}:{}),...(options.headers||{})}});
   const contentType=response.headers.get('content-type')||'';
   const payload=contentType.includes('application/json')?await response.json().catch(()=>({})):null;
-  if(!response.ok)throw new Error(payload?.error?.code||`HTTP_${response.status}`);
+  if(!response.ok)throw new Error(messageFor(payload?.error?.code||`HTTP_${response.status}`));
   return payload;
 }
 function invitationPath(suffix=''){return `/v1/public/signing-invitations/${encodeURIComponent(invitationToken)}${suffix}`;}

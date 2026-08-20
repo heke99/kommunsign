@@ -10,7 +10,7 @@ async function api(path, options = {}) {
   if (options.version) headers['if-match'] = String(options.version);
   const response = await fetch(`${API_BASE}${path}`, { method: options.method || 'GET', headers, ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }) });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error?.code || `HTTP_${response.status}`);
+  if (!response.ok) throw new Error(messageFor(payload.error?.code || `HTTP_${response.status}`));
   return payload;
 }
 function render(application) {

@@ -32,7 +32,7 @@ function renderDefinitionList(element, entries) {
 }
 
 function safeMessage(data, response) {
-  return data?.error?.code || data?.code || `HTTP ${response.status}`;
+  return messageFor(data?.error?.code || data?.code || `HTTP_${response.status}`);
 }
 
 idForm.addEventListener('submit', async (event) => {
