@@ -4340,6 +4340,21 @@ test('s3 adapter signs writes with a signature an independent SigV4 reproduces',
   );
 });
 
+test('prepared statements are used on a direct connection and never through the transaction pooler', async () => {
+  const { pooledConnection } = await import('../dist/apps/api/src/production-adapters/postgres/sql-database.js');
+  // In transaction mode each transaction can land on a different backend, so a statement prepared
+  // on one is never found on the next and every query pays Parse before it can Bind and Execute.
+  // Measured against production that was two round trips per query where one would do.
+  assert.equal(pooledConnection('postgresql://u:p@aws-0-eu-north-1.pooler.supabase.com:6543/postgres'), true);
+  assert.equal(pooledConnection('postgresql://u:p@aws-0-eu-north-1.pooler.supabase.com:5432/postgres'), true, 'session mode is still the pooler');
+  assert.equal(pooledConnection('postgresql://u:p@db.project.supabase.co:6543/postgres'), true, 'the port alone is enough');
+  assert.equal(pooledConnection('postgresql://u:p@db.project.supabase.co:5432/postgres'), false);
+  assert.equal(pooledConnection('postgres://u:p@127.0.0.1:5432/kommunsign'), false);
+  // A string that is not a URL must not read as "direct" by accident in one place and "pooled" in
+  // another; the connection itself is rejected elsewhere.
+  assert.equal(pooledConnection('not a url'), false);
+});
+
 test('the keep-alive fetch answers for what the auth provider sends and defers on everything else', async () => {
   // Node's fetch closes an idle connection after four seconds, so an endpoint as quiet as login
   // paid for a TLS handshake almost every time. This client exists to hold that connection open,
