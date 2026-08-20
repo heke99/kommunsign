@@ -1,6 +1,7 @@
 import type { TenantContext } from '../../../../packages/contracts/src/index.js';
 import type { DownloadArtifact, UploadGrantInput } from '../ports.js';
 import type { ObjectStorageAdapter } from '../production-adapters/postgres/infrastructure.js';
+import { createBucketMemo } from './bucket-memo.js';
 
 interface SignedUploadResponse {
   readonly url?: string;
@@ -33,11 +34,16 @@ export function createObjectStorageAdapter(
     evidencePackagesBucket: value(configuration, 'STORAGE_EVIDENCE_PACKAGES_BUCKET', 'evidence-packages'),
   };
 
+  // Confirming a bucket is a cross-region call. It is worth making once per adapter, not once per
+  // upload grant.
+  const memo = createBucketMemo();
+  const ensureBucket = (bucket: string): Promise<void> => memo(bucket, () => confirmPrivateBucket(settings, bucket));
+
   return {
     async provisionTenantNamespaces(input) {
       if (!/^[0-9a-f-]{36}$/i.test(input.tenantId)) throw new Error('STORAGE_TENANT_ID_INVALID');
       for (const bucket of input.bucketNames) {
-        await ensurePrivateBucket(settings, validateBucketName(bucket));
+        await ensureBucket(validateBucketName(bucket));
       }
       return { namespaceReference: `supabase-storage://${input.tenantId}` };
     },
@@ -45,7 +51,7 @@ export function createObjectStorageAdapter(
     async createUploadGrant(context, input) {
       assertTenantObject(context, input.objectKey);
       const bucket = settings.documentQuarantineBucket;
-      await ensurePrivateBucket(settings, bucket);
+      await ensureBucket(bucket);
       const response = await storageJson<SignedUploadResponse>(
         settings,
         'POST',
@@ -100,7 +106,7 @@ export function createObjectStorageAdapter(
     async putObject(context, objectKey, bytes, contentType, immutable = true) {
       assertTenantObject(context, objectKey);
       const resolved = resolveBucket(settings, objectKey);
-      await ensurePrivateBucket(settings, resolved.bucket);
+      await ensureBucket(resolved.bucket);
       const response = await fetch(`${settings.baseUrl}/storage/v1/object/${encodePath(`${resolved.bucket}/${resolved.path}`)}`, {
         method: 'POST',
         headers: { ...authorizationHeaders(settings), 'content-type': contentType, 'x-upsert': immutable ? 'false' : 'true' },
@@ -121,7 +127,7 @@ export function createObjectStorageAdapter(
   };
 }
 
-async function ensurePrivateBucket(settings: StorageConfiguration, bucket: string): Promise<void> {
+async function confirmPrivateBucket(settings: StorageConfiguration, bucket: string): Promise<void> {
   const existing = await fetch(`${settings.baseUrl}/storage/v1/bucket/${encodeURIComponent(bucket)}`, {
     method: 'GET',
     headers: authorizationHeaders(settings),

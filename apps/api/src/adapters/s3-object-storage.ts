@@ -1,6 +1,7 @@
 import type { TenantContext } from '../../../../packages/contracts/src/index.js';
 import type { DownloadArtifact } from '../ports.js';
 import type { ObjectStorageAdapter } from '../production-adapters/postgres/infrastructure.js';
+import { createBucketMemo } from './bucket-memo.js';
 
 /**
  * Object storage over the S3 API.
@@ -64,11 +65,16 @@ export function createObjectStorageAdapter(
     evidencePackagesBucket: bucketSetting(configuration, 'STORAGE_EVIDENCE_PACKAGES_BUCKET', 'evidence-packages'),
   };
 
+  // Confirming a bucket is a cross-region call. It is worth making once per adapter, not once per
+  // upload grant.
+  const memo = createBucketMemo();
+  const ensureBucket = (bucket: string): Promise<void> => memo(bucket, () => confirmPrivateBucket(settings, bucket));
+
   return {
     async provisionTenantNamespaces(input) {
       if (!/^[0-9a-f-]{36}$/i.test(input.tenantId)) throw new Error('STORAGE_TENANT_ID_INVALID');
       for (const bucket of input.bucketNames) {
-        await ensurePrivateBucket(settings, validateBucketName(bucket));
+        await ensureBucket(validateBucketName(bucket));
       }
       return { namespaceReference: `s3://${settings.endpoint.replace(/^https?:\/\//, '')}/${input.tenantId}` };
     },
@@ -76,7 +82,7 @@ export function createObjectStorageAdapter(
     async createUploadGrant(context, input) {
       assertTenantObject(context, input.objectKey);
       const bucket = settings.documentQuarantineBucket;
-      await ensurePrivateBucket(settings, bucket);
+      await ensureBucket(bucket);
       return {
         uploadUrl: await presignPut(settings, bucket, input.objectKey, input.expiresAt),
         requiredHeaders: { 'content-type': input.mimeType },
@@ -117,7 +123,7 @@ export function createObjectStorageAdapter(
     async putObject(context, objectKey, bytes, contentType, immutable = true) {
       assertTenantObject(context, objectKey);
       const resolved = resolveBucket(settings, objectKey);
-      await ensurePrivateBucket(settings, resolved.bucket);
+      await ensureBucket(resolved.bucket);
       const digest = await sha256Hex(bytes);
       const response = await signedRequest(settings, 'PUT', resolved.bucket, resolved.path, {
         body: bytes,
@@ -176,7 +182,7 @@ async function storedDigest(
   return checksum && /^[0-9a-f]{64}$/.test(checksum) ? { sha256: checksum } : null;
 }
 
-async function ensurePrivateBucket(settings: S3Configuration, bucket: string): Promise<void> {
+async function confirmPrivateBucket(settings: S3Configuration, bucket: string): Promise<void> {
   const existing = await signedRequest(settings, 'HEAD', bucket, '');
   if (existing.ok) return;
   if (existing.status !== 404) throw await storageError(existing, 'STORAGE_BUCKET_LOOKUP_FAILED');

@@ -4251,6 +4251,41 @@ test('s3 adapter signs writes with a signature an independent SigV4 reproduces',
   );
 });
 
+test('s3 adapter confirms a bucket once per adapter, and never remembers a failed confirmation', async () => {
+  // Every upload grant used to ask storage whether the bucket exists first -- a cross-region call
+  // on the critical path of every upload, answering a question that cannot change while the
+  // service runs.
+  const adapter = createS3ObjectStorageAdapter(s3Settings);
+  const first = await withCapturedFetch(
+    () => adapter.createUploadGrant(s3Context, {
+      objectKey: `${s3TenantId}/quarantine/a.pdf`, mimeType: 'application/pdf',
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    }),
+    () => s3Response(200),
+  );
+  assert.equal(first.captured.filter((call) => call.method === 'HEAD').length, 1);
+
+  const second = await withCapturedFetch(
+    () => adapter.createUploadGrant(s3Context, {
+      objectKey: `${s3TenantId}/quarantine/b.pdf`, mimeType: 'application/pdf',
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    }),
+    () => s3Response(200),
+  );
+  assert.equal(second.captured.length, 0, 'a confirmed bucket must not be confirmed again');
+
+  // A memo that remembered failures would turn one bad moment into a bucket the process can never
+  // use again, so a fresh adapter must retry and must be able to succeed afterwards.
+  const failing = createS3ObjectStorageAdapter(s3Settings);
+  const grant = () => failing.createUploadGrant(s3Context, {
+    objectKey: `${s3TenantId}/quarantine/c.pdf`, mimeType: 'application/pdf',
+    expiresAt: new Date(Date.now() + 600_000).toISOString(),
+  });
+  await assert.rejects(withCapturedFetch(grant, () => s3Response(500)));
+  const retried = await withCapturedFetch(grant, () => s3Response(200));
+  assert.equal(retried.captured.filter((call) => call.method === 'HEAD').length, 1);
+});
+
 test('s3 adapter refuses to overwrite an object that already exists', async () => {
   const adapter = createS3ObjectStorageAdapter(s3Settings);
   await assert.rejects(
