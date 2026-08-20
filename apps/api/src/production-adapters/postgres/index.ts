@@ -111,6 +111,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
       authorize: async (context, permission) => requirePermission(await rolesForRequest(context), permission),
       resolvePlatformContext: (request) => authenticator.resolvePlatformContext(request),
       authorizePlatform: async (context, permission) => requirePlatformPermission(await authenticator.platformRoles(context), permission),
+      databaseTiming: postgresTimingSnapshot,
       reportError(cause, requestId) {
         const name = cause instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,79}$/.test(cause.name) ? cause.name : 'UnknownError';
         const code = cause instanceof Error && /^[A-Z][A-Z0-9_]{2,79}$/.test(cause.message) ? cause.message : 'INTERNAL_REQUEST_FAILURE';
@@ -163,6 +164,7 @@ function proxyProvider(): 'vercel' | 'cloudflare' | 'railway' | 'none' {
 }
 
 export { createPostgresDatabase, type PostgresDatabase } from './sql-database.js';
+import { postgresTimingSnapshot } from './sql-database.js';
 export { createDomainRepository } from './domain-repository.js';
 export { createDomainManagementRepository } from './domain-management-repository.js';
 export { createTenantRepository } from './tenant-repository.js';

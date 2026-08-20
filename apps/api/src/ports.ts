@@ -629,5 +629,13 @@ export interface ApiDependencies {
   readonly resolvePlatformContext?: (request: Request) => Promise<PlatformContext>;
   readonly authorizePlatform?: (context: PlatformContext, permission: PlatformPermission) => Promise<void> | void;
   readonly reportError?: (cause: unknown, requestId: string) => void;
+  /**
+   * Cumulative database timing, aggregates only, for the /health/database diagnostic.
+   *
+   * Present so a slow request can be attributed: time spent acquiring a pooled connection is a
+   * different problem from time spent running statements, and from outside the process the two look
+   * identical. Carries no query text, no parameters and nothing tenant-scoped.
+   */
+  readonly databaseTiming?: () => Readonly<Record<string, Readonly<Record<string, number>>>>;
 }
 

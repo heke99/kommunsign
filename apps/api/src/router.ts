@@ -657,6 +657,11 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
       // string, so a single request re-parsed it six or more times. It stays inside the try so a
       // malformed URL still becomes a mapped error response rather than escaping the handler.
       const url = new URL(request.url);
+      // Aggregate database timing, so a slow response can be attributed to connection acquisition
+      // or to statement execution without guessing from outside the process.
+      if (url.pathname === '/health/database' && request.method === 'GET') {
+        return json(dependencies.databaseTiming ? dependencies.databaseTiming() : {}, 200, { 'x-request-id': requestId });
+      }
       const metricsResponse = await handleMetricsRequest(dependencies, request, requestId, url);
       if (metricsResponse) return metricsResponse;
       const publicResponse = await handlePublicRequest(dependencies, request, requestId, url);
