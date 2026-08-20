@@ -21,6 +21,19 @@
       "continue": true
     },
     {
+      "src": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "app.kommunsign.se"
+        }
+      ],
+      "headers": {
+        "Content-Security-Policy": "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; connect-src 'self' https://api.kommunsign.se https://ddawgwlyjaoaajwyunaw.supabase.co; font-src 'self'; object-src 'none'; upgrade-insecure-requests"
+      },
+      "continue": true
+    },
+    {
       "src": "^/(?:[A-Za-z0-9_-]+/)*(?:app|qr|office-upload)\\.[A-Za-z0-9_-]{16}\\.(?:css|js)$",
       "headers": {
         "Cache-Control": "public, max-age=31536000, immutable"

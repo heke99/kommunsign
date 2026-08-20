@@ -1104,6 +1104,14 @@ test('unified Vercel deployment builds all portals and uses customer-facing prod
   assert.ok(config.routes.some((entry) => entry.dest === '/__portals/tenant/index.html'));
   assert.ok(config.routes.some((entry) => entry.headers?.['Content-Security-Policy']));
   assert.ok(config.routes.some((entry) => entry.handle === 'filesystem'));
+  // The tenant portal PUTs a document straight to the storage origin its upload grant points at.
+  // The shared policy only names the API, so the browser refused that request before it ever left
+  // the page and every upload failed silently. The host-scoped policy is what makes uploading work
+  // at all, so it is pinned here rather than left to whoever next edits the route table.
+  const tenantPolicy = config.routes.filter((entry) => entry.headers?.['Content-Security-Policy']
+    && entry.has?.some((condition) => condition.type === 'host' && condition.value === 'app.kommunsign.se')).pop();
+  assert.ok(tenantPolicy, 'the tenant portal needs a Content-Security-Policy of its own');
+  assert.match(tenantPolicy.headers['Content-Security-Policy'], /connect-src [^;]*https:\/\/[a-z0-9]+\.supabase\.co/);
 });
 
 test('provenance gate pins donors and reports zero unverified imports', async () => {
