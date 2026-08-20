@@ -13,7 +13,11 @@ WORKDIR /app
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/apps/api/server.mjs ./apps/api/server.mjs
+# Every .mjs beside the entrypoint, not just the entrypoint. server.mjs imports siblings --
+# compression.mjs and request-limits.mjs today -- and naming one file here meant the image booted
+# without the others and crashlooped on ERR_MODULE_NOT_FOUND, while Railway kept serving the last
+# image that worked. A glob cannot be forgotten the next time a module is split out.
+COPY --from=build /app/apps/api/*.mjs ./apps/api/
 USER nonroot
 ENV PORT=8787
 ENV APP_ENV=production
