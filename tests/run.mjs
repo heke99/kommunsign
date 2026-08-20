@@ -4340,6 +4340,50 @@ test('s3 adapter signs writes with a signature an independent SigV4 reproduces',
   );
 });
 
+test('an unauthenticated request is refused, not reported as a server fault', async () => {
+  // Every authentication failure fell through to 500. The portals redirect to the login page on
+  // 401 and 403 and show a generic failure on anything else, so an expired session put the user in
+  // front of an error message rather than the login form -- and the error rate could not tell a
+  // logged-out visitor from a broken server.
+  const refusals = {
+    AUTH_SESSION_INVALID: 401,
+    CSRF_TOKEN_REQUIRED: 401,
+    GATEWAY_SIGNATURE_INVALID: 401,
+    GATEWAY_SIGNATURE_EXPIRED: 401,
+    GATEWAY_IDENTITY_FORMAT_INVALID: 401,
+    'GATEWAY_HEADER_MISSING:x-kommunsign-subject-id': 401,
+    AUTH_ORIGIN_REQUIRED: 403,
+    AUTH_TENANT_CONTEXT_MISSING: 403,
+    PLATFORM_SUBJECT_NOT_PROVISIONED: 403,
+    TENANT_SUBJECT_NOT_PROVISIONED: 403,
+  };
+  for (const [message, expected] of Object.entries(refusals)) {
+    const handler = createApiHandler({
+      resolveContext: async () => { throw new Error(message); },
+      authorize: () => {},
+      cases: { list: async () => [] },
+    });
+    const response = await handler(new Request('https://api.example/v1/signature-cases'));
+    assert.equal(response.status, expected, `${message} must be refused with ${expected}`);
+    const payload = await response.json();
+    assert.notEqual(payload.error.code, 'INTERNAL_ERROR');
+    // The header the internal gateway forgot is for the logs, not for a caller who has not
+    // authenticated.
+    assert.doesNotMatch(JSON.stringify(payload), /x-kommunsign-subject-id/);
+  }
+
+  // A genuine fault must still read as one. Mapping authentication failures cannot become a habit
+  // of turning every unrecognised error into a 4xx the caller is invited to retry.
+  const broken = createApiHandler({
+    resolveContext: async () => { throw new Error('POSTGRES_CONNECTION_URL_INVALID'); },
+    authorize: () => {},
+    cases: { list: async () => [] },
+  });
+  const failure = await broken(new Request('https://api.example/v1/signature-cases'));
+  assert.equal(failure.status, 500);
+  assert.equal((await failure.json()).error.code, 'INTERNAL_ERROR');
+});
+
 test('prepared statements are used on a direct connection and never through the transaction pooler', async () => {
   const { pooledConnection } = await import('../dist/apps/api/src/production-adapters/postgres/sql-database.js');
   // In transaction mode each transaction can land on a different backend, so a statement prepared

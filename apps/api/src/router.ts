@@ -567,9 +567,39 @@ function mapKnownError(cause: unknown): ApiRequestError | null {
     PRIVACY_REQUEST_NOT_FOUND: [404, 'PRIVACY_REQUEST_NOT_FOUND'],
     PRIVACY_REQUEST_CLOSED: [409, 'PRIVACY_REQUEST_CLOSED'],
     PRIVACY_REQUEST_CONFLICT: [409, 'PRIVACY_REQUEST_CONFLICT'],
+
+    // Authentication failures were not mapped at all, so every one of them came back as a 500. A
+    // caller could not tell "log in again" from "the server is broken", and neither could anything
+    // watching the error rate. The portals redirect to the login page on 401 and 403 and show a
+    // generic failure on anything else, so an expired session put the user in front of an error
+    // message instead of the login form -- the one place where doing nothing looks like an outage.
+    //
+    // 401 for "we do not know who you are", 403 for "we do, and it is not enough". The codes stay
+    // distinct rather than collapsing into one: a cross-site caller cannot read the response body,
+    // so the distinction reaches only someone who already holds the credential, and /v1/auth/*
+    // already answers this way. Same wire behaviour, one place to look.
+    AUTH_SESSION_INVALID: [401, 'AUTH_SESSION_INVALID'],
+    CSRF_TOKEN_REQUIRED: [401, 'CSRF_TOKEN_REQUIRED'],
+    GATEWAY_SIGNATURE_INVALID: [401, 'AUTH_REQUIRED'],
+    GATEWAY_SIGNATURE_EXPIRED: [401, 'AUTH_REQUIRED'],
+    GATEWAY_TIMESTAMP_INVALID: [401, 'AUTH_REQUIRED'],
+    GATEWAY_IDENTITY_FORMAT_INVALID: [401, 'AUTH_REQUIRED'],
+    GATEWAY_AUTH_METHOD_INVALID: [401, 'AUTH_REQUIRED'],
+    AUTH_ORIGIN_REQUIRED: [403, 'AUTH_ORIGIN_REQUIRED'],
+    AUTH_ORIGIN_INVALID: [403, 'AUTH_ORIGIN_INVALID'],
+    AUTH_TENANT_CONTEXT_MISSING: [403, 'AUTH_TENANT_CONTEXT_MISSING'],
+    PLATFORM_SUBJECT_NOT_PROVISIONED: [403, 'SUBJECT_NOT_PROVISIONED'],
+    TENANT_SUBJECT_NOT_PROVISIONED: [403, 'SUBJECT_NOT_PROVISIONED'],
   };
   const mapped = mappings[cause.message];
-  return mapped ? new ApiRequestError(mapped[1], mapped[1].replace(/_/g, ' '), mapped[0]) : null;
+  if (mapped) return new ApiRequestError(mapped[1], mapped[1].replace(/_/g, ' '), mapped[0]);
+  // A missing gateway header names the header it wanted, so it cannot be a key in the table above.
+  // The name goes to the logs, not to the caller: which header the internal gateway forgot is not
+  // an answer an unauthenticated caller has any use for.
+  if (cause.message.startsWith('GATEWAY_HEADER_MISSING:')) {
+    return new ApiRequestError('AUTH_REQUIRED', 'authentication required', 401);
+  }
+  return null;
 }
 
 /**
