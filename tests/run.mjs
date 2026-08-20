@@ -994,6 +994,23 @@ test('API authorizes every case operation', async () => {
   assert.deepEqual(permissions, ['case:read', 'case:read', 'case:send', 'case:cancel']);
 });
 
+test('signing policies may be cached by the browser, but never by anything shared', async () => {
+  // The tenant portal asks for policies on every load and pays three transactions for an answer
+  // that changes rarely, so this response is allowed into the browser's cache for a minute. That
+  // is only safe with Vary: Cookie -- without it an intermediary can hand one authenticated
+  // tenant's policies to the next, which is a cross-tenant leak caused entirely by a header.
+  const handler = createApiHandler({
+    resolveContext: async () => ({ tenantId: 'tenant', source: 'api-client', subjectId: 'subject', requestId: 'ctx', authMethod: 'development' }),
+    authorize: () => {},
+    cases: { listPolicies: async () => [] },
+  });
+  const response = await handler(new Request('https://api.example/v1/signature-policies'));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'private, max-age=60');
+  assert.match(response.headers.get('vary') ?? '', /Cookie/);
+  assert.doesNotMatch(response.headers.get('cache-control') ?? '', /public/);
+});
+
 test('audit chain covers actor, resource and payload fields', async () => {
   const firstInput = {
     previousEventHash: '0'.repeat(64), tenantId: 'tenant-1', sequence: 1, category: 'BUSINESS',

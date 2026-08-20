@@ -115,4 +115,15 @@ byId('provision-button').addEventListener('click',async event=>{
 byId('user-form').addEventListener('submit',async event=>{event.preventDefault();if(!selectedOrganization?.tenantId)return;const form=event.currentTarget,submitButton=event.submitter||form.querySelector('button[type="submit"]'),tenantId=selectedOrganization.tenantId,body=Object.fromEntries(new FormData(form));if(submitButton)submitButton.disabled=true;let account;try{account=await api(`/v1/platform/organizations/${tenantId}/users`,{method:'POST',mutating:true,body});}catch(error){notice(`Kontot kunde inte bjudas in: ${error.message}`,true);return;}finally{if(submitButton)submitButton.disabled=false;}notice('En ny aktiverings- eller lösenordslänk har skickats. Kunden ska använda det senaste mejlet och välja lösenord via den säkra länken.');form.reset();try{await renderOrganizationUsers();}catch(error){notice(`Kontot är skapat, men kontolistan kunde inte uppdateras automatiskt: ${error.message}`,true);}});
 const services=[['API',`${API_BASE}/health/ready`],['Identitet','https://app.kommunsign.se/login/'],['Signering','https://kommunsign.se/signera/'],['Verifiering','https://kommunsign.se/verifiera/']];byId('check-health').addEventListener('click',async()=>{const list=byId('health-list');list.replaceChildren();for(const [name,url] of services){const li=document.createElement('li');li.textContent=`${name}: kontrollerar…`;list.append(li);try{await fetch(url,{cache:'no-store',mode:'no-cors'});li.textContent=`${name}: svarar`;}catch{li.textContent=`${name}: kunde inte nås`;}}});
 byId('logout').addEventListener('click',async()=>{try{await api('/v1/auth/logout',{method:'POST',mutating:true});}finally{sessionStorage.removeItem('kommunsign.csrf');loginRedirect();}});
-(async()=>{try{if(!(await establishSession()))return;await Promise.all([loadOrganizations(),loadApplications()]);}catch{showSessionFailure('Administrationen kunde inte startas eller Kommunsigns API går inte att nå.');}})();
+// Starten gjorde två serieomgångar: verifiera sessionen, sedan hämta listorna. Listanropen är
+// cookie-autentiserade och hanterar redan 401 själva, så de behöver inte vänta på sessionssvaret --
+// de får samma besked direkt om sessionen inte duger. En full klientrunda mindre före första vyn.
+(async()=>{
+  const session=establishSession();
+  const lists=Promise.all([loadOrganizations(),loadApplications()]);
+  lists.catch(()=>{});
+  try{
+    if(!(await session))return;
+    await lists;
+  }catch{showSessionFailure('Administrationen kunde inte startas eller Kommunsigns API går inte att nå.');}
+})();
