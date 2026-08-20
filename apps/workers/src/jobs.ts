@@ -93,6 +93,23 @@ function logFailure(job: DurableJob, code: string, dead: boolean, cause: unknown
   for (const [key, value] of [['sqlState', source?.code], ['constraint', source?.constraint_name], ['table', source?.table_name], ['routine', source?.routine]] as const) {
     if (typeof value === 'string' && /^[A-Za-z0-9_.]{1,80}$/.test(value)) detail[key] = value;
   }
+
+  // A built-in error carries no application code, so `code` collapses to its
+  // class name and the line says RANGEERROR and nothing else — which names the
+  // shape of the failure and not one thing an operator can act on. The class
+  // name and the first frame inside this repository are both safe: a file name
+  // and a line number cannot carry document content, and they are the
+  // difference between "something threw" and "the zip builder threw".
+  if (cause instanceof Error) {
+    if (/^[A-Za-z]{1,40}$/.test(cause.name)) detail['errorName'] = cause.name;
+    const frame = (cause.stack ?? '').split('\n')
+      .map((line) => /\(?(?:file:\/\/)?(\/[^\s()]*\/(?:apps|packages|dist)\/[^\s():]+):(\d+):(\d+)\)?$/.exec(line.trim()))
+      .find((match) => match !== null);
+    if (frame) {
+      const path = frame[1]!.replace(/^.*?\/(?:dist\/)?/, '').replace(/\.js$/, '.ts');
+      if (/^[A-Za-z0-9_./-]{1,120}$/.test(path)) detail['at'] = `${path}:${frame[2]}`;
+    }
+  }
   globalThis.console?.error?.(JSON.stringify({
     level: 'error', service: 'kommunsign-workers', event: dead ? 'job_dead_lettered' : 'job_attempt_failed',
     jobId: job.id, jobType: job.type, attempts: job.attempts, code, ...detail,

@@ -9,13 +9,32 @@ import { createOfficeSourceJobHandlers } from './office-document-handlers.js';
 
 const PLATFORM_JOB_TENANT_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
-const supportedTypes: readonly DurableJobType[] = [
-  'APPLICATION_NOTIFICATION', 'APPLICATION_DEADLINE', 'TENANT_PROVISION', 'TENANT_READINESS',
-  'TENANT_ACTIVATION', 'CERTIFICATE_MONITOR', 'DOCUMENT_SCAN', 'DOCUMENT_CANONICALIZE',
-  'IDENTITY_STATUS_POLL', 'SIGNATURE_CREATE', 'SIGNATURE_VALIDATE', 'TIC_EVIDENCE_COLLECT',
-  'EVIDENCE_PACKAGE_BUILD', 'EMAIL_SEND', 'WEBHOOK_DELIVER',
-  'REMINDER_SEND', 'CASE_EXPIRE', 'ARCHIVE_EXPORT', 'RETENTION_EXECUTE',
-];
+/**
+ * Every job type this worker will claim.
+ *
+ * Written as a Record keyed by DurableJobType rather than as an array, so that
+ * adding a job type without listing it here is a compile error instead of a
+ * runtime one. It was an array, and it was missing PADES_CREATE, PADES_VALIDATE
+ * and PRIVACY_REQUEST_EXECUTE — the two stages that turn verified identity into
+ * an admitted signature, and the executor for data subject rights requests.
+ *
+ * The consequence was worse than those jobs sitting unclaimed. durableJobType
+ * throws on an unknown type, and it is called inside the claim loop, so the
+ * first PADES_CREATE row in the queue took down the whole worker rather than
+ * failing one job. Nothing had noticed because no test ever claimed one: the
+ * application chain stopped at the identity boundary, one step before that job
+ * is enqueued.
+ */
+const SUPPORTED_JOB_TYPES: Readonly<Record<DurableJobType, true>> = {
+  APPLICATION_NOTIFICATION: true, APPLICATION_DEADLINE: true, TENANT_PROVISION: true,
+  TENANT_READINESS: true, TENANT_ACTIVATION: true, CERTIFICATE_MONITOR: true,
+  DOCUMENT_SCAN: true, DOCUMENT_CANONICALIZE: true, IDENTITY_STATUS_POLL: true,
+  SIGNATURE_CREATE: true, SIGNATURE_VALIDATE: true, PADES_CREATE: true, PADES_VALIDATE: true,
+  TIC_EVIDENCE_COLLECT: true, EVIDENCE_PACKAGE_BUILD: true, EMAIL_SEND: true,
+  WEBHOOK_DELIVER: true, REMINDER_SEND: true, CASE_EXPIRE: true, ARCHIVE_EXPORT: true,
+  RETENTION_EXECUTE: true, PRIVACY_REQUEST_EXECUTE: true,
+};
+const supportedTypes: readonly DurableJobType[] = Object.keys(SUPPORTED_JOB_TYPES) as DurableJobType[];
 
 interface AdapterResult {
   readonly repository: DurableJobRepository;

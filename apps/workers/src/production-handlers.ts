@@ -413,7 +413,12 @@ async function handleEvidencePackageBuild(database: SqlDatabase, infrastructure:
   ].sort((a,b) => a.path.localeCompare(b.path,'en'));
   const zip = createEvidenceZip(allFiles);
   const packageSha = await sha256Hex(zip);
-  const verificationId = randomToken(24);
+  // 32 bytes, not 24: randomToken refuses anything under 256 bits, so this line
+  // threw RangeError on every attempt and no evidence package was ever built.
+  // The verification id is what a member of the public quotes to check a
+  // signature, so guessing it must be infeasible; the floor is right and the
+  // caller was wrong.
+  const verificationId = randomToken(32);
   const suffix = signerId ? `signers/${signerId}/signer-evidence.zip` : 'case/kommunsign-evidence-package-v1.zip';
   const objectKey = `${job.tenantId}/cases/${signatureCaseId}/evidence/${suffix}`;
   await infrastructure.objectStorage.putObject(context, objectKey, zip, 'application/zip', true);

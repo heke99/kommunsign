@@ -744,6 +744,20 @@ async function seedSharedDataPlane(
         requiresCryptographicSignature: true,
         signatureMethod: 'BANKID_TIC_XML_EVIDENCE',
         evidenceSchema: 'kommunsign.bankid-evidence.v2',
+        // Without these three the signing chain cannot run at all:
+        // PADES_CREATE refuses a policy whose required level it cannot read,
+        // rather than guessing a permissive one, so every case created under
+        // this policy dead-lettered at the first signature. Seeded here because
+        // this is the policy every new tenant gets.
+        //
+        // B rather than LT: B is what a deployment can actually produce today.
+        // Raising the level is a per-tenant decision that belongs with the TSA
+        // agreement it depends on, and registering a level the collected
+        // evidence does not carry is exactly what the PAdES admission grid
+        // exists to prevent.
+        requiredPadesLevel: 'B',
+        requiresTimestamp: false,
+        allowedValidationResults: ['TOTAL_PASSED'],
       }],
     ] as const;
     for (const [name, decisionMode, policy] of policies) {

@@ -83,6 +83,15 @@ public final class PadesValidator {
         report.put("engineVersion", ENGINE_VERSION);
         report.put("policyVersion", request.policyVersion());
         report.put("validatedAt", Instant.now().toString());
+        // Every report carries levelEvidence, including the ones that fail
+        // before any evidence has been gathered. The caller requires the field
+        // and treats a report without it as a broken protocol — that is, as a
+        // transport failure to retry rather than a refusal to record. So a
+        // malformed PDF, a hash mismatch or an unparseable signature used to be
+        // retried until the job dead-lettered, and the reason was never written
+        // down. All four are false here because that is what is true before
+        // anything has been checked; the success path overwrites them.
+        report.put("levelEvidence", emptyLevelEvidence());
 
         byte[] pdf;
         try {
@@ -205,6 +214,15 @@ public final class PadesValidator {
         report.put("indication", indication);
         report.put("result", "TOTAL_PASSED".equals(indication) ? "PASS" : "FAIL");
         return report;
+    }
+
+    private static Map<String, Object> emptyLevelEvidence() {
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        evidence.put("hasTrustedCertificatePath", false);
+        evidence.put("hasSignatureTimestamp", false);
+        evidence.put("hasRevocationEvidence", false);
+        evidence.put("hasArchiveTimestamp", false);
+        return evidence;
     }
 
     private Map<String, Object> fail(Map<String, Object> report, List<Map<String, Object>> checks, String code, String detail) {

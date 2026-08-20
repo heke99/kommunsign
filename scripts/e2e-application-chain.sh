@@ -174,7 +174,11 @@ if [[ ! -f "$E2E/signer.p12" ]]; then
 fi
 # The trust anchor the worker will accept. There is no fallback to the JDK's
 # store anywhere in this system, deliberately.
-export SIGNING_TRUST_ANCHORS_BASE64="$(grep -v -- '-----' "$E2E/ca.pem" | tr -d '\n')"
+# tr -d '\r\n', not '\n': keytool -rfc writes CRLF, and a carriage return left
+# inside the base64 makes Java's strict decoder reject the anchor. The symptom
+# was TRUST_ANCHOR_DECODE on every validation, which is indistinguishable from
+# "this signature is not trusted" unless you read the report.
+export SIGNING_TRUST_ANCHORS_BASE64="$(grep -v -- '-----' "$E2E/ca.pem" | tr -d '\r\n')"
 log "signing credential" "CA-issued signer under build/e2e-app"
 
 if [[ ! -f "$ROOT/services/signservice/target/kommunsign-signservice.jar" ]]; then
