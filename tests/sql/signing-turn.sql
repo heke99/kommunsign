@@ -96,10 +96,22 @@ END $$;
 -- A declined predecessor is not a signed one. The case is closed elsewhere,
 -- but the predicate must not treat 'declined' as satisfied: that would make the
 -- final step reachable through a refusal.
-UPDATE app.signers SET status = 'opened', status_version = status_version + 1
-WHERE tenant_id = :tenant AND id = :step1;
+--
+-- The refusal goes straight from 'invited'. Refusing to sign something without
+-- opening it first is a legitimate act, and the API has always accepted it;
+-- until migration data/0031 the transition table did not, so the whole
+-- transaction rolled back and the signer saw a generic failure.
 UPDATE app.signers SET status = 'declined', status_version = status_version + 1
 WHERE tenant_id = :tenant AND id = :step1;
+
+DO $$
+BEGIN
+  IF (SELECT status::text FROM app.signers
+        WHERE tenant_id = '44444444-4444-4444-8444-444444444444'
+          AND id = 'aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa') <> 'declined' THEN
+    RAISE EXCEPTION 'an invited signer must be able to decline without opening the document';
+  END IF;
+END $$;
 
 DO $$
 BEGIN
