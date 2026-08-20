@@ -55,6 +55,8 @@ interface PostgresTiming {
   /** Whether this pool prepares statements. Reported so a deploy can be told apart from a guess. */
   prepared: boolean;
   transactions: number;
+  /** Reads that ran on their own, with no transaction around them. */
+  statements: number;
   queries: number;
   /** Time from asking for a transaction to having a connection ready to run statements. */
   acquireMs: number;
@@ -81,13 +83,17 @@ export function postgresTimingSnapshot(): Readonly<Record<string, Readonly<Recor
       // rolling deploy will otherwise attribute to the wrong build.
       preparedStatements: timing.prepared ? 1 : 0,
       transactions: timing.transactions,
+      statements: timing.statements,
       queries: timing.queries,
       acquireMsTotal: Math.round(timing.acquireMs),
       queryMsTotal: Math.round(timing.queryMs),
       totalMsTotal: Math.round(timing.totalMs),
       acquireMsMean: timing.transactions ? Math.round(timing.acquireMs / timing.transactions) : 0,
       queryMsMean: timing.queries ? Math.round(timing.queryMs / timing.queries) : 0,
-      totalMsMean: timing.transactions ? Math.round(timing.totalMs / timing.transactions) : 0,
+      // Over both paths, since a transaction-free read is a unit of work in its own right.
+      totalMsMean: timing.transactions + timing.statements
+        ? Math.round(timing.totalMs / (timing.transactions + timing.statements))
+        : 0,
     };
   }
   return snapshot;
@@ -109,7 +115,7 @@ export async function createPostgresDatabase(
     throw new Error('POSTGRES_DRIVER_NOT_INSTALLED', { cause });
   }
   const prepared = !pooledConnection(connectionUrl);
-  const timing: PostgresTiming = { prepared, transactions: 0, queries: 0, acquireMs: 0, queryMs: 0, totalMs: 0 };
+  const timing: PostgresTiming = { prepared, transactions: 0, statements: 0, queries: 0, acquireMs: 0, queryMs: 0, totalMs: 0 };
   timings.set(applicationName, timing);
 
   const client = factory(connectionUrl, {
@@ -168,6 +174,21 @@ export async function createPostgresDatabase(
       } finally {
         timing.transactions += 1;
         timing.totalMs += performance.now() - started;
+      }
+    },
+    async queryWithoutTenantContext<Row = Readonly<Record<string, unknown>>>(query: string, parameters: readonly unknown[] = []): Promise<QueryResult<Row>> {
+      // No begin, no commit. Both are a cross-region round trip each, and a lone statement is
+      // atomic without them. Timed alongside the transaction path so the two stay comparable.
+      const started = performance.now();
+      try {
+        const rows = await client.unsafe<Row>(query, parameters);
+        return { rows, rowCount: rows.count ?? rows.length };
+      } finally {
+        timing.queries += 1;
+        timing.statements += 1;
+        const elapsed = performance.now() - started;
+        timing.queryMs += elapsed;
+        timing.totalMs += elapsed;
       }
     },
     async listen(channel: string, handler: (payload: string) => void): Promise<() => Promise<void>> {

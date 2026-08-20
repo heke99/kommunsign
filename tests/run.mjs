@@ -4384,6 +4384,37 @@ test('an unauthenticated request is refused, not reported as a server fault', as
   assert.equal((await failure.json()).error.code, 'INTERNAL_ERROR');
 });
 
+test('a read that needs no tenant context skips the transaction, and falls back when it cannot', async () => {
+  const { readWithoutTenantContext } = await import('../dist/packages/database/src/index.js');
+  // Begin, statement and commit each cost one cross-region round trip, so wrapping a lone SELECT in
+  // a transaction doubled what it cost. One statement is atomic on its own; a transaction adds
+  // isolation only where there is a second statement to be isolated from.
+  const direct = [];
+  const withDirectPath = {
+    transaction: async () => { throw new Error('a transaction must not be opened when the direct path exists'); },
+    queryWithoutTenantContext: async (sql, parameters) => { direct.push({ sql, parameters }); return { rows: [{ ok: 1 }], rowCount: 1 }; },
+  };
+  assert.deepEqual((await readWithoutTenantContext(withDirectPath, 'select 1', ['a'])).rows, [{ ok: 1 }]);
+  assert.deepEqual(direct, [{ sql: 'select 1', parameters: ['a'] }]);
+
+  // An implementation without the direct path -- the development runtime, and every fake in these
+  // tests -- must still work. The optimisation is allowed to be absent; it is not allowed to be
+  // required.
+  const transactions = [];
+  const withoutDirectPath = {
+    transaction: async (work) => work({
+      query: async (sql, parameters) => { transactions.push({ sql, parameters }); return { rows: [{ ok: 2 }], rowCount: 1 }; },
+    }),
+  };
+  assert.deepEqual((await readWithoutTenantContext(withoutDirectPath, 'select 2', ['b'])).rows, [{ ok: 2 }]);
+  assert.deepEqual(transactions, [{ sql: 'select 2', parameters: ['b'] }]);
+
+  // withTenantTransaction must stay a transaction whatever else changes: set_config is
+  // transaction-local, and it is what every RLS policy in app reads.
+  const databaseSource = await readFile('packages/database/src/index.ts', 'utf8');
+  assert.match(databaseSource, /export async function withTenantTransaction[\s\S]{0,600}?database\.transaction\(/);
+});
+
 test('prepared statements are used on a direct connection and never through the transaction pooler', async () => {
   const { pooledConnection } = await import('../dist/apps/api/src/production-adapters/postgres/sql-database.js');
   // In transaction mode each transaction can land on a different backend, so a statement prepared
