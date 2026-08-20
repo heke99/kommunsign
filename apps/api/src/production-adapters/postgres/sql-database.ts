@@ -121,11 +121,21 @@ export async function createPostgresDatabase(
     connect_timeout: 15,
     max_lifetime: 60 * 30,
     application_name: applicationName,
-    // Prepared statements are worth having on a direct connection and actively harmful through a
-    // transaction pooler. In transaction mode each transaction can land on a different backend, so
-    // a statement prepared on one is never found on the next: every query pays Parse before it can
-    // Bind and Execute. Measured against production that was exactly two round trips per query
-    // where one would do -- half the cost of a trivial read.
+    // Prepared statements cannot be reused through a transaction pooler: in transaction mode each
+    // transaction can land on a different backend, so a statement prepared on one is never found on
+    // the next. Supabase documents this, and the setting was inherited from a direct-connection
+    // default.
+    //
+    // It was turned off here expecting to save a round trip. Measured against production, it saved
+    // none: a trivial read cost 170 ms to begin, 340 ms for the query and 171 ms to commit both
+    // before and after. So this is correctness rather than speed, and the second round trip inside
+    // the query has some other cause.
+    //
+    // What those numbers did say is that one round trip cost ~170 ms, where Netherlands to
+    // Stockholm should be 20-25. Moving the service to a region beside the database made the same
+    // read 27 / 54 / 27 ms -- the same four round trips, 108 ms instead of 681. The cost was the
+    // distance, never the SQL. What is left to win here is the count: begin and commit around a
+    // single read are two of those four.
     prepare: prepared,
     transform: { undefined: null },
   });
