@@ -52,6 +52,8 @@ function boundedOption(value: number | undefined, fallback: number, minimum: num
 }
 
 interface PostgresTiming {
+  /** Whether this pool prepares statements. Reported so a deploy can be told apart from a guess. */
+  prepared: boolean;
   transactions: number;
   queries: number;
   /** Time from asking for a transaction to having a connection ready to run statements. */
@@ -73,6 +75,11 @@ export function postgresTimingSnapshot(): Readonly<Record<string, Readonly<Recor
   const snapshot: Record<string, Record<string, number>> = {};
   for (const [name, timing] of timings) {
     snapshot[name] = {
+      // 1 or 0 rather than a boolean, because this map is numbers. It says which side of the
+      // pooled-connection test this deployment's connection string actually fell on -- the thing
+      // that cannot be checked from outside the process, and that a measurement taken during a
+      // rolling deploy will otherwise attribute to the wrong build.
+      preparedStatements: timing.prepared ? 1 : 0,
       transactions: timing.transactions,
       queries: timing.queries,
       acquireMsTotal: Math.round(timing.acquireMs),
@@ -101,7 +108,8 @@ export async function createPostgresDatabase(
   } catch (cause) {
     throw new Error('POSTGRES_DRIVER_NOT_INSTALLED', { cause });
   }
-  const timing: PostgresTiming = { transactions: 0, queries: 0, acquireMs: 0, queryMs: 0, totalMs: 0 };
+  const prepared = !pooledConnection(connectionUrl);
+  const timing: PostgresTiming = { prepared, transactions: 0, queries: 0, acquireMs: 0, queryMs: 0, totalMs: 0 };
   timings.set(applicationName, timing);
 
   const client = factory(connectionUrl, {
@@ -118,7 +126,7 @@ export async function createPostgresDatabase(
     // a statement prepared on one is never found on the next: every query pays Parse before it can
     // Bind and Execute. Measured against production that was exactly two round trips per query
     // where one would do -- half the cost of a trivial read.
-    prepare: !pooledConnection(connectionUrl),
+    prepare: prepared,
     transform: { undefined: null },
   });
 
