@@ -105,6 +105,7 @@ import {
 } from '../dist/apps/workers/src/platform-handlers.js';
 import { handlePrivacyRequestExecute } from '../dist/apps/workers/src/privacy-handlers.js';
 import { handleScimRequest } from '../dist/apps/api/src/scim-router.js';
+import { createKeepAliveFetch } from '../dist/apps/api/src/adapters/keep-alive-fetch.js';
 import { handleFederationRequest } from '../dist/apps/api/src/federation-router.js';
 import {
   PROMETHEUS_COUNTERS, PROMETHEUS_GAUGES, PROMETHEUS_UNFED_SERIES, renderPrometheus,
@@ -4249,6 +4250,37 @@ test('s3 adapter signs writes with a signature an independent SigV4 reproduces',
     authorization,
     `AWS4-HMAC-SHA256 Credential=${s3Settings.S3_ACCESS_KEY_ID}/${expected.scope}, SignedHeaders=${expected.signedHeaders}, Signature=${expected.signature}`,
   );
+});
+
+test('the keep-alive fetch answers for what the auth provider sends and defers on everything else', async () => {
+  // Node's fetch closes an idle connection after four seconds, so an endpoint as quiet as login
+  // paid for a TLS handshake almost every time. This client exists to hold that connection open,
+  // which is only acceptable while it behaves identically to fetch for anything it does not
+  // handle -- the failure mode of getting that wrong is a request that silently goes somewhere
+  // else, or goes without the headers it was given.
+  const deferred = [];
+  const fallback = async (input, init) => { deferred.push({ input: String(input), init }); return new Response('{}', { status: 200 }); };
+  const keepAlive = createKeepAliveFetch(fallback);
+
+  // Plaintext is what local development uses; it is not this client's job.
+  await keepAlive('http://127.0.0.1:9999/auth/v1/token', { method: 'POST', body: '{}' });
+  // A Headers instance and a Request object both carry more than a plain object can express.
+  await keepAlive('https://auth.example.org/x', { headers: new Headers({ 'x-a': 'b' }) });
+  await keepAlive(new Request('https://auth.example.org/x'));
+  // A binary body is not something this client claims to send.
+  await keepAlive('https://auth.example.org/x', { method: 'POST', body: new Uint8Array([1, 2]) });
+  assert.equal(deferred.length, 4, 'every unsupported shape must reach the fallback unchanged');
+  assert.equal(deferred[1].init.headers.get('x-a'), 'b');
+
+  // An abort has to arrive named as an abort: the auth provider tells a timeout apart from an
+  // outage by that name alone, and reports 504 or 503 accordingly.
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    keepAlive('https://auth.example.org/auth/v1/token', { method: 'POST', body: '{}', signal: controller.signal }),
+    (error) => error.name === 'AbortError',
+  );
+  assert.equal(deferred.length, 4, 'a supported request must not also reach the fallback');
 });
 
 test('s3 adapter confirms a bucket once per adapter, and never remembers a failed confirmation', async () => {
