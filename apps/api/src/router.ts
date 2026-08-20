@@ -73,6 +73,11 @@ function artifactResponse(artifact: DownloadArtifact, requestId: string): Respon
     'x-request-id': requestId,
   };
   if (artifact.sha256) headers['digest'] = `sha-256=${artifact.sha256}`;
+  // Stated explicitly because the server streams this body to the socket rather than buffering it,
+  // and a Response built from bytes does not expose a content-length of its own. Without it the
+  // download would go out chunked, and a browser downloading a 20 MB document would have no idea
+  // how far along it is.
+  headers['content-length'] = String(artifact.bytes.byteLength);
   return new Response(artifact.bytes, { status: 200, headers });
 }
 function idFromPath(pathname: string): string | null {

@@ -1006,6 +1006,7 @@ test('request body ceilings match the limits each route actually declares', asyn
 });
 
 test('responses compress except where compressing would leak a secret', async () => {
+  const { compressibleResponse } = await import('../apps/api/compression.mjs');
   const { compress, compressible } = await import('../apps/api/compression.mjs');
   const { brotliDecompress, gunzip } = await import('node:zlib');
   const { promisify } = await import('node:util');
@@ -1026,6 +1027,21 @@ test('responses compress except where compressing would leak a secret', async ()
 
   assert.equal(compressible(brotliClient, '/v1/x', 200, json, Buffer.alloc(100)), null, 'small bodies');
   assert.equal(compressible(brotliClient, '/v1/x', 200, { 'content-type': 'application/pdf' }, big), null, 'already compressed');
+
+  // Large bodies are handed to the socket as they arrive rather than being buffered, so the
+  // decision has to be made from the headers alone, before a body exists. A document must still
+  // be refused compression when the length is not known yet -- the type is what disqualifies it,
+  // not the size.
+  assert.equal(compressibleResponse(brotliClient, '/v1/x', 200, { 'content-type': 'application/pdf' }, null), null);
+  assert.equal(compressibleResponse(brotliClient, '/v1/auth/session', 200, json, null), null, 'BREACH: never on an auth body');
+  assert.equal(compressibleResponse(brotliClient, '/v1/x', 200, json, null), 'br', 'unknown length is not a reason to skip');
+  assert.equal(compressibleResponse(brotliClient, '/v1/x', 200, json, 100), null, 'a declared small body still skips');
+
+  // The streamed path must stop reading from storage when the client goes away, or a cancelled
+  // download keeps pulling a 20 MB file across regions for nobody.
+  const dispatchSource = await readFile('apps/api/server.mjs', 'utf8');
+  assert.match(dispatchSource, /Readable\.fromWeb\(fetchResponse\.body\)/);
+  assert.match(dispatchSource, /response\.on\('close'[\s\S]{0,120}?source\.destroy\(\)/);
   assert.equal(compressible(brotliClient, '/v1/x', 304, json, big), null, 'not modified');
   assert.equal(compressible(brotliClient, '/v1/x', 200, { ...json, 'content-encoding': 'gzip' }, big), null, 'double encoding');
 
