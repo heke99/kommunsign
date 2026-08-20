@@ -6,6 +6,7 @@ interface PostgresTransaction {
 }
 interface PostgresClient extends PostgresTransaction {
   begin<T>(work: (transaction: PostgresTransaction) => Promise<T>): Promise<T>;
+  listen(channel: string, handler: (payload: string) => void): Promise<{ readonly unlisten: () => Promise<void> }>;
   end(options?: { readonly timeout?: number }): Promise<void>;
 }
 type PostgresFactory = (connection: string, options?: Readonly<Record<string, unknown>>) => PostgresClient;
@@ -13,6 +14,13 @@ type PostgresFactory = (connection: string, options?: Readonly<Record<string, un
 export interface PostgresDatabase extends SqlDatabase {
   readonly close: () => Promise<void>;
   readonly healthCheck: () => Promise<void>;
+  /**
+   * Subscribe to a Postgres NOTIFY channel on a dedicated connection.
+   *
+   * Used to wake a worker the moment a job becomes claimable rather than waiting out its poll
+   * backoff. Returns a function that stops listening.
+   */
+  readonly listen: (channel: string, handler: (payload: string) => void) => Promise<() => Promise<void>>;
 }
 
 export interface PostgresPoolOptions {
@@ -123,6 +131,11 @@ export async function createPostgresDatabase(
         timing.transactions += 1;
         timing.totalMs += performance.now() - started;
       }
+    },
+    async listen(channel: string, handler: (payload: string) => void): Promise<() => Promise<void>> {
+      if (!/^[a-z_][a-z0-9_]{0,62}$/.test(channel)) throw new Error('POSTGRES_LISTEN_CHANNEL_INVALID');
+      const subscription = await client.listen(channel, handler);
+      return () => subscription.unlisten();
     },
     async healthCheck(): Promise<void> {
       const rows = await client.unsafe<{ readonly ok: number }>('select 1::int as ok');
