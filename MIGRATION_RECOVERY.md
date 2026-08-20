@@ -18,14 +18,30 @@ Some migrations use `CREATE INDEX CONCURRENTLY`, which PostgreSQL refuses to run
 transaction block. `scripts/db-migrate.sh` detects the `-- Transaction: none` header and runs those
 files without `--single-transaction`.
 
-These files must be applied over a **direct (session mode) connection**, not the Supabase transaction
-pooler. The pooler wraps statements in a transaction, so `CREATE INDEX CONCURRENTLY` fails there with:
+These files need a connection that does **not** wrap statements in a transaction. The Supabase
+transaction pooler (port **6543**) does, so `CREATE INDEX CONCURRENTLY` fails there with:
 
 ```
 ERROR: 25001: CREATE INDEX CONCURRENTLY cannot run inside a transaction block
 ```
 
-Point `CONTROL_DATABASE_URL` / `DATA_DATABASE_URL` at the direct database host for the migration run.
+Two connections work: the direct database host, and the **session pooler** on port **5432**, which
+hands the client a backend for the length of the session rather than per statement.
+
+Which of the two you can reach depends on where you are running from:
+
+| Connection | Host | IP |
+|---|---|---|
+| Direct | `db.<project-ref>.supabase.co:5432` | **IPv6 only** |
+| Session pooler | `aws-0-<region>.pooler.supabase.com:5432` | IPv4 |
+| Transaction pooler | `aws-0-<region>.pooler.supabase.com:6543` | IPv4 — **cannot run these migrations** |
+
+GitHub's hosted runners have no IPv6, so the direct host is unreachable from Actions and the
+**session pooler is the one to use there**. Locally, either works if your network has IPv6.
+
+The workflow does not decide this from the hostname. It refuses port 6543 outright, and then proves
+on the real connection that `CREATE INDEX CONCURRENTLY` succeeds -- on a throwaway table, before
+anything touches the schema. A hostname is a guess; that is a test.
 
 If such a migration fails partway, PostgreSQL can leave an `INVALID` index behind. Every one of these
 files drops each index before recreating it, so re-running is safe. Confirm afterwards:
@@ -42,13 +58,16 @@ Use the **Database migration (production)** workflow
 (`.github/workflows/db-migrate-production.yml`). Dispatch it with `action: status` to list what is
 pending, then with `action: migrate` and the word `production` in the confirm box to apply.
 
-It needs two repository secrets, both **direct** connection strings:
+It needs two repository secrets:
 
 - `CONTROL_DATABASE_URL`
 - `DATA_DATABASE_URL`
 
-Not the transaction pooler. The pooler wraps statements in a transaction and rejects
-`CREATE INDEX CONCURRENTLY`; the workflow refuses a pooled-looking URL rather than failing halfway.
+Anything except the transaction pooler on port 6543 -- see the table above. From GitHub Actions that
+means the session pooler on port 5432, since the direct host is IPv6 only.
+
+Run it with `action: status` first. That tests both connections and lists what is pending without
+changing any schema.
 
 After applying it re-runs the migrator to prove the pass was idempotent, and fails if any index was
 left `INVALID`.

@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'status = report pending migrations only. migrate = apply them.'
+        description: 'status = test the connection and report pending migrations. migrate = apply them.'
         required: true
         default: status
         type: choice
@@ -51,19 +51,57 @@ jobs:
           test -n "$CONTROL_DATABASE_URL" || { echo 'CONTROL_DATABASE_URL secret is not set' >&2; exit 1; }
           test -n "$DATA_DATABASE_URL" || { echo 'DATA_DATABASE_URL secret is not set' >&2; exit 1; }
 
-      - name: Refuse a pooled connection
-        # CREATE INDEX CONCURRENTLY cannot run through the transaction pooler. Failing here is far
-        # cheaper than failing halfway through a migration.
+      - name: Refuse a transaction-mode connection
+        # CREATE INDEX CONCURRENTLY cannot run inside a transaction block, and the transaction
+        # pooler on 6543 wraps every statement in one. Session mode on 5432 does not -- it hands the
+        # client a backend for the length of the session -- so it is allowed here.
+        #
+        # This used to refuse anything pooled and demand the direct host. The direct host resolves
+        # to IPv6 only, and GitHub's runners have no IPv6, so that rule made the workflow
+        # impossible to run rather than safe. The next step proves the connection can actually do
+        # what the migrations need, which is worth more than guessing from the hostname.
         run: |
           for url in "$CONTROL_DATABASE_URL" "$DATA_DATABASE_URL"; do
             case "$url" in
-              *pooler.supabase.com*|*:6543/*)
-                echo 'Refusing: this looks like a pooled connection string.' >&2
-                echo 'Use the direct database host, or CREATE INDEX CONCURRENTLY will fail.' >&2
+              *:6543/*|*:6543\?*)
+                echo 'Refusing: port 6543 is the transaction pooler.' >&2
+                echo 'CREATE INDEX CONCURRENTLY cannot run there. Use the direct host, or the' >&2
+                echo 'session pooler on port 5432.' >&2
                 exit 1;;
             esac
           done
-          echo 'Connection strings look direct.'
+          echo 'Neither connection string is transaction-mode.'
+
+      - name: Prove CREATE INDEX CONCURRENTLY works on this connection
+        # Several migrations depend on it. Whether a given connection can run it depends on how the
+        # connection is pooled, which is not something a hostname reliably tells you -- so it is
+        # tested on the real connection, on a throwaway table, before anything touches the schema.
+        # A migration that fails halfway leaves an INVALID index behind; this failing costs nothing.
+        #
+        # It runs for `status` too, even though nothing else in that mode writes. Finding out that
+        # the connection is wrong is the whole reason to run `status` first, and the cost is one
+        # throwaway table created and dropped inside the migration registry's own schema.
+        run: |
+          for scope in control data; do
+            case "$scope" in
+              control) url="$CONTROL_DATABASE_URL";;
+              data)    url="$DATA_DATABASE_URL";;
+            esac
+            psql "$url" -v ON_ERROR_STOP=1 -q \
+              -c 'CREATE SCHEMA IF NOT EXISTS kommunsign_meta' \
+              -c 'DROP TABLE IF EXISTS kommunsign_meta.concurrent_index_preflight' \
+              -c 'CREATE TABLE kommunsign_meta.concurrent_index_preflight(id integer)' \
+              -c 'CREATE INDEX CONCURRENTLY concurrent_index_preflight_idx ON kommunsign_meta.concurrent_index_preflight(id)' \
+              -c 'DROP TABLE kommunsign_meta.concurrent_index_preflight' \
+            || {
+              echo "Refusing: $scope cannot run CREATE INDEX CONCURRENTLY over this connection." >&2
+              echo 'Error 25001 means the connection wraps statements in a transaction: it is the' >&2
+              echo 'transaction pooler. Use the direct host or the session pooler on port 5432.' >&2
+              psql "$url" -q -c 'DROP TABLE IF EXISTS kommunsign_meta.concurrent_index_preflight' || true
+              exit 1
+            }
+            echo "$scope can run CREATE INDEX CONCURRENTLY."
+          done
 
       - name: Report what is already applied
         run: |
