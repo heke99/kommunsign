@@ -113,6 +113,20 @@ if (!devRuntime.includes('DEVELOPMENT_RUNTIME_FORBIDDEN_IN_PRODUCTION')) throw n
 const dockerfile = await readFile('infrastructure/docker/api.Dockerfile', 'utf8');
 if (!dockerfile.includes('npm ci --ignore-scripts') || !dockerfile.includes('apps/api/server.mjs')) throw new Error('API container is not reproducibly bootstrapped');
 if (!dockerfile.includes('/app/package.json') || !dockerfile.includes('/app/node_modules')) throw new Error('API image must retain ESM metadata and runtime dependencies');
+
+// The image once copied server.mjs by name while server.mjs imported siblings beside it. The
+// container then crashlooped on ERR_MODULE_NOT_FOUND at boot, and because it never became healthy
+// the platform kept serving the previous image -- so the deployment looked stuck rather than
+// broken, and nothing in the repository disagreed. Every sibling module the entrypoint imports must
+// be reachable in the runtime stage, checked here rather than discovered in production.
+const serverEntrypoint = await readFile('apps/api/server.mjs', 'utf8');
+const runtimeStage = dockerfile.slice(dockerfile.lastIndexOf('\nFROM '));
+for (const [, specifier] of serverEntrypoint.matchAll(/^import[^']*'(\.\/[^']+\.mjs)'/gm)) {
+  const name = specifier.slice(2);
+  const copied = runtimeStage.includes(`/app/apps/api/${name}`) || /COPY[^\n]*\/app\/apps\/api\/\*\.mjs/.test(runtimeStage);
+  if (!copied) throw new Error(`API image does not copy ${name}, which apps/api/server.mjs imports`);
+  await readFile(`apps/api/${name}`, 'utf8');
+}
 const kubernetes = await readFile('infrastructure/kubernetes/base/api-deployment.yaml', 'utf8');
 if (/:latest\b/.test(kubernetes)) throw new Error('Production manifests may not use latest tags');
 if (!kubernetes.includes('registry.invalid/')) throw new Error('Provider-neutral manifest must remain fail-closed until release digest injection');
