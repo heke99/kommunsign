@@ -178,6 +178,40 @@ END $$;
 UPDATE app.key_rotations SET state='ROLLED_BACK', rolled_back_reason='Ny nyckel kunde inte laddas i HSM'
  WHERE tenant_id=:tenant AND id=:second;
 
+-- ===========================================================================
+-- 8. A row written while the session names a key version must carry it.
+--
+--    The column defaulted to 1 and nothing set it, so after activating version
+--    2 every new row still claimed the old key — and the question the column
+--    exists to answer, "what is left to re-encrypt", could never reach zero.
+-- ===========================================================================
+SELECT set_config('app.key_version', '2', true);
+INSERT INTO app.users (tenant_id, id, external_subject, display_name, email_ciphertext)
+VALUES (:tenant, '19191919-8888-4191-8191-191919191919', 'rotated-subject', 'Rotated', '\x01'::bytea);
+
+DO $$ BEGIN
+  IF (SELECT key_version FROM app.users
+       WHERE tenant_id='19191919-1919-4191-8191-191919191919'
+         AND id='19191919-8888-4191-8191-191919191919') <> 2 THEN
+    RAISE EXCEPTION 'GUARD FAILED: a row written under key version 2 did not record it';
+  END IF;
+END $$;
+
+-- A session that names no version is writing under version 1, which is what
+-- the column already defaults to. Refusing the write would be worse than
+-- recording the version that is actually in use.
+SELECT set_config('app.key_version', '', true);
+INSERT INTO app.users (tenant_id, id, external_subject, display_name, email_ciphertext)
+VALUES (:tenant, '19191919-9999-4191-8191-191919191919', 'unversioned-subject', 'Unversioned', '\x01'::bytea);
+
+DO $$ BEGIN
+  IF (SELECT key_version FROM app.users
+       WHERE tenant_id='19191919-1919-4191-8191-191919191919'
+         AND id='19191919-9999-4191-8191-191919191919') <> 1 THEN
+    RAISE EXCEPTION 'GUARD FAILED: a session with no key version must write version 1';
+  END IF;
+END $$;
+
 SELECT 'key rotation guards: OK' AS result;
 
 ROLLBACK;

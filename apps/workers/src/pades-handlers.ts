@@ -290,10 +290,23 @@ export async function handlePadesValidate(
   const requiredLevel = requiredPadesLevel(policy);
 
   await trustedService(database, job.tenantId, async (tx) => {
-    await tx.query(
+    const run = await tx.query<{ readonly id: string }>(
       `insert into app.validation_runs(tenant_id,signature_artifact_id,validator,validator_version,indication,trust_list_snapshot_object_key,machine_report_object_key,human_report_object_key,report_sha256,validated_at)
-       values($1,$2,$3,$4,$5,$6,$7,$8,$9,now())`,
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9,now()) returning id`,
       [job.tenantId, artifactId, report.engine, report.engineVersion, report.indication, null, reportKey, reportKey, reportSha256],
+    );
+
+    // app.validation_reports is what the tenant's download endpoint reads. It
+    // had no writer at all, so asking for a validation report always answered
+    // VALIDATION_REPORT_NOT_AVAILABLE, for every case, whatever the validator
+    // had said. One row per report that actually exists: the machine report is
+    // the one this pipeline produces, and claiming a human-readable rendering
+    // that nothing renders is the kind of claim this service should not make.
+    await tx.query(
+      `insert into app.validation_reports(tenant_id,validation_run_id,report_type,object_key,sha256)
+       values($1,$2,'machine',$3,$4)
+       on conflict (tenant_id,validation_run_id,report_type) do nothing`,
+      [job.tenantId, requireRow(run.rows[0], 'VALIDATION_RUN_NOT_RECORDED').id, reportKey, reportSha256],
     );
 
     if (report.result !== 'PASS') {

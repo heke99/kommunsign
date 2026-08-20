@@ -542,11 +542,16 @@ async function downloadCaseArtifact(database: SqlDatabase, infrastructure: Produ
           join app.signature_attempts attempt on attempt.tenant_id=a.tenant_id and attempt.id=a.signature_attempt_id
           join app.document_versions v on v.tenant_id=attempt.tenant_id and v.id=attempt.document_version_id
           join app.documents d on d.tenant_id=v.tenant_id and d.id=v.document_id
-         where r.tenant_id=$1 and d.signature_case_id=$2 and r.report_type='human'
+         where r.tenant_id=$1 and d.signature_case_id=$2 and r.report_type='machine'
          order by run.validated_at desc limit 1`, [context.tenantId,id],
       );
       const row = requireRow(result.rows[0], 'VALIDATION_REPORT_NOT_AVAILABLE');
-      return infrastructure.objectStorage.downloadObject(context, row.object_key, { contentType: 'application/pdf', fileName: `validation-${id}.pdf`, sha256: row.sha256 });
+      // The machine report, served as what it is. This asked for report_type
+      // 'human' and labelled the result application/pdf, and the pipeline
+      // writes neither: there is no human-readable rendering, and the bytes are
+      // the validator's JSON. Naming it correctly is the difference between a
+      // report a recipient can check and one they cannot open.
+      return infrastructure.objectStorage.downloadObject(context, row.object_key, { contentType: 'application/json', fileName: `validation-${id}.json`, sha256: row.sha256 });
     }
     const result = await transaction.query<{ readonly object_key: string; readonly manifest_sha256: string }>(
       `select object_key,manifest_sha256 from app.evidence_packages where tenant_id=$1 and signature_case_id=$2 and status='ready' order by created_at desc limit 1`, [context.tenantId,id],

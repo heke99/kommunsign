@@ -1,5 +1,6 @@
 import type { DownloadArtifact, UploadGrantInput } from '../../ports.js';
 import type { TenantContext } from '../../../../../packages/contracts/src/index.js';
+import { setWritingKeyVersion } from '../../../../../packages/database/src/index.js';
 
 export interface ObjectStorageAdapter {
   provisionTenantNamespaces(input: { readonly tenantId: string; readonly bucketNames: readonly string[]; readonly idempotencyKey: string }): Promise<{ readonly namespaceReference: string }>;
@@ -38,7 +39,12 @@ export async function loadProductionInfrastructure(environment: Readonly<Record<
   if (typeof queue.createQueueAdapter !== 'function') throw new Error('QUEUE_ADAPTER_EXPORT_MISSING');
   if (typeof sensitiveData.createSensitiveDataAdapter !== 'function') throw new Error('SENSITIVE_DATA_ADAPTER_EXPORT_MISSING');
   const configuration = Object.fromEntries(Object.entries(environment).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
-  return { objectStorage: await storage.createObjectStorageAdapter(configuration), queue: await queue.createQueueAdapter(configuration), sensitiveData: await sensitiveData.createSensitiveDataAdapter(configuration) };
+  const sensitiveDataAdapter = await sensitiveData.createSensitiveDataAdapter(configuration);
+  // The database stamps key_version on insert from a per-transaction setting;
+  // this is where the value comes from. Told once at startup rather than passed
+  // through every call, because the active key is a property of the deployment.
+  setWritingKeyVersion(sensitiveDataAdapter.keyVersion?.() ?? 1);
+  return { objectStorage: await storage.createObjectStorageAdapter(configuration), queue: await queue.createQueueAdapter(configuration), sensitiveData: sensitiveDataAdapter };
 }
 
 async function load(moduleName: string): Promise<InfrastructureModule> {
