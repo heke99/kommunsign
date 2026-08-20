@@ -87,3 +87,30 @@ protected by it. Both were set back to the state the migrations define.
 
 If row level security on the control plane is wanted, it needs policies and a migration, not a
 dashboard toggle.
+
+## Registry drift repaired 2026-08-20
+
+The data plane's registry said migration 0020 while the schema had objects from later ones. That
+happens when migrations are applied outside `scripts/db-migrate.sh` -- as several were, earlier the
+same day, through the Supabase API -- because nothing then writes the `kommunsign_meta.schema_migrations`
+row that makes the next run skip them.
+
+Worse than the missing rows was what the drift hid. Checking one representative object per migration
+is not enough to conclude a migration ran:
+
+- **0021** looked applied because `app.protect_identity_transaction_binding` exists. That function is
+  created by 0009; 0021 only *replaces* it. Twelve of its fourteen objects were missing, including the
+  PAdES revision-chain guard and `app.signing_intent_manifests`.
+- **0030** looked applied because one of its indexes exists. Fourteen were missing -- every one on a
+  table that migrations 0024 to 0029 create, none of which had run.
+- **0033** looked *missing* because the check asked for `subject_membership_destinations(uuid)` and the
+  function takes `text`. It was there all along.
+
+All fifteen files from 0021 to 0035 are now applied and recorded with checksums computed from the
+files. Verified afterwards: no expected index absent, no index invalid, every table in `app` carrying
+RLS with FORCE, every policy in the `(SELECT app.current_tenant_id())` form, and PUBLIC unable to
+execute `app.notify_durable_job`.
+
+If a migration must be applied outside the tracked runner again, record the row in the same
+transaction as the DDL, and compute the checksum from the file with `shasum -a 256` -- never by hand.
+Verify by asserting **every** object the file creates, not one of them.
