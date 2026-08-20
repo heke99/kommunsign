@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { encryptedFromJson } from '../dist/packages/document-processing/src/production.js';
 import { createOidcTransaction, verifyOidcCallback } from '../dist/packages/auth/src/index.js';
 import { contrastRatio, validateAndNormalizeBranding } from '../dist/packages/branding/src/index.js';
 import { assertDomainTransition, canonicalHostname } from '../dist/packages/custom-domains/src/index.js';
@@ -58,5 +59,14 @@ assert.equal(storedBytesMatchGrant({ expectedSha256: CLEAN, actualSha256: CLEAN,
 // at all until someone runs the worker against a real database.
 const scanSource = await readFile(new URL('../apps/workers/src/production-handlers.ts', import.meta.url), 'utf8');
 assert.match(scanSource, /storedBytesMatchGrant\(\{[\s\S]{0,400}?DOCUMENT_HASH_MISMATCH/);
+
+// Encryption used to be established by a qpdf run of its own. It is now read out of the JSON that
+// run already produces, which is only safe while an unrecognised shape means "ask qpdf" rather than
+// "not encrypted" -- an encrypted document that reads as unencrypted is one that gets signed.
+assert.equal(encryptedFromJson('{"encrypt":{"encrypted":true}}'), true);
+assert.equal(encryptedFromJson('{"encrypt":{"encrypted":false}}'), false);
+for (const output of ['', 'not json', 'null', '[]', '{}', '{"encrypt":null}', '{"encrypt":{}}', '{"encrypt":{"encrypted":"true"}}', '{"encrypt":{"encrypted":1}}']) {
+  assert.equal(encryptedFromJson(output), null, `unrecognised qpdf JSON must fall back, not pass: ${output}`);
+}
 
 console.log('security tests: branding, SSRF, domains, uploads, invitations and OIDC passed');
