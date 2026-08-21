@@ -1,0 +1,181 @@
+name: Database migration (production)
+
+# Applying migrations to production needs a direct network path to Postgres and the tracked runner
+# in scripts/db-migrate.sh, which computes each file's SHA-256, refuses checksum drift, and knows
+# which migrations must run outside a transaction. Running the SQL by hand somewhere else gets the
+# registry wrong or the transaction mode wrong, so this workflow is the supported way to do it.
+#
+# Two things this deliberately does NOT do: it does not run on push, and it does not hold the
+# credentials. It is dispatched by a human, against a protected environment, using secrets only an
+# administrator can set.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'status = test the connection and report pending migrations. migrate = apply them.'
+        required: true
+        default: status
+        type: choice
+        options: [status, migrate]
+      confirm:
+        description: 'Type the word "production" to apply. Ignored when action is status.'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: db-migrate-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Configure required reviewers on this environment to gate the run.
+    environment: production
+    env:
+      # These must be DIRECT connection strings, not the transaction pooler: the pooler wraps
+      # statements in a transaction and rejects CREATE INDEX CONCURRENTLY, which several migrations
+      # depend on.
+      CONTROL_DATABASE_URL: ${{ secrets.CONTROL_DATABASE_URL }}
+      DATA_DATABASE_URL: ${{ secrets.DATA_DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Refuse to run without credentials
+        run: |
+          test -n "$CONTROL_DATABASE_URL" || { echo 'CONTROL_DATABASE_URL secret is not set' >&2; exit 1; }
+          test -n "$DATA_DATABASE_URL" || { echo 'DATA_DATABASE_URL secret is not set' >&2; exit 1; }
+
+      - name: Refuse a transaction-mode connection
+        # CREATE INDEX CONCURRENTLY cannot run inside a transaction block, and the transaction
+        # pooler on 6543 wraps every statement in one. Session mode on 5432 does not -- it hands the
+        # client a backend for the length of the session -- so it is allowed here.
+        #
+        # This used to refuse anything pooled and demand the direct host. The direct host resolves
+        # to IPv6 only, and GitHub's runners have no IPv6, so that rule made the workflow
+        # impossible to run rather than safe. The next step proves the connection can actually do
+        # what the migrations need, which is worth more than guessing from the hostname.
+        run: |
+          for url in "$CONTROL_DATABASE_URL" "$DATA_DATABASE_URL"; do
+            case "$url" in
+              *:6543/*|*:6543\?*)
+                echo 'Refusing: port 6543 is the transaction pooler.' >&2
+                echo 'CREATE INDEX CONCURRENTLY cannot run there. Use the direct host, or the' >&2
+                echo 'session pooler on port 5432.' >&2
+                exit 1;;
+            esac
+          done
+          echo 'Neither connection string is transaction-mode.'
+
+      - name: Prove CREATE INDEX CONCURRENTLY works on this connection
+        # Several migrations depend on it. Whether a given connection can run it depends on how the
+        # connection is pooled, which is not something a hostname reliably tells you -- so it is
+        # tested on the real connection, on a throwaway table, before anything touches the schema.
+        # A migration that fails halfway leaves an INVALID index behind; this failing costs nothing.
+        #
+        # It runs for `status` too, even though nothing else in that mode writes. Finding out that
+        # the connection is wrong is the whole reason to run `status` first, and the cost is one
+        # throwaway table created and dropped inside the migration registry's own schema.
+        run: |
+          for scope in control data; do
+            case "$scope" in
+              control) url="$CONTROL_DATABASE_URL";;
+              data)    url="$DATA_DATABASE_URL";;
+            esac
+            psql "$url" -v ON_ERROR_STOP=1 -q \
+              -c 'CREATE SCHEMA IF NOT EXISTS kommunsign_meta' \
+              -c 'DROP TABLE IF EXISTS kommunsign_meta.concurrent_index_preflight' \
+              -c 'CREATE TABLE kommunsign_meta.concurrent_index_preflight(id integer)' \
+              -c 'CREATE INDEX CONCURRENTLY concurrent_index_preflight_idx ON kommunsign_meta.concurrent_index_preflight(id)' \
+              -c 'DROP TABLE kommunsign_meta.concurrent_index_preflight' \
+            || {
+              echo "Refusing: $scope cannot run CREATE INDEX CONCURRENTLY over this connection." >&2
+              echo 'Error 25001 means the connection wraps statements in a transaction: it is the' >&2
+              echo 'transaction pooler. Use the direct host or the session pooler on port 5432.' >&2
+              psql "$url" -q -c 'DROP TABLE IF EXISTS kommunsign_meta.concurrent_index_preflight' || true
+              exit 1
+            }
+            echo "$scope can run CREATE INDEX CONCURRENTLY."
+          done
+
+      - name: Report what is already applied
+        run: |
+          for scope in control data; do
+            case "$scope" in
+              control) url="$CONTROL_DATABASE_URL";;
+              data)    url="$DATA_DATABASE_URL";;
+            esac
+            echo "== $scope =="
+            psql "$url" -At -c "select migration_file from kommunsign_meta.schema_migrations
+                                 where migration_scope='$scope' order by migration_file" \
+              2>/dev/null | tail -5 || echo '(no registry yet)'
+          done
+
+      - name: Report what is pending
+        run: |
+          for scope in control data; do
+            case "$scope" in
+              control) url="$CONTROL_DATABASE_URL";;
+              data)    url="$DATA_DATABASE_URL";;
+            esac
+            echo "== $scope pending =="
+            for f in migrations/$scope/[0-9]*.sql; do
+              name="$(basename "$f")"
+              recorded="$(psql "$url" -At -c "select migration_checksum from kommunsign_meta.schema_migrations
+                          where migration_scope='$scope' and migration_file='$name'" 2>/dev/null || true)"
+              actual="$(shasum -a 256 "$f" | awk '{print $1}')"
+              if [ -z "$recorded" ]; then
+                echo "PENDING  $name"
+              elif [ "$recorded" != "$actual" ]; then
+                echo "DRIFT    $name (recorded $recorded, file $actual)"
+              fi
+            done
+          done
+
+      - name: Require explicit confirmation
+        if: ${{ inputs.action == 'migrate' }}
+        run: |
+          test "${{ inputs.confirm }}" = "production" || {
+            echo 'Refusing: type "production" in the confirm input to apply migrations.' >&2
+            exit 1
+          }
+
+      - name: Apply migrations
+        if: ${{ inputs.action == 'migrate' }}
+        run: bash scripts/db-migrate.sh
+
+      - name: Verify schema guarantees
+        if: ${{ inputs.action == 'migrate' }}
+        run: bash scripts/db-verify.sh
+
+      - name: Confirm the run is idempotent
+        if: ${{ inputs.action == 'migrate' }}
+        # A second pass must apply nothing. If it does, the first pass did not record what it did.
+        run: |
+          output="$(bash scripts/db-migrate.sh)"
+          echo "$output"
+          if echo "$output" | grep -q '^APPLY'; then
+            echo 'Refusing to pass: the second run still applied migrations.' >&2
+            exit 1
+          fi
+          echo 'Second run applied nothing, as expected.'
+
+      - name: Confirm no index was left invalid
+        if: ${{ inputs.action == 'migrate' }}
+        # A CREATE INDEX CONCURRENTLY that fails part way leaves an INVALID index behind, which is
+        # silently never used by the planner.
+        run: |
+          for scope in control data; do
+            case "$scope" in
+              control) url="$CONTROL_DATABASE_URL";;
+              data)    url="$DATA_DATABASE_URL";;
+            esac
+            invalid="$(psql "$url" -At -c "select count(*) from pg_index where not indisvalid")"
+            echo "$scope invalid indexes: $invalid"
+            test "$invalid" = "0" || { echo "Invalid index present in $scope" >&2; exit 1; }
+          done

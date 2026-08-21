@@ -12,17 +12,47 @@ const context = {
   requestId: 'integration-request', source: 'api-client', authMethod: 'development',
 };
 await withTenantTransaction(database, context, 'trusted_service', async () => 'ok');
-assert.deepEqual(queries.map(([sql]) => sql), [
-  "select set_config('app.tenant_id', $1, true)",
-  "select set_config('app.actor_kind', $1, true)",
-  "select set_config('app.actor_id', $1, true)",
-  "select set_config('app.request_id', $1, true)",
-  "select set_config('app.auth_method', $1, true)",
-  // The key version the row is stamped with (migration data/0029) comes from
-  // the same per-transaction settings as the tenant, so a row written during a
-  // rotation records the key it was actually written under.
-  "select set_config('app.key_version', $1, true)",
+// The tenant context must be established in a single round trip, but every setting has to
+// survive that collapse: a silently dropped app.actor_kind would disable the audit guards.
+assert.equal(queries.length, 1, 'tenant context must cost exactly one round trip');
+const [contextSql, contextParameters] = queries[0];
+assert.deepEqual(contextParameters, [
+  context.tenantId,
+  'trusted_service',
+  context.subjectId,
+  context.requestId,
+  context.authMethod,
+  // The key version rides along in the same round trip: app.key_version is what
+  // the BEFORE INSERT trigger from migration data/0029 stamps on every row that
+  // holds a ciphertext or a blind index.
+  '1',
 ]);
+for (const [ordinal, setting] of [
+  'app.tenant_id', 'app.actor_kind', 'app.actor_id', 'app.request_id', 'app.auth_method', 'app.key_version',
+].entries()) {
+  assert.ok(
+    contextSql.includes(`set_config('${setting}', $${ordinal + 1}, true)`),
+    `tenant context must set ${setting} transaction-locally from parameter $${ordinal + 1}`,
+  );
+}
+
+// Failing to establish tenant context must abort the transaction, never fall through to
+// unscoped work. With five awaits this was structural; with one it rides on a single promise.
+let workRan = false;
+await assert.rejects(
+  withTenantTransaction(
+    {
+      transaction: async (work) => work({
+        query: async () => { throw new Error('TENANT_CONTEXT_REJECTED'); },
+      }),
+    },
+    context,
+    'trusted_service',
+    async () => { workRan = true; return 'ok'; },
+  ),
+  /TENANT_CONTEXT_REJECTED/,
+);
+assert.equal(workRan, false, 'work must not run when tenant context fails');
 
 const handler = createHandler();
 const baseHeaders = {

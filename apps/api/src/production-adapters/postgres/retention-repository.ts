@@ -7,6 +7,9 @@ import {
 } from '../../../../../packages/retention/src/index.js';
 import { MANDATORY_CASE_TARGETS } from '../../../../../packages/retention/src/executor.js';
 
+// Chosen to be far above any realistic tenant while still bounding memory. See preview() below.
+const GALLRING_PREVIEW_MAXIMUM_CASES = 10_000;
+
 /**
  * Gallring, from the customer's side.
  *
@@ -34,9 +37,21 @@ export function createRetentionRepository(database: SqlDatabase): RetentionRepos
                           where a.tenant_id=c.tenant_id and a.signature_case_id=c.id and a.status='completed') archived
              from app.signature_cases c
             where c.tenant_id=$1 and c.completed_at is not null
-            order by c.completed_at`,
-          [context.tenantId],
+            order by c.completed_at
+            limit $2`,
+          [context.tenantId, GALLRING_PREVIEW_MAXIMUM_CASES + 1],
         );
+
+        // This selects every completed case a tenant has ever had, evaluates retention for each in
+        // JavaScript, and returns them all. That is fine at a few hundred cases and fatal at a few
+        // hundred thousand: unbounded memory on both the database and the API.
+        //
+        // The bound raises rather than truncating. A gallring preview is what an operator decides
+        // deletions from, so silently returning a partial list is the one outcome worse than
+        // failing. Paginating this endpoint is the real fix and needs an API contract change.
+        if (rows.rows.length > GALLRING_PREVIEW_MAXIMUM_CASES) {
+          throw new Error('RETENTION_PREVIEW_TOO_LARGE');
+        }
 
         const eligible: GallringPreviewCase[] = [];
         const blocked: GallringPreviewCase[] = [];

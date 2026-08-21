@@ -1,5 +1,6 @@
 declare const process: { readonly env: Readonly<Record<string, string | undefined>> };
-import { requirePermission, requirePlatformPermission } from '../../../../../packages/authorization/src/index.js';
+import { requirePermission, requirePlatformPermission, type TenantRole } from '../../../../../packages/authorization/src/index.js';
+import type { TenantContext } from '../../../../../packages/contracts/src/index.js';
 import { TenantHostnameResolver } from '../../../../../packages/tenant-gateway/src/index.js';
 import type { ApiDependencies, MetricsEndpoint } from '../../ports.js';
 import type { SqlDatabase } from '../../../../../packages/database/src/index.js';
@@ -25,6 +26,34 @@ import { createAuthenticationRepository } from './authentication-repository.js';
 import { productionAuthTimingSink, TimedSupabaseAuthProvider, withAuthenticationOperationTiming, withAuthenticationSqlTiming } from './authentication-observability.js';
 import { createSigningSourceUploadRepository } from './signing-source-upload-repository.js';
 
+// authorize() resolves the subject's roles with a four-table join inside its own tenant
+// transaction. A route that checks two permissions (add-signer, then the personnummer exemption)
+// therefore paid for that join twice, and the second answer is identical to the first.
+//
+// The memo is keyed on requestId, which is unique per request, so a later request never sees a
+// cached answer and role revocation takes effect immediately — unlike a TTL cache. Entries are
+// evicted in insertion order past a fixed ceiling, so a long-lived process cannot grow this map.
+const MAXIMUM_MEMOISED_REQUESTS = 512;
+export function createRoleMemo(
+  load: (context: TenantContext) => Promise<readonly TenantRole[]>,
+): (context: TenantContext) => Promise<readonly TenantRole[]> {
+  const byRequest = new Map<string, Promise<readonly TenantRole[]>>();
+  return (context) => {
+    const key = `${context.requestId}\u0000${context.tenantId}\u0000${context.subjectId}`;
+    const memoised = byRequest.get(key);
+    if (memoised) return memoised;
+    const roles = load(context);
+    byRequest.set(key, roles);
+    if (byRequest.size > MAXIMUM_MEMOISED_REQUESTS) {
+      const oldest = byRequest.keys().next();
+      if (!oldest.done) byRequest.delete(oldest.value);
+    }
+    // A failed lookup must not be remembered as a decision.
+    void roles.catch(() => { byRequest.delete(key); });
+    return roles;
+  };
+}
+
 export async function createProductionDependencies(configuration: ProductionRuntimeConfiguration): Promise<ApiDependencies> {
   const controlDatabase = await createPostgresDatabase(configuration.controlDatabaseUrl, 'kommunsign-control-api');
   const dataDatabase = await createPostgresDatabase(configuration.dataDatabaseUrl, 'kommunsign-data-api');
@@ -45,6 +74,7 @@ export async function createProductionDependencies(configuration: ProductionRunt
       maximumClockSkewSeconds: integerEnvironment('INTERNAL_GATEWAY_MAX_CLOCK_SKEW_SECONDS', 60, 5, 300),
     });
     const tenants = createTenantRepository(dataDatabase);
+    const rolesForRequest = createRoleMemo((context) => tenants.rolesForSubject(context));
     const authTiming = productionAuthTimingSink();
     const authentication = withAuthenticationOperationTiming(createAuthenticationRepository(
       withAuthenticationSqlTiming(controlDatabase, authTiming, 'control'),
@@ -55,6 +85,10 @@ export async function createProductionDependencies(configuration: ProductionRunt
         anonKey: requiredEnvironment('SUPABASE_AUTH_ANON_KEY'),
         serviceRoleKey: requiredEnvironment('SUPABASE_AUTH_SERVICE_ROLE_KEY'),
         requestTimeoutMs: integerEnvironment('SUPABASE_AUTH_REQUEST_TIMEOUT_MS', 10_000, 1_000, 60_000),
+        // Logins are infrequent enough that the built-in fetch had closed its connection to
+        // Stockholm again by the time the next one arrived, so each login began with a DNS
+        // lookup and a TLS handshake before the password was even sent.
+        http: createKeepAliveFetch(),
       }, authTiming),
       {
         rootDomain: requiredEnvironment('KOMMUNSIGN_ROOT_DOMAIN'),
@@ -78,9 +112,10 @@ export async function createProductionDependencies(configuration: ProductionRunt
       onboarding: createOnboardingRepository(controlDatabase, infrastructure),
       authentication,
       resolveContext: (request) => authenticator.resolveTenantContext(request),
-      authorize: async (context, permission) => requirePermission(await tenants.rolesForSubject(context), permission),
+      authorize: async (context, permission) => requirePermission(await rolesForRequest(context), permission),
       resolvePlatformContext: (request) => authenticator.resolvePlatformContext(request),
       authorizePlatform: async (context, permission) => requirePlatformPermission(await authenticator.platformRoles(context), permission),
+      databaseTiming: postgresTimingSnapshot,
       reportError(cause, requestId) {
         const name = cause instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,79}$/.test(cause.name) ? cause.name : 'UnknownError';
         const code = cause instanceof Error && /^[A-Z][A-Z0-9_]{2,79}$/.test(cause.message) ? cause.message : 'INTERNAL_REQUEST_FAILURE';
@@ -133,6 +168,8 @@ function proxyProvider(): 'vercel' | 'cloudflare' | 'railway' | 'none' {
 }
 
 export { createPostgresDatabase, type PostgresDatabase } from './sql-database.js';
+import { postgresTimingSnapshot } from './sql-database.js';
+import { createKeepAliveFetch } from '../../adapters/keep-alive-fetch.js';
 export { createDomainRepository } from './domain-repository.js';
 export { createDomainManagementRepository } from './domain-management-repository.js';
 export { createTenantRepository } from './tenant-repository.js';
@@ -157,6 +194,30 @@ export { createPublicRepositories } from './public-signing-repository.js';
  * cross-tenant operational state, and nothing about the deployment looks wrong
  * while it does.
  */
+export function createScrapeMemo(
+  render: (now: Date) => Promise<string>,
+  ttlMilliseconds: number,
+  clock: () => number = Date.now,
+): (now: Date) => Promise<string> {
+  let cached: { readonly renderedAt: number; readonly body: Promise<string> } | null = null;
+  return (now) => {
+    if (cached && clock() - cached.renderedAt < ttlMilliseconds) return cached.body;
+    const body = render(now);
+    cached = { renderedAt: clock(), body };
+    // A failed scrape must not be served for the rest of the window.
+    void body.catch(() => { cached = null; });
+    return body;
+  };
+}
+
+function boundedInteger(raw: string | undefined, fallback: number, minimum: number, maximum: number): number {
+  const trimmed = raw?.trim();
+  if (!trimmed) return fallback;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) throw new Error('METRICS_CACHE_TTL_MS_INVALID');
+  return parsed;
+}
+
 function metricsEndpoint(controlDatabase: SqlDatabase, dataDatabase: SqlDatabase): { readonly metrics?: MetricsEndpoint } {
   const scrapeToken = process.env.METRICS_SCRAPE_TOKEN ?? '';
   if (scrapeToken.length < 32) return {};
@@ -164,12 +225,26 @@ function metricsEndpoint(controlDatabase: SqlDatabase, dataDatabase: SqlDatabase
   // Reporting a backup needs its own credential, and a deployment that has not
   // set one simply has no ingest route rather than an unauthenticated one.
   const ingestToken = process.env.BACKUP_SIGNAL_TOKEN ?? '';
+  // collect() runs eleven separate transactions, several of them unbounded aggregates over
+  // append-only tables, and it ran in full on every scrape. Prometheus scrapes on a fixed interval
+  // and its alert rules compare against time(), so a gauge that is a few seconds old changes no
+  // alerting decision -- but re-deriving it on every scrape costs the databases a scan apiece,
+  // forever, growing with total platform history.
+  //
+  // The memo also collapses concurrent scrapes: an HA Prometheus pair, or a scrape arriving while
+  // the previous one is still running, now shares a single collect instead of doubling the load.
+  const scrape = createScrapeMemo(
+    async (now: Date) => {
+      const { counters, gauges } = await repository.collect(now);
+      return renderPrometheus(counters, gauges);
+    },
+    boundedInteger(process.env.METRICS_CACHE_TTL_MS, 10_000, 0, 60_000),
+  );
   return {
     metrics: {
       scrapeToken,
       async render(now: Date) {
-        const { counters, gauges } = await repository.collect(now);
-        return renderPrometheus(counters, gauges);
+        return scrape(now);
       },
       ...(ingestToken.length >= 32 ? {
         ingestToken,

@@ -101,6 +101,9 @@ function classifyAuthQuery(sql:string):Exclude<AuthTimingMetric,'auth.provider_m
   }
   if (normalized.includes('tenant_domains')) return 'auth.tenant_resolution_ms';
   if (normalized.includes('platform_subjects')) return normalized.includes('display_name') ? 'auth.authorization_ms' : 'auth.platform_lookup_ms';
+  // The login membership lookup now goes through a SECURITY DEFINER resolver, so its SQL no longer
+  // names the underlying tables. Without this the metric would silently stop being emitted.
+  if (normalized.includes('subject_membership_destinations')) return 'auth.membership_lookup_ms';
   if (normalized.includes('app.memberships') && normalized.includes('app.users')) return normalized.includes('display_name') ? 'auth.authorization_ms' : 'auth.membership_lookup_ms';
   return null;
 }

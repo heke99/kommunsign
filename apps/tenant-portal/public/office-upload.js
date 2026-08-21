@@ -31,10 +31,10 @@
       if (!Number.isSafeInteger(file.size) || file.size < 1 || file.size > OFFICE_MAX_BYTES) throw new Error(messageFor('OFFICE_TOO_LARGE'));
 
       status('document-status', 'Kontrollerar Office-filen och beräknar SHA-256 lokalt.');
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      assertContainer(extension, bytes);
-      const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
-        .map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      // Bara containersignaturen behöver läsas här. Resten av filen rörs aldrig av huvudtråden:
+      // hashningen sker i en worker och själva uppladdningen skickar Blob:en som den är.
+      assertContainer(extension, new Uint8Array(await file.slice(0, 5).arrayBuffer()));
+      const digest = await digestFile(file);
 
       const grant = await body(await api('/v1/uploads', {
         method: 'POST',
@@ -43,33 +43,34 @@
       }));
 
       status('document-status', 'Laddar upp Office-källan till privat karantän.');
-      const uploadResponse = await fetch(grant.uploadUrl, {
-        method: 'PUT',
-        headers: { ...grant.requiredHeaders, 'content-type': mimeType },
-        body: bytes,
-        credentials: 'omit',
-        referrerPolicy: 'no-referrer',
-      });
-      if (!uploadResponse.ok) throw new Error(`UPLOAD_FAILED_${uploadResponse.status}`);
+      showUploadProgress(0);
+      try {
+        await putWithProgress(grant.uploadUrl, { ...grant.requiredHeaders, 'content-type': mimeType }, file, showUploadProgress);
+      } finally {
+        hideUploadProgress();
+      }
 
       await body(await api(`/v1/uploads/${grant.id}/complete`, {
         method: 'POST',
         headers: { 'idempotency-key': key() },
         body: JSON.stringify({ sha256: digest }),
       }));
-      await body(await api(`/v1/signature-cases/${caseId}/documents`, {
+      const view = await body(await api(`/v1/signature-cases/${caseId}/documents`, {
         method: 'POST',
         headers: { 'idempotency-key': key() },
         body: JSON.stringify({ uploadId: grant.id, displayName: file.name }),
       }));
-      await loadCaseDetail(caseId);
       status(
         'document-status',
         `${file.name} ligger i karantän. Skadlig kod kontrolleras och Office-filen konverteras till verifierad PDF/A-2b innan den kan signeras.`,
-        'success',
       );
+      await loadCaseDetail(caseId);
       renderPreview();
+      // Konverteringen är asynkron. Utan bevakning står statusen kvar på karantän tills någon
+      // själv trycker Visa, vilket ser ut som att uppladdningen aldrig blev klar.
+      watchDocument(caseId, view.id, file.name);
     } catch (error) {
+      hideUploadProgress();
       status('document-status', error instanceof Error ? error.message : messageFor('OFFICE_UPLOAD_FAILED'), 'error');
     }
   }, true);

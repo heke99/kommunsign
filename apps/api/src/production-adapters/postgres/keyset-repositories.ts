@@ -25,15 +25,27 @@ async function listCases(database:SqlDatabase, context:TenantContext, page:PageI
   const limit=pageLimit(page);
   const cursor=page.cursor ? decodeCaseCursor(page.cursor) : undefined;
   return tenant(database,context,async(tx)=>{
-    const result=await tx.query<CaseRow>(
-      `select id,tenant_id,status::text as status,status_version,decision_mode::text as decision_mode,title,external_reference,created_at
-         from app.signature_cases
-        where tenant_id=$1
-          and ($2::timestamptz is null or (created_at,id) < ($2::timestamptz,$3::uuid))
-        order by created_at desc,id desc
-        limit $4`,
-      [context.tenantId,cursor?.createdAt ?? null,cursor?.id ?? null,limit+1],
-    );
+    // Two query texts rather than one with "cursor is null or ...". The OR form only becomes an
+    // index bound when the planner can see the parameter values; under a generic plan it degrades to
+    // Index Cond on tenant_id plus a filter, which walks the whole tenant range and makes page N cost
+    // O(N x limit). Splitting it keeps the row comparison a true index start condition either way.
+    const result=cursor
+      ? await tx.query<CaseRow>(
+        `select id,tenant_id,status::text as status,status_version,decision_mode::text as decision_mode,title,external_reference,created_at
+           from app.signature_cases
+          where tenant_id=$1 and (created_at,id) < ($2::timestamptz,$3::uuid)
+          order by created_at desc,id desc
+          limit $4`,
+        [context.tenantId,cursor.createdAt,cursor.id,limit+1],
+      )
+      : await tx.query<CaseRow>(
+        `select id,tenant_id,status::text as status,status_version,decision_mode::text as decision_mode,title,external_reference,created_at
+           from app.signature_cases
+          where tenant_id=$1
+          order by created_at desc,id desc
+          limit $2`,
+        [context.tenantId,limit+1],
+      );
     const rows=result.rows.slice(0,limit);
     return {
       data:rows.map(caseView),
@@ -46,14 +58,22 @@ async function listEvents(database:SqlDatabase, context:TenantContext, page:Page
   const limit=pageLimit(page);
   const cursor=page.cursor ? decodeEventCursor(page.cursor) : undefined;
   return tenant(database,context,async(tx)=>{
-    const result=await tx.query<EventRow>(
-      `select id,event_type,payload,occurred_at from app.outbox_events
-        where tenant_id=$1
-          and ($2::timestamptz is null or (occurred_at,id) < ($2::timestamptz,$3::uuid))
-        order by occurred_at desc,id desc
-        limit $4`,
-      [context.tenantId,cursor?.occurredAt ?? null,cursor?.id ?? null,limit+1],
-    );
+    // Split for the same reason as the case listing above.
+    const result=cursor
+      ? await tx.query<EventRow>(
+        `select id,event_type,payload,occurred_at from app.outbox_events
+          where tenant_id=$1 and (occurred_at,id) < ($2::timestamptz,$3::uuid)
+          order by occurred_at desc,id desc
+          limit $4`,
+        [context.tenantId,cursor.occurredAt,cursor.id,limit+1],
+      )
+      : await tx.query<EventRow>(
+        `select id,event_type,payload,occurred_at from app.outbox_events
+          where tenant_id=$1
+          order by occurred_at desc,id desc
+          limit $2`,
+        [context.tenantId,limit+1],
+      );
     const rows=result.rows.slice(0,limit);
     return {
       data:rows.map((row)=>({id:row.id,tenantId:context.tenantId,type:row.event_type,occurredAt:iso(row.occurred_at),apiVersion:'2026-08-01',data:row.payload})),

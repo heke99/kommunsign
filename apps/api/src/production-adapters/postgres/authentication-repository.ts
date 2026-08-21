@@ -44,7 +44,14 @@ export function createAuthenticationRepository(
   if (!Number.isInteger(configuration.sessionLifetimeSeconds) || configuration.sessionLifetimeSeconds < 900 || configuration.sessionLifetimeSeconds > 86_400) throw new Error('AUTH_SESSION_LIFETIME_INVALID');
 
   async function resolveSubjectDestination(subjectId: string): Promise<ResolvedDestination> {
-    const platform = await controlDatabase.transaction(async (transaction) => transaction.query<{ readonly id: string }>(
+    // These two reads used to run one after the other, and the first is a guaranteed miss for every
+    // tenant user -- which is nearly every login. A full cross-region round trip to the control
+    // plane had to finish before the lookup that actually answers the question could begin. They
+    // read different databases and neither depends on the other, so they are asked at the same
+    // time. A platform subject has no tenant memberships, so for them the second read costs a query
+    // that finds nothing, and if it fails outright that failure is ignored on the branch that does
+    // not need it.
+    const platformQuery = controlDatabase.transaction(async (transaction) => transaction.query<{ readonly id: string }>(
       `select s.id
          from control.platform_subjects s
         where s.id=$1
@@ -58,28 +65,47 @@ export function createAuthenticationRepository(
         limit 1`,
       [subjectId],
     ));
-    if (platform.rows[0]) return { boundary: 'platform', hostname: platformAdminHostname, destinationUrl: `https://${platformAdminHostname}/` };
 
-    const memberships = await dataDatabase.transaction(async (transaction) => transaction.query<{ readonly tenant_id: string }>(
-      `select u.tenant_id
-         from app.users u
-         join app.memberships m on m.tenant_id=u.tenant_id and m.user_id=u.id and m.status='active'
-        where u.external_subject=$1 and u.disabled_at is null
-        group by u.tenant_id
-        order by max(m.created_at) desc, u.tenant_id
-        limit 25`,
+    // Login has to map a verified subject to its tenants before any tenant is known, so this read is
+    // necessarily cross-tenant. It used to be an ordinary query with no tenant context set, which only
+    // returned rows because the runtime role holds BYPASSRLS -- every app table has FORCE ROW LEVEL
+    // SECURITY with tenant_id = app.current_tenant_id(), and with no context that is NULL. Routing it
+    // through an explicit SECURITY DEFINER resolver makes the one deliberate cross-tenant read narrow
+    // and auditable, and keeps login working once the runtime moves to a role that respects RLS.
+    //
+    // The subject id comes from a verified Supabase Auth response, never from a request field, so
+    // AGENTS.md rule 1 holds. Authorization for the tenant that is actually chosen is still decided
+    // separately in assertSubjectAccess, under withTenantTransaction, so RLS governs that decision.
+    const membershipQuery = dataDatabase.transaction(async (transaction) => transaction.query<{ readonly tenant_id: string }>(
+      'select tenant_id from app.subject_membership_destinations($1)',
       [subjectId],
     ));
-    const destinations = await Promise.all(memberships.rows.map(async (membership) => {
-      try { return await primaryTenantDestination(controlDatabase, membership.tenant_id, tenantDiscoveryHostname); }
-      catch (cause) {
-        if (cause instanceof Error && cause.message === 'ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE') return null;
-        throw cause;
-      }
-    }));
-    const destination = destinations.find((value): value is ResolvedDestination => value !== null);
-    if (destination) return destination;
-    throw new Error('AUTH_ACCOUNT_NOT_AUTHORIZED');
+    const [platform, memberships] = await Promise.all([
+      platformQuery,
+      // Settled rather than awaited directly: on the platform branch this result is not used, and a
+      // failure there must not fail a login that never needed it. It is rethrown below, where it is.
+      membershipQuery.then(
+        (value) => ({ ok: true as const, value }),
+        (cause: unknown) => ({ ok: false as const, cause }),
+      ),
+    ]);
+    if (platform.rows[0]) return { boundary: 'platform', hostname: platformAdminHostname, destinationUrl: `https://${platformAdminHostname}/` };
+    if (!memberships.ok) throw memberships.cause;
+
+    // This used to resolve a destination for every membership in parallel -- up to 25 concurrent
+    // control-plane transactions from a single login, against a pool of 20, so one multi-tenant user
+    // signing in could starve the pool. All but the first result were then discarded:
+    // primaryTenantDestination falls back to the discovery hostname when a tenant has no active
+    // primary domain, so it never returns null and the first membership always won. (The catch for
+    // ORGANIZATION_PRIMARY_DOMAIN_NOT_ACTIVE was dead too -- that error is raised by the
+    // hostname-based resolver below, not by this one.)
+    //
+    // Resolving only the first membership is therefore one query instead of up to 25, with exactly
+    // the destination the previous code produced. Memberships are already ordered most recently
+    // joined first by app.subject_membership_destinations.
+    const primary = memberships.value.rows[0];
+    if (!primary) throw new Error('AUTH_ACCOUNT_NOT_AUTHORIZED');
+    return primaryTenantDestination(controlDatabase, primary.tenant_id, tenantDiscoveryHostname);
   }
 
   async function assertSubjectAccess(subjectId: string, destination: ResolvedDestination): Promise<string | undefined> {
@@ -171,8 +197,14 @@ export function createAuthenticationRepository(
       const session = await provider.signInWithPassword(email, input.password);
       const destination = await resolveSubjectDestination(session.user.id);
       const displayName = await assertSubjectAccess(session.user.id, destination);
-      await clearAuthRateLimit(controlDatabase, 'login', bucket);
-      return createSession(session.user.id, destination, displayName);
+      // Every decision has been made by this point. Clearing the rate limit bucket and writing the
+      // session are independent of each other, and neither reads what the other writes, so they
+      // are two round trips that can be one wait instead of two.
+      const [, created] = await Promise.all([
+        clearAuthRateLimit(controlDatabase, 'login', bucket),
+        createSession(session.user.id, destination, displayName),
+      ]);
+      return created;
     },
 
     async forgotPassword(input: PasswordRecoveryInput, metadata: AuthRequestMetadata) {
@@ -260,9 +292,9 @@ export function createAuthenticationRepository(
           where tenant_id=$1
           order by created_at desc,id`, [tenantId],
       ));
-      const views: OrganizationUserView[] = [];
-      for (const row of rows.rows) views.push(await invitationView(row, infrastructure));
-      return views;
+      // Each view decrypts fields with WebCrypto. Awaiting one row before starting the next made
+      // the page cost the sum of every decrypt; Promise.all preserves order and overlaps them.
+      return Promise.all(rows.rows.map((row) => invitationView(row, infrastructure)));
     },
 
     async inviteOrganizationUser(context, tenantId, input, idempotencyKey, payloadHash) {

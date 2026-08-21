@@ -73,8 +73,9 @@ export function createOnboardingRepository(database: SqlDatabase, infrastructure
             offset $3 limit $4`,
           [search,status,offset,limit+1],
         );
-        const views: PlatformOrganizationView[] = [];
-        for (const row of result.rows) views.push(await platformOrganizationView(row,infrastructure));
+        // Matches the Promise.all already used by the sibling listing below; awaiting each row's
+        // decrypt in turn made the page cost the sum of them all.
+        const views = await Promise.all(result.rows.map((row) => platformOrganizationView(row,infrastructure)));
         return pageResult(views,offset,limit);
       });
     },

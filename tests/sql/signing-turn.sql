@@ -99,7 +99,7 @@ END $$;
 --
 -- The refusal goes straight from 'invited'. Refusing to sign something without
 -- opening it first is a legitimate act, and the API has always accepted it;
--- until migration data/0031 the transition table did not, so the whole
+-- until migration data/0037 the transition table did not, so the whole
 -- transaction rolled back and the signer saw a generic failure.
 UPDATE app.signers SET status = 'declined', status_version = status_version + 1
 WHERE tenant_id = :tenant AND id = :step1;

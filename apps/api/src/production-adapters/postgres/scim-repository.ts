@@ -113,9 +113,8 @@ export function createScimRepository(database: SqlDatabase, sensitiveData: Sensi
     async listUsers(context) {
       return tenantTx(database, context, async (tx) => {
         const rows = await tx.query<UserRow>(USER_SELECT + ` where u.tenant_id=$1 and u.scim_user_name is not null order by u.created_at,u.id`, [context.tenantId]);
-        const users: ScimUser[] = [];
-        for (const row of rows.rows) users.push(await toScimUser(row, sensitiveData));
-        return users;
+        // Per-row decrypts run concurrently instead of one after another; order is preserved.
+        return Promise.all(rows.rows.map((row) => toScimUser(row, sensitiveData)));
       });
     },
 

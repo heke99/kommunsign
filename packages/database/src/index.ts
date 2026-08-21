@@ -6,6 +6,20 @@ export interface SqlTransaction {
 }
 export interface SqlDatabase {
   transaction<T>(work: (transaction: SqlTransaction) => Promise<T>): Promise<T>;
+  /**
+   * One statement, run outside any transaction, with no tenant context set.
+   *
+   * Optional: an implementation that does not offer it falls back to a transaction, which is what
+   * readWithoutTenantContext() below does. The name is deliberately awkward. This bypasses
+   * withTenantTransaction, so nothing here issues set_config, and every policy in app is
+   * tenant_id = app.current_tenant_id() -- a tenant-scoped read sent through this path would match
+   * no rows for a role that respects RLS, and every row for one that does not. It is for the
+   * handful of reads that are cross-tenant by design and resolve their own tenant from the answer.
+   */
+  readonly queryWithoutTenantContext?: <Row = Readonly<Record<string, unknown>>>(
+    sql: string,
+    parameters?: readonly unknown[],
+  ) => Promise<QueryResult<Row>>;
 }
 
 /**
@@ -36,6 +50,32 @@ export function currentWritingKeyVersion(): number {
   return writingKeyVersion;
 }
 
+/**
+ * A single read that needs no tenant context, without paying for a transaction around it.
+ *
+ * Measured against production: begin, statement and commit each cost one cross-region round trip,
+ * so wrapping a lone SELECT in a transaction doubled what it cost. Nothing is given up -- one
+ * statement is atomic on its own, and a transaction adds isolation only where there is a second
+ * statement to be isolated from.
+ *
+ * Use it only where the read is cross-tenant by design. Everything tenant-scoped goes through
+ * withTenantTransaction, which must stay a transaction: set_config is transaction-local and it is
+ * what RLS reads.
+ */
+export async function readWithoutTenantContext<Row = Readonly<Record<string, unknown>>>(
+  database: SqlDatabase,
+  sql: string,
+  parameters: readonly unknown[] = [],
+): Promise<QueryResult<Row>> {
+  if (database.queryWithoutTenantContext) return database.queryWithoutTenantContext<Row>(sql, parameters);
+  return database.transaction((transaction) => transaction.query<Row>(sql, parameters));
+}
+
+export const TENANT_CONTEXT_SQL =
+  "select set_config('app.tenant_id', $1, true), set_config('app.actor_kind', $2, true), " +
+  "set_config('app.actor_id', $3, true), set_config('app.request_id', $4, true), " +
+  "set_config('app.auth_method', $5, true), set_config('app.key_version', $6, true)";
+
 export async function withTenantTransaction<T>(
   database: SqlDatabase,
   context: TenantContext,
@@ -43,12 +83,20 @@ export async function withTenantTransaction<T>(
   work: (transaction: SqlTransaction) => Promise<T>,
 ): Promise<T> {
   return database.transaction(async (transaction) => {
-    await transaction.query("select set_config('app.tenant_id', $1, true)", [context.tenantId]);
-    await transaction.query("select set_config('app.actor_kind', $1, true)", [actorKind]);
-    await transaction.query("select set_config('app.actor_id', $1, true)", [context.subjectId]);
-    await transaction.query("select set_config('app.request_id', $1, true)", [context.requestId]);
-    await transaction.query("select set_config('app.auth_method', $1, true)", [context.authMethod]);
-    await transaction.query("select set_config('app.key_version', $1, true)", [String(writingKeyVersion)]);
+    // One round trip instead of five. Every setting stays transaction-local (is_local = true)
+    // and is applied before work() runs, so RLS policies and audit guards read the same values
+    // through current_setting() as they did when these were issued separately.
+    await transaction.query(TENANT_CONTEXT_SQL, [
+      context.tenantId,
+      actorKind,
+      context.subjectId,
+      context.requestId,
+      context.authMethod,
+      // The key version the row is stamped with (migration data/0029) rides
+      // along in the same round trip, so a row written during a rotation
+      // records the key it was actually written under.
+      String(writingKeyVersion),
+    ]);
     return work(transaction);
   });
 }

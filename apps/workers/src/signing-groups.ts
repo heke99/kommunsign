@@ -12,7 +12,7 @@ const SYSTEM_ACTOR_ID = '00000000-0000-0000-0000-000000000000';
  * same implementation. Two copies of "whose turn is it now" would eventually
  * disagree, and the way that disagreement surfaces is a signer being asked to
  * sign before the person whose approval theirs depends on. The predicate itself
- * lives in app.signing_turn_blocked (migration data/0030) so that the API, this
+ * lives in app.signing_turn_blocked (migration data/0036) so that the API, this
  * job and the reminder job cannot drift apart across a rolling deployment.
  */
 export async function activateNextSigningGroup(

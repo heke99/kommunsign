@@ -1,9 +1,12 @@
 import { createServer } from 'node:http';
 import { isIP } from 'node:net';
 import { timingSafeEqual } from 'node:crypto';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { compress, compressibleResponse } from './compression.mjs';
+import { bodyLimitFor } from './request-limits.mjs';
 
 const port = Number.parseInt(process.env.PORT ?? '3001', 10);
-const maximumRequestBytes = Number.parseInt(process.env.API_MAX_REQUEST_BYTES ?? String(1024 * 1024), 10);
 let applicationHandler = null;
 let readinessCode = 'API_DEPENDENCIES_NOT_CONFIGURED';
 
@@ -76,10 +79,13 @@ function constantTimeSecretMatches(value, expected) {
   return supplied.length === wanted.length && timingSafeEqual(supplied, wanted);
 }
 
+// Read once at boot rather than per request: the process would have to restart for either to change.
+const trustProxy = (process.env.TRUST_PROXY ?? 'true').trim().toLowerCase() === 'true';
+const proxyProvider = (process.env.TRUSTED_PROXY_PROVIDER ?? 'vercel').trim().toLowerCase();
+
 function trustedProxyRequest(request) {
-  const trustProxy = (process.env.TRUST_PROXY ?? 'true').trim().toLowerCase() === 'true';
   if (!trustProxy) return false;
-  const provider = (process.env.TRUSTED_PROXY_PROVIDER ?? 'vercel').trim().toLowerCase();
+  const provider = proxyProvider;
   if (provider === 'railway') {
     return Boolean(
       process.env.RAILWAY_ENVIRONMENT_ID
@@ -92,21 +98,22 @@ function trustedProxyRequest(request) {
   return constantTimeSecretMatches(request.headers['x-kommunsign-proxy-secret'], process.env.TRUSTED_PROXY_SHARED_SECRET);
 }
 
-function trustedClientIp(request) {
-  const provider = (process.env.TRUSTED_PROXY_PROVIDER ?? 'vercel').trim().toLowerCase();
-  if (!trustedProxyRequest(request) || provider === 'none') return firstForwardedIp(request.socket.remoteAddress);
+// Takes the already-computed trust decision so a request does not evaluate it twice.
+function trustedClientIp(request, proxyTrusted) {
+  const provider = proxyProvider;
+  if (!proxyTrusted || provider === 'none') return firstForwardedIp(request.socket.remoteAddress);
   if (provider === 'railway') return firstForwardedIp(request.headers['x-real-ip']);
   if (provider === 'cloudflare') return firstForwardedIp(request.headers['cf-connecting-ip']);
   if (provider === 'vercel') return firstForwardedIp(request.headers['x-vercel-forwarded-for'] ?? request.headers['x-forwarded-for']);
   return null;
 }
 
-async function readBody(request) {
+async function readBody(request, limit) {
   const chunks = [];
   let length = 0;
   for await (const chunk of request) {
     length += chunk.length;
-    if (length > maximumRequestBytes) throw new Error('REQUEST_TOO_LARGE');
+    if (length > limit) throw new Error('REQUEST_TOO_LARGE');
     chunks.push(chunk);
   }
   return chunks.length === 0 ? undefined : Buffer.concat(chunks);
@@ -133,7 +140,8 @@ async function dispatch(request, response) {
 
   try {
     const host = request.headers.host ?? 'localhost';
-    const body = await readBody(request);
+    const requestPath = (request.url ?? '/').split('?', 1)[0];
+    const body = await readBody(request, bodyLimitFor(requestPath));
     const forwardedHeaders = new Headers(request.headers);
     const proxyTrusted = trustedProxyRequest(request);
     const forwardedHost = proxyTrusted ? request.headers['x-forwarded-host'] : undefined;
@@ -141,7 +149,7 @@ async function dispatch(request, response) {
     forwardedHeaders.delete('x-kommunsign-proxy-secret');
     forwardedHeaders.delete('x-forwarded-host');
     if (forwardedHost) forwardedHeaders.set('x-forwarded-host', String(forwardedHost).split(',', 1)[0].trim());
-    const clientIp = trustedClientIp(request);
+    const clientIp = trustedClientIp(request, proxyTrusted);
     if (clientIp) forwardedHeaders.set('x-kommunsign-end-user-ip', clientIp);
     const fetchRequest = new Request(`http://${host}${request.url ?? '/'}`, {
       method: request.method,
@@ -149,8 +157,38 @@ async function dispatch(request, response) {
       ...(body ? { body } : {}),
     });
     const fetchResponse = await applicationHandler(fetchRequest);
-    const responseBody = Buffer.from(await fetchResponse.arrayBuffer());
     const headers = Object.fromEntries(fetchResponse.headers.entries());
+    const declared = Number(headers['content-length']);
+    const declaredLength = Number.isSafeInteger(declared) && declared >= 0 ? declared : null;
+    const encoding = compressibleResponse(request, requestPath, fetchResponse.status, headers, declaredLength);
+
+    // Every document download used to be read fully into an ArrayBuffer and then copied into a
+    // Buffer, on top of the copy the storage adapter had already made -- three or four copies of
+    // the same file resident at once, per concurrent request. At 20 MB and a handful of users
+    // that is the difference between the container coping and not. A body that will not be
+    // compressed is now handed to the socket as it arrives.
+    //
+    // Only the uncompressed path streams. Compression needs the whole body anyway, and the
+    // allowlist means the bodies that qualify are JSON and text, which the router built in memory
+    // to begin with; streaming those would buy nothing and would mean holding a compressor open
+    // across the response.
+    if (!encoding && fetchResponse.body) {
+      response.writeHead(fetchResponse.status, { ...headers, ...corsHeaders(request) });
+      const source = Readable.fromWeb(fetchResponse.body);
+      // If the client disconnects mid-download, stop pulling bytes from storage rather than
+      // finishing a transfer nobody is reading.
+      response.on('close', () => { if (!source.destroyed) source.destroy(); });
+      await pipeline(source, response);
+      return;
+    }
+
+    let responseBody = Buffer.from(await fetchResponse.arrayBuffer());
+    if (encoding) {
+      responseBody = await compress(encoding, responseBody);
+      headers['content-encoding'] = encoding;
+      // A cache keyed only on the URL must not hand a brotli body to a client that cannot read it.
+      headers.vary = headers.vary ? `${headers.vary}, Accept-Encoding` : 'Accept-Encoding';
+    }
     response.writeHead(fetchResponse.status, { ...headers, ...corsHeaders(request), 'content-length': responseBody.length });
     response.end(responseBody);
   } catch (cause) {
@@ -161,8 +199,11 @@ async function dispatch(request, response) {
 
 const server = createServer((request, response) => { void dispatch(request, response); });
 server.requestTimeout = 30_000;
-server.headersTimeout = 15_000;
-server.keepAliveTimeout = 5_000;
+// keepAliveTimeout must exceed the proxy's idle timeout, or the proxy races a socket this server is
+// already closing and the client sees a sporadic 502. Node requires headersTimeout to be the larger
+// of the two.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 70_000;
 server.listen(port, '0.0.0.0', () => {
   console.log(JSON.stringify({ level: 'info', event: 'api_listening', port, ready: Boolean(applicationHandler) }));
 });

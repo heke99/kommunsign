@@ -36,10 +36,20 @@ const SUPPORTED_JOB_TYPES: Readonly<Record<DurableJobType, true>> = {
 };
 const supportedTypes: readonly DurableJobType[] = Object.keys(SUPPORTED_JOB_TYPES) as DurableJobType[];
 
+/** Matches the channel the app.notify_durable_job trigger publishes on (migration 0035). */
+const DURABLE_JOB_CHANNEL = 'kommunsign_durable_job';
+
 interface AdapterResult {
   readonly repository: DurableJobRepository;
   readonly handlers: Readonly<Record<DurableJobType, (job: DurableJob) => Promise<void>>>;
   readonly close: () => Promise<void>;
+  /**
+   * Subscribe to the wake-up channel a durable job fires when it becomes claimable.
+   *
+   * Lets the runner interrupt its poll backoff instead of sleeping through it. Optional: if the
+   * subscription cannot be established the runner still polls, just less promptly.
+   */
+  readonly onJobReady?: (handler: () => void) => Promise<() => Promise<void>>;
 }
 
 interface DurableJobRow {
@@ -56,8 +66,13 @@ interface DurableJobRow {
 export async function createProductionWorkerAdapter(
   configuration: Readonly<Record<string, string>>,
 ): Promise<AdapterResult> {
-  const controlDatabase = await createPostgresDatabase(required(configuration, 'CONTROL_DATABASE_URL'), 'kommunsign-control-worker');
-  const dataDatabase = await createPostgresDatabase(required(configuration, 'DATA_DATABASE_URL'), 'kommunsign-data-worker');
+  // A worker processes a bounded number of jobs at a time; it does not need an API-sized pool.
+  const controlDatabase = await createPostgresDatabase(
+    required(configuration, 'CONTROL_DATABASE_URL'), 'kommunsign-control-worker', { maximumConnections: 5 },
+  );
+  const dataDatabase = await createPostgresDatabase(
+    required(configuration, 'DATA_DATABASE_URL'), 'kommunsign-data-worker', { maximumConnections: 5 },
+  );
   try {
     const infrastructure = await loadProductionInfrastructure(configuration);
     const provisioning = createProvisioningRepository(controlDatabase, dataDatabase, infrastructure, {
@@ -108,6 +123,9 @@ export async function createProductionWorkerAdapter(
     return {
       repository,
       handlers,
+      async onJobReady(handler) {
+        return dataDatabase.listen(DURABLE_JOB_CHANNEL, () => handler());
+      },
       async close() {
         await Promise.allSettled([controlDatabase.close(), dataDatabase.close()]);
       },

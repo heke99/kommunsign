@@ -113,8 +113,8 @@
     "F008": {
       "state": "Sekventiell signering avgörs av app.signing_turn_blocked, som är enda definitionen av vems tur det är. En undertecknare med giltig inbjudningslänk för steg 3 avvisas ändå med SIGNING_ORDER_BLOCKED tills steg 2 är klart: länken bevisar vem personen är, inte att det är dennes tur. Samma predikat styr vilken grupp som bjuds in härnäst och vilka som får påminnelser, så de tre vägarna kan inte komma till olika svar. Predikatet ligger i databasen och inte i en delad modul, eftersom API och worker är separata utrullningar och en delad modul under en rullande release är två versioner.",
       "gap": "Ingen.",
-      "implementation": "migrations/data/0030_signing_turn_predicate.sql, apps/api/src/production-adapters/postgres/public-signing-repository.ts (loadStartInput), apps/workers/src/signing-groups.ts, app.signers.signing_order.",
-      "evidence": "migrations/data/0030_signing_turn_predicate.sql; apps/api/src/production-adapters/postgres/public-signing-repository.ts; apps/workers/src/signing-groups.ts; tests/sql/signing-turn.sql",
+      "implementation": "migrations/data/0036_signing_turn_predicate.sql, apps/api/src/production-adapters/postgres/public-signing-repository.ts (loadStartInput), apps/workers/src/signing-groups.ts, app.signers.signing_order.",
+      "evidence": "migrations/data/0036_signing_turn_predicate.sql; apps/api/src/production-adapters/postgres/public-signing-repository.ts; apps/workers/src/signing-groups.ts; tests/sql/signing-turn.sql",
       "verification": "tests/sql/signing-turn.sql: första steget, blockerade steg, frivillig granskare som inte får stoppa beslutet, och avslag som inte räknas som signerat. tests/sql/pades-signature-chain.sql visar att nästa steg öppnas när föregående är signerat med fullständig beviskedja.",
       "status": "PASS",
       "changeNote": "Evidensen pekade på packages/signing-workflow, som ingen applikation nådde. Ordningskontrollen fanns och fungerade, men på två andra ställen."
@@ -122,8 +122,8 @@
     "F009": {
       "state": "Parallell signering är samma modell med en enda signeringsgrupp: alla undertecknare delar signing_order, app.signing_turn_blocked svarar aldrig blockerad, och samtliga får agera samtidigt. Ärendet blir klart först när alla obligatoriska har signerat, och ett avslag från en obligatorisk undertecknare avslutar ärendet i stället för att hoppas över — återstående signaturer summerar då inte till ett godkänt beslut.",
       "gap": "Ingen.",
-      "implementation": "migrations/data/0030_signing_turn_predicate.sql, app.signers.signing_order, apps/api/src/production-adapters/postgres/public-signing-repository.ts (decline), migrations/data/0009 (completion guards).",
-      "evidence": "migrations/data/0030_signing_turn_predicate.sql; apps/api/src/production-adapters/postgres/public-signing-repository.ts; migrations/data/0009_integrity_and_worker_recovery.sql; tests/sql/signing-turn.sql",
+      "implementation": "migrations/data/0036_signing_turn_predicate.sql, app.signers.signing_order, apps/api/src/production-adapters/postgres/public-signing-repository.ts (decline), migrations/data/0009 (completion guards).",
+      "evidence": "migrations/data/0036_signing_turn_predicate.sql; apps/api/src/production-adapters/postgres/public-signing-repository.ts; migrations/data/0009_integrity_and_worker_recovery.sql; tests/sql/signing-turn.sql",
       "verification": "tests/sql/signing-turn.sql täcker det parallella fallet. tests/sql/pades-signature-chain.sql visar att ett ärende inte kan slutföras medan en obligatorisk undertecknare saknas.",
       "status": "PASS"
     },
@@ -148,8 +148,8 @@
     "F012": {
       "state": "Påminnelser går bara till undertecknare som faktiskt kan agera. Jobbet frågar app.signing_turn_blocked — samma definition som signeringsvägen använder — och hoppar dessutom över avslutade och utgångna ärenden. Tidigare påmindes varje undertecknare med status invited eller opened oavsett turordning, vilket innebar att undertecknare tre fick tjatande e-post om en handling som skulle vägra öppna sig för dem. Det lär mottagaren att ignorera påminnelser från tjänsten, inklusive den som till slut spelar roll. En påminnelse roterar inbjudningstoken och återkallar den gamla.",
       "gap": "Påminnelser skickas på begäran från verksamhetsportalen. Ett återkommande schema finns som tabell (app.reminder_schedules) men har ingen skrivare eller läsare.",
-      "implementation": "apps/workers/src/production-handlers.ts (handleReminder), migrations/data/0030_signing_turn_predicate.sql, apps/api/src/production-adapters/postgres/data-database.ts (remind).",
-      "evidence": "apps/workers/src/production-handlers.ts; migrations/data/0030_signing_turn_predicate.sql; tests/sql/signing-turn.sql",
+      "implementation": "apps/workers/src/production-handlers.ts (handleReminder), migrations/data/0036_signing_turn_predicate.sql, apps/api/src/production-adapters/postgres/data-database.ts (remind).",
+      "evidence": "apps/workers/src/production-handlers.ts; migrations/data/0036_signing_turn_predicate.sql; tests/sql/signing-turn.sql",
       "verification": "tests/sql/signing-turn.sql täcker predikatet påminnelsejobbet frågar, inklusive fallet där en giltig inbjudan finns men turen inte har kommit.",
       "status": "PASS",
       "changeNote": "Evidensen pekade på decideReminder i packages/signing-workflow, som ingen anropade — och påminnelsejobbet ställde inte frågan alls. Rättat 2026-08-20."

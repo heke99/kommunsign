@@ -84,7 +84,30 @@ function renderSession(value){
   if(value.status==='COMPLETED'){stopPolling();show('invitation',false);show('bankid-panel',false);show('completed');}
   if(['FAILED','CANCELLED','EXPIRED'].includes(value.status))stopPolling();
 }
-function startPolling(){stopPolling();pollTimer=setInterval(async()=>{if(!session)return;try{renderSession(await api(invitationPath(`/bankid/sessions/${encodeURIComponent(session.sessionId)}`)));}catch(error){setStatus('bankid-status',`Status kunde inte hämtas: ${error.message}. Ett nytt försök görs.`, 'error');}},2000);}
+// Polling ran until the tab closed. A signer who walks away leaves a tab asking the API for status
+// every two seconds indefinitely, and each of those costs two database transactions plus an
+// outbound call to BankID. Polling past the session's own expiry cannot tell us anything new, so it
+// stops there; a hard ceiling covers a session whose expiry never arrives.
+const MAXIMUM_POLL_MILLISECONDS=15*60*1000;
+function sessionExpired(){
+  if(!session||!session.expiresAt)return false;
+  const expiresAt=new Date(session.expiresAt).getTime();
+  return Number.isFinite(expiresAt)&&Date.now()>expiresAt;
+}
+function startPolling(){
+  stopPolling();
+  const startedAt=Date.now();
+  pollTimer=setInterval(async()=>{
+    if(!session)return;
+    if(sessionExpired()||Date.now()-startedAt>MAXIMUM_POLL_MILLISECONDS){
+      stopPolling();
+      setStatus('bankid-status','BankID-sessionen har gått ut. Starta om underskriften för att försöka igen.','error');
+      return;
+    }
+    try{renderSession(await api(invitationPath(`/bankid/sessions/${encodeURIComponent(session.sessionId)}`)));}
+    catch(error){setStatus('bankid-status',`Status kunde inte hämtas: ${error.message}. Ett nytt försök görs.`, 'error');}
+  },2000);
+}
 function stopPolling(){if(pollTimer){clearInterval(pollTimer);pollTimer=null;}}
 $('same-device').addEventListener('click',()=>{const token=$('same-device').dataset.token;if(token)location.href=`bankid:///?autostarttoken=${encodeURIComponent(token)}&redirect=null`;});
 $('extend').addEventListener('click',async()=>{if(!session)return;$('extend').disabled=true;try{renderSession(await api(invitationPath(`/bankid/sessions/${encodeURIComponent(session.sessionId)}/extend`),{method:'POST',body:'{}'}));}catch(error){setStatus('bankid-status',`Sessionen kunde inte förlängas: ${error.message}.`,'error');}});
