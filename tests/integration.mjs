@@ -18,6 +18,10 @@ assert.deepEqual(queries.map(([sql]) => sql), [
   "select set_config('app.actor_id', $1, true)",
   "select set_config('app.request_id', $1, true)",
   "select set_config('app.auth_method', $1, true)",
+  // The key version the row is stamped with (migration data/0029) comes from
+  // the same per-transaction settings as the tenant, so a row written during a
+  // rotation records the key it was actually written under.
+  "select set_config('app.key_version', $1, true)",
 ]);
 
 const handler = createHandler();

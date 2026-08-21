@@ -12,6 +12,7 @@ import type {
   DownloadArtifact, SignaturePolicyView,
 } from '../../ports.js';
 import type { ProductionInfrastructure } from './infrastructure.js';
+import { decideDisclosure, normaliseProtectionLevel, redactedPlaceholder } from '../../../../../packages/protected-identity/src/index.js';
 
 export interface DataRepositories {
   readonly cases: CaseRepository;
@@ -102,7 +103,10 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
           `select coalesce(jsonb_agg(jsonb_build_object(
              'id',s.id,'displayName',s.display_name,'status',s.status::text,'signingOrder',s.signing_order,'required',s.required,
              'identifierBindingMode',s.identifier_binding_mode,'identifierBindingExceptionCode',s.identifier_binding_exception_code,
-             'emailConfigured',(s.email_ciphertext is not null)
+             'emailConfigured',(s.email_ciphertext is not null),'protectionLevel',s.protection_level,
+             'assessedUntil',(select max(a.expires_at) from app.protected_identity_assessments a
+                               where a.tenant_id=s.tenant_id and a.signer_id=s.id and a.revoked_at is null
+                                 and length(btrim(a.ground))>0)
            ) order by s.signing_order,s.id), '[]'::jsonb) as payload
              from app.signers s where s.tenant_id=$1 and s.signature_case_id=$2`, [context.tenantId,id],
         );
@@ -119,7 +123,7 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
           expiresAt: row.expires_at ? iso(row.expires_at) : undefined,
           updatedAt: iso(row.updated_at),
           documents: documents.rows[0]?.payload ?? [],
-          signers: signers.rows[0]?.payload ?? [],
+          signers: redactSignersForScreen(context.tenantId, signers.rows[0]?.payload ?? []),
           events: events.rows[0]?.payload ?? [],
           evidenceAvailable: row.evidence_available,
           archiveCompleted: row.archive_completed,
@@ -183,6 +187,31 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
           await appendOutbox(transaction, context.tenantId, 'signer', view.id, 'signer.identifier_binding_exception_used', { signatureCaseId: id, signerId: view.id, code: view.identifierBindingExceptionCode });
         }
         return view;
+      }));
+    },
+    async recordDisclosureAssessment(context, id, signerId, input, key, payloadHash) {
+      return tenantTx(database, context, async (transaction) => idempotent(transaction, context.tenantId, `case:${id}:signer:${signerId}:assessment`, key, payloadHash, async () => {
+        const signer = await transaction.query<{ readonly protection_level: string }>(
+          `select protection_level from app.signers where tenant_id=$1 and signature_case_id=$2 and id=$3`,
+          [context.tenantId, id, signerId],
+        );
+        requireRow(signer.rows[0], 'NOT_FOUND');
+        const assessedAt = new Date();
+        const expiresAt = new Date(assessedAt.getTime() + input.validForMinutes * 60_000);
+        const inserted = await transaction.query<{ readonly id: string }>(
+          `insert into app.protected_identity_assessments(tenant_id,signer_id,assessed_by,ground,assessed_at,expires_at)
+           values($1,$2,$3,$4,$5,$6) returning id`,
+          [context.tenantId, signerId, context.subjectId, input.ground, assessedAt.toISOString(), expiresAt.toISOString()],
+        );
+        const assessmentId = requireRow(inserted.rows[0], 'ASSESSMENT_NOT_RECORDED').id;
+        // Audited without the ground. The ground states why someone's
+        // sekretessmarkering was set aside, and it can name what is being
+        // protected; the audit log records that a decision was made and by whom,
+        // and the decision itself stays in the row behind row-level security.
+        await appendOutbox(transaction, context.tenantId, 'signer', signerId, 'signer.disclosure_assessed', {
+          signatureCaseId: id, signerId, assessmentId, expiresAt: expiresAt.toISOString(),
+        });
+        return { id: assessmentId, signerId, assessedAt: assessedAt.toISOString(), expiresAt: expiresAt.toISOString() };
       }));
     },
     async updateSigner(context, id, signerId, input, key, payloadHash, expectedVersion) {
@@ -604,14 +633,15 @@ async function insertOrUpdateSigner(
     context.tenantId,id,signatureCaseId,cleanText(input.displayName,1,200),`signer-${id}`,emailCiphertext,emailBlindIndex,
     expectedCiphertext,expectedBlindIndex,decision.mode,decision.exception?.code ?? null,exceptionReasonCiphertext,
     decision.mode === 'BANKID_DISCOVERED' ? actorId : null,decision.mode === 'BANKID_DISCOVERED' ? new Date().toISOString() : null,
-    input.signingOrder,input.required,
+    input.signingOrder,input.required,input.protectionLevel ?? 'NONE',
   ];
   if (signerId) {
     const updated = await transaction.query<{ readonly id:string }>(
       `update app.signers set display_name=$4,recipient_reference=$5,email_ciphertext=$6,email_blind_index=$7,
         expected_identifier_ciphertext=$8,expected_identifier_blind_index=$9,expected_identifier_type=case when $10='STRICT_PREBOUND' then 'SSN' else null end,
         identifier_binding_mode=$10,identifier_binding_exception_code=$11,identifier_binding_exception_reason_ciphertext=$12,
-        identifier_binding_exception_approved_by=$13,identifier_binding_exception_at=$14,signing_order=$15,required=$16,status_version=status_version+1
+        identifier_binding_exception_approved_by=$13,identifier_binding_exception_at=$14,signing_order=$15,required=$16,
+        protection_level=$17,status_version=status_version+1
        where tenant_id=$1 and id=$2 and signature_case_id=$3 and status='pending' returning id`, parameters,
     );
     requireRow(updated.rows[0], 'SIGNER_NOT_EDITABLE');
@@ -620,8 +650,8 @@ async function insertOrUpdateSigner(
       `insert into app.signers(tenant_id,id,signature_case_id,display_name,recipient_reference,email_ciphertext,email_blind_index,
         expected_identifier_ciphertext,expected_identifier_blind_index,expected_identifier_type,identifier_binding_mode,
         identifier_binding_exception_code,identifier_binding_exception_reason_ciphertext,identifier_binding_exception_approved_by,
-        identifier_binding_exception_at,status,signing_order,required)
-       values($1,$2,$3,$4,$5,$6,$7,$8,$9,case when $10='STRICT_PREBOUND' then 'SSN' else null end,$10,$11,$12,$13,$14,'pending',$15,$16)`, parameters,
+        identifier_binding_exception_at,status,signing_order,required,protection_level)
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9,case when $10='STRICT_PREBOUND' then 'SSN' else null end,$10,$11,$12,$13,$14,'pending',$15,$16,$17)`, parameters,
     );
   }
   return {
@@ -740,6 +770,46 @@ interface CaseRow { readonly id:string; readonly tenant_id:string; readonly stat
 interface DocumentRow { readonly id:string; readonly document_id:string; readonly status:string; readonly sha256:string; readonly byte_size:number|string; readonly mime_type:string; }
 interface SignerRow { readonly id:string; readonly signature_case_id:string; readonly display_name:string; readonly status:SignerView['status']; readonly signing_order:number; readonly required:boolean; readonly identifier_binding_mode:'STRICT_PREBOUND'|'BANKID_DISCOVERED'; }
 interface CaseSigningRow { readonly id:string; readonly external_reference:string|null; readonly title:string; readonly policy_id:string; readonly policy_version:number; readonly organization_name:string|null; }
+/**
+ * The case view, seen by a colleague inside the tenant.
+ *
+ * SCREEN_AUTHORISED is the channel: the reader is authenticated and authorised
+ * for this case, which is why a name can be shown at all once a confidentiality
+ * assessment has been recorded. Without one, a protected signer appears as a
+ * placeholder rather than being omitted — a case with a missing participant
+ * reads as an error and invites someone to go looking, which is the opposite of
+ * what protection is for.
+ *
+ * The protection level itself is not returned. Whether this person is protected
+ * is not the caseworker's business either.
+ */
+function redactSignersForScreen(tenantId: string, payload: unknown): unknown {
+  if (!Array.isArray(payload)) return payload;
+  const now = new Date();
+  return payload.map((entry) => {
+    if (typeof entry !== 'object' || entry === null) return entry;
+    const signer = entry as Record<string, unknown>;
+    const level = normaliseProtectionLevel(signer.protectionLevel);
+    const assessedUntil = typeof signer.assessedUntil === 'string' ? signer.assessedUntil : null;
+    const { protectionLevel: _level, assessedUntil: _until, ...visible } = signer;
+    if (level === 'NONE') return visible;
+    const decision = decideDisclosure({
+      tenantId, subjectId: String(signer.id ?? ''), level, channel: 'SCREEN_AUTHORISED',
+      fields: ['fullName', 'emailAddress'], now,
+      assessment: assessedUntil === null ? null : {
+        tenantId, subjectId: String(signer.id ?? ''), assessedBy: String(signer.id ?? ''),
+        assessedAt: now.toISOString(), expiresAt: assessedUntil, ground: 'recorded',
+      },
+    });
+    return {
+      ...visible,
+      protected: true,
+      ...(decision.disclosed.includes('fullName') ? {} : { displayName: redactedPlaceholder('fullName') }),
+      ...(decision.disclosed.includes('emailAddress') ? {} : { emailConfigured: false }),
+    };
+  });
+}
+
 interface SigningDocumentRow { readonly document_id:string; readonly document_version_id:string; readonly display_name:string; readonly sha256:string; readonly mime_type:string; readonly byte_size:number|string; readonly document_role:string; }
 interface SigningSignerRow { readonly id:string; readonly display_name:string; readonly email_ciphertext:Uint8Array; readonly identifier_binding_mode:'STRICT_PREBOUND'|'BANKID_DISCOVERED'; readonly identifier_binding_exception_code:string|null; readonly signing_order:number; readonly required:boolean; }
 interface UploadRow { readonly id:string; readonly object_key:string; readonly file_name:string; readonly mime_type:string; readonly byte_size:number|string; readonly expected_sha256:string; readonly status:string; }

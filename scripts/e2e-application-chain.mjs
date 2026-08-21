@@ -500,19 +500,48 @@ await step('a second case reaches the identity boundary', async () => {
     return rows[0]?.ready === 2 ? rows[0] : null;
   }, { timeoutMs: 180_000 });
 
+  // Skyddad folkbokföring, because the whole chain below has to work for a
+  // protected person exactly as it does for anyone else -- the signature must
+  // still be provable -- while the name must not appear on the channels that
+  // leave the system. A case that only ever ran with an unprotected signer
+  // proves nothing about either half.
   const signer = expect(await tenant('POST', `/v1/signature-cases/${secondCaseId}/signers`, {
-    displayName: 'E2E Beslutsfattare',
-    email: 'beslutsfattare@kungalv.invalid',
+    displayName: 'E2E Skyddad Beslutsfattare',
+    email: 'skyddad@kungalv.invalid',
     personalNumber: '199001010009',
     requirePersonalNumberMatch: true,
     personalNumberException: null,
     required: true,
     signingOrder: 1,
+    protectionLevel: 'SKYDDAD_FOLKBOKFORING',
   }, { 'idempotency-key': randomUUID() }), 201, 'add second signer');
   secondSignerId = signer.id;
   const current = expect(await tenant('GET', `/v1/signature-cases/${secondCaseId}`), 200, 'read second case');
+  const onScreen = (current.signers ?? []).find((entry) => entry.id === secondSignerId);
+  if (!onScreen?.protected) throw new Error('the protected signer is not marked protected on the case view');
+  if (onScreen.displayName !== 'Skyddad identitet') {
+    throw new Error(`the case view discloses the protected name as ${onScreen.displayName}`);
+  }
   expect(await tenant('POST', `/v1/signature-cases/${secondCaseId}/send`, undefined,
     { 'idempotency-key': randomUUID(), 'if-match': String(current.statusVersion) }), 200, 'send second case');
+
+  // The subject line is the one channel that is readable without
+  // authenticating: lock-screen previews, mail server logs, a forwarded shared
+  // mailbox. It carries no identifying value for anyone, and for a protected
+  // signer neither does the body.
+  const protectedInvitation = await waitFor('the protected invitation to be sent', async () => {
+    const response = await fetch(`https://127.0.0.1:${required('E2E_STUB_PORT')}/stub/emails`);
+    const payload = await response.json();
+    const match = payload.delivered.filter((entry) => JSON.stringify(entry).includes('skyddad@kungalv.invalid'));
+    return match.length > 0 ? match[match.length - 1] : null;
+  }, { timeoutMs: 90_000 });
+  const rendered = JSON.stringify(protectedInvitation);
+  if (String(protectedInvitation.subject ?? '').includes('Skyddad Beslutsfattare')) {
+    throw new Error(`the invitation subject discloses the protected name: ${protectedInvitation.subject}`);
+  }
+  if (rendered.includes('E2E Skyddad Beslutsfattare')) {
+    throw new Error('the invitation body discloses the protected name');
+  }
 
   // Starting BankID is what moves the signer to identity_started and creates
   // the identity transaction. Deliberately not polled: polling is what enqueues

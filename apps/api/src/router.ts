@@ -16,10 +16,11 @@ import { normalizeSwedishPersonalNumber, IDENTIFIER_BINDING_EXCEPTION_CODES } fr
 declare const process: { readonly env: Readonly<Record<string, string | undefined>> };
 
 import type {
-  AddDocumentInput, AddSignerInput, ApiDependencies, CreateCaseInput, DownloadArtifact,
+  AddDocumentInput, AddSignerInput, ApiDependencies, CreateCaseInput, DisclosureAssessmentInput, DownloadArtifact,
   PageInput, RecordPrivacyRequestInput, TemplateInput, UploadGrantInput, WebhookEndpointInput,
 } from './ports.js';
 import type { IssueScimClientInput } from './production-adapters/postgres/scim-repository.js';
+import { normaliseProtectionLevel } from '../../../packages/protected-identity/src/index.js';
 
 const MAX_JSON_BODY_BYTES = 128 * 1024;
 const MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024;
@@ -404,9 +405,22 @@ function parseAddDocumentInput(value: unknown): AddDocumentInput {
     documentRole: role,
   };
 }
+function parseDisclosureAssessmentInput(value: unknown): DisclosureAssessmentInput {
+  assertPlainObject(value);
+  assertAllowedKeys(value, ['ground', 'validForMinutes']);
+  // A ground of "ok" is not a ground. The floor is low enough not to be
+  // bureaucratic and high enough that the field cannot be dismissed with a
+  // keystroke, which is what makes it reviewable later.
+  const ground = requireString(value.ground, 'ground', 10, 2_000);
+  const validForMinutes = optionalPositiveInteger(value.validForMinutes, 'validForMinutes') ?? 60;
+  if (validForMinutes > 720) {
+    throw new ApiRequestError('VALIDATION_ERROR', 'validForMinutes may not exceed 720', 422, { field: 'validForMinutes' });
+  }
+  return { ground, validForMinutes };
+}
 function parseAddSignerInput(value: unknown): AddSignerInput {
   assertPlainObject(value);
-  assertAllowedKeys(value, ['displayName', 'email', 'personalNumber', 'requirePersonalNumberMatch', 'personalNumberException', 'required', 'signingOrder']);
+  assertAllowedKeys(value, ['displayName', 'email', 'personalNumber', 'requirePersonalNumberMatch', 'personalNumberException', 'required', 'signingOrder', 'protectionLevel']);
   const displayName = requireString(value.displayName, 'displayName', 1, 200);
   const email = requireString(value.email, 'email', 3, 320).toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ApiRequestError('VALIDATION_ERROR', 'email is invalid', 422, { field: 'email' });
@@ -430,9 +444,14 @@ function parseAddSignerInput(value: unknown): AddSignerInput {
   if (personalNumber && (!requirePersonalNumberMatch || personalNumberException)) throw new ApiRequestError('PERSONAL_NUMBER_INVALID', 'Strict binding cannot include an exception', 422);
   if (!personalNumber && (requirePersonalNumberMatch || !personalNumberException)) throw new ApiRequestError('PERSONAL_NUMBER_REQUIRED', 'A valid personal number or authorized exception is required', 422);
   if (personalNumberException?.code === 'OTHER' && !personalNumberException.reason) throw new ApiRequestError('PERSONAL_NUMBER_EXCEPTION_REASON_REQUIRED', 'A reason is required for OTHER', 422);
+  // Normalised rather than validated against the list: an unrecognised value
+  // becomes the strictest level, so a typo or a code Skatteverket adds later
+  // fails towards protection instead of away from it.
+  const protectionLevel = normaliseProtectionLevel(value.protectionLevel ?? 'NONE');
   return {
     displayName, email, personalNumber, requirePersonalNumberMatch, personalNumberException,
     required: requireBoolean(value.required, 'required'), signingOrder: optionalPositiveInteger(value.signingOrder, 'signingOrder') ?? 1,
+    protectionLevel,
   };
 }
 function parseUploadInput(value: unknown): UploadGrantInput {
@@ -871,6 +890,17 @@ export function createApiHandler(dependencies: ApiDependencies): (request: Reque
         const key = requireIdempotencyKey(request);
         const input = parseAddDocumentInput(await readJson(request));
         return json(await dependencies.cases.addDocument(context, id, input, key, await canonicalPayloadHash(input)), 202, { 'x-request-id': requestId });
+      }
+      const assessmentMatch = id && request.method === 'POST'
+        ? new RegExp(`^/v1/signature-cases/${id}/signers/([0-9a-fA-F-]{36})/disclosure-assessments$`).exec(url.pathname)
+        : null;
+      if (id && assessmentMatch?.[1]) {
+        // Its own permission: being allowed to handle a case is not being
+        // allowed to decide that someone's sekretessmarkering may be set aside.
+        await authorize(dependencies, context, 'protected-identity:assess');
+        const key = requireIdempotencyKey(request);
+        const input = parseDisclosureAssessmentInput(await readJson(request));
+        return json(await dependencies.cases.recordDisclosureAssessment(context, id, assessmentMatch[1]!, input, key, await canonicalPayloadHash(input)), 201, { 'x-request-id': requestId });
       }
       if (id && request.method === 'POST' && url.pathname === `/v1/signature-cases/${id}/signers`) {
         await authorize(dependencies, context, 'signer:add');

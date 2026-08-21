@@ -12,6 +12,8 @@ import { createEvidenceZip } from '../../../packages/evidence/src/zip.js';
 import { sha256Hex } from '../../../packages/crypto/src/hash.js';
 import { canonicalJson, type CanonicalJsonValue } from '../../../packages/crypto/src/canonical-json.js';
 import { maskSwedishPersonalNumber } from '../../../packages/personal-number/src/index.js';
+import { decideDisclosure, normaliseProtectionLevel, redactedPlaceholder } from '../../../packages/protected-identity/src/index.js';
+import { loadActiveAssessment } from '../../../packages/protected-identity/src/store.js';
 
 /**
  * Archive export.
@@ -274,9 +276,10 @@ async function loadArchiveCase(
     const identities = await tx.query<{
       readonly signer_id: string; readonly provider: string; readonly verified_at: string | Date;
       readonly verification_report_sha256: string; readonly verified_identifier_ciphertext: Uint8Array | null;
+      readonly protection_level: string | null;
     }>(
       `select si.signer_id, it.provider::text provider, tia.verified_at, tia.verification_report_sha256,
-              s.verified_identifier_ciphertext
+              s.verified_identifier_ciphertext, s.protection_level
          from app.signing_intents si
          join app.identity_transactions it on it.tenant_id=si.tenant_id and it.signing_intent_id=si.id
          join app.tic_identity_artifacts tia on tia.tenant_id=si.tenant_id and tia.identity_transaction_id=it.id
@@ -323,9 +326,24 @@ async function loadArchiveCase(
       // A full personal number must never reach a preservation package; the
       // archive keeps the record for decades and the masked form is enough to
       // tie a signature to a person alongside the identity evidence hash.
-      const identifier = row.verified_identifier_ciphertext
-        ? maskSwedishPersonalNumber(await infrastructure.sensitiveData.decryptText(row.verified_identifier_ciphertext, 'signer.verified_personal_number'))
-        : 'okänd';
+      //
+      // A masked personal number is still a personal number for the levels
+      // Skatteverket's protections cover: the archive outlives every access
+      // control around it, so what leaves here cannot be taken back. The
+      // signature stays provable through the identity evidence hash, which is
+      // not identifying on its own.
+      const level = normaliseProtectionLevel(row.protection_level ?? 'NONE');
+      const disclosure = decideDisclosure({
+        tenantId, subjectId: row.signer_id, level, channel: 'ARCHIVE_EXPORT',
+        fields: ['personalNumber'],
+        assessment: level === 'NONE' ? null : await loadActiveAssessment(tx, tenantId, row.signer_id),
+        now: new Date(),
+      });
+      const identifier = !disclosure.disclosed.includes('personalNumber')
+        ? redactedPlaceholder('personalNumber')
+        : row.verified_identifier_ciphertext
+          ? maskSwedishPersonalNumber(await infrastructure.sensitiveData.decryptText(row.verified_identifier_ciphertext, 'signer.verified_personal_number'))
+          : 'okänd';
       archiveIdentities.push({
         signerId: row.signer_id,
         provider: row.provider,

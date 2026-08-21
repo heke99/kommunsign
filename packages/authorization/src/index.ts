@@ -33,7 +33,11 @@ export type Permission =
   // request and actually erasing someone's data are different acts, and the
   // person who logs the request should not be the one who can silently destroy
   // the record behind it.
-  | 'privacy:manage' | 'privacy:execute';
+  | 'privacy:manage' | 'privacy:execute'
+  // Disclosing a protected person's details is its own act with its own record,
+  // so it is its own grant. Being allowed to handle a case is not being allowed
+  // to decide that someone's sekretessmarkering may be set aside.
+  | 'protected-identity:assess';
 
 const permissions: Readonly<Record<TenantRole, readonly Permission[]>> = {
   tenant_admin: [
@@ -42,9 +46,9 @@ const permissions: Readonly<Record<TenantRole, readonly Permission[]>> = {
     'validation:read', 'evidence:download', 'policy:manage', 'integration:manage',
     'webhook:manage', 'event:read', 'template:read', 'template:manage',
     'audit:read', 'archive:manage', 'tenant:manage', 'retention:manage', 'retention:execute',
-    'privacy:manage', 'privacy:execute',
+    'privacy:manage', 'privacy:execute', 'protected-identity:assess',
   ],
-  tenant_security_admin: ['case:read', 'validation:read', 'policy:manage', 'audit:read', 'event:read', 'integration:manage', 'retention:manage', 'privacy:manage', 'privacy:execute'],
+  tenant_security_admin: ['case:read', 'validation:read', 'policy:manage', 'audit:read', 'event:read', 'integration:manage', 'retention:manage', 'privacy:manage', 'privacy:execute', 'protected-identity:assess'],
   tenant_integration_admin: ['case:create', 'case:read', 'document:add', 'signer:add', 'upload:create', 'integration:manage', 'webhook:manage', 'event:read', 'template:read'],
   tenant_archive_admin: ['case:read', 'document:download', 'validation:read', 'evidence:download', 'archive:manage', 'audit:read', 'event:read', 'retention:manage', 'retention:execute'],
   department_admin: ['case:create', 'case:send', 'case:cancel', 'case:read', 'case:remind', 'document:add', 'document:download', 'signer:add', 'upload:create', 'validation:read', 'evidence:download', 'template:read'],

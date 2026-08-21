@@ -16,6 +16,9 @@ import { createEvidenceManifest, type EvidenceFile } from '../../../packages/evi
 import { createEvidenceZip } from '../../../packages/evidence/src/zip.js';
 import { normalizeSwedishPersonalNumber } from '../../../packages/personal-number/src/index.js';
 import { formatSwedishTimestampWithOffset } from '../../../packages/locale/src/index.js';
+import { assertSubjectLineIsSafe, decideDisclosure, normaliseProtectionLevel } from '../../../packages/protected-identity/src/index.js';
+import { loadActiveAssessment } from '../../../packages/protected-identity/src/store.js';
+import type { ConfidentialityAssessment } from '../../../packages/protected-identity/src/index.js';
 import { activateNextSigningGroup } from './signing-groups.js';
 import { createPadesJobHandlers, type PadesServices } from './pades-handlers.js';
 import { createWebhookJobHandlers, createWebhookServices } from './webhook-handlers.js';
@@ -449,18 +452,31 @@ async function handleEvidencePackageBuild(database: SqlDatabase, infrastructure:
 
 async function handleEmailSend(database: SqlDatabase, infrastructure: ProductionInfrastructure, services: Services, job: DurableJob): Promise<void> {
   const emailMessageId = uuidPayload(job.payload, 'emailMessageId');
-  const row = await tenant(database, job.tenantId, async (tx) => {
+  const loaded = await tenant(database, job.tenantId, async (tx) => {
     const result = await tx.query<EmailRow>(
-      `select m.id,m.signer_id,m.signature_case_id,m.template_key,m.template_version,m.locale,m.recipient_ciphertext,m.message_payload_ciphertext,m.idempotency_key,m.status,m.attempt_count,m.maximum_attempts,o.legal_name
+      `select m.id,m.signer_id,m.signature_case_id,m.template_key,m.template_version,m.locale,m.recipient_ciphertext,m.message_payload_ciphertext,m.idempotency_key,m.status,m.attempt_count,m.maximum_attempts,o.legal_name,
+              s.display_name as signer_display_name, s.protection_level
          from app.email_messages m left join app.signature_cases c on c.tenant_id=m.tenant_id and c.id=m.signature_case_id
          left join app.organizations o on o.tenant_id=c.tenant_id
+         left join app.signers s on s.tenant_id=m.tenant_id and s.id=m.signer_id
         where m.tenant_id=$1 and m.id=$2 for update of m`, [job.tenantId, emailMessageId]);
-    return requireRow(result.rows[0], 'EMAIL_MESSAGE_NOT_FOUND');
+    const emailRow = requireRow(result.rows[0], 'EMAIL_MESSAGE_NOT_FOUND');
+    return { row: emailRow, assessment: await loadActiveAssessment(tx, job.tenantId, emailRow.signer_id) };
   });
+  const row = loaded.row;
   if (['accepted','delivered','bounced','complained','cancelled'].includes(row.status)) return;
   const recipient = await infrastructure.sensitiveData.decryptText(row.recipient_ciphertext, 'signer.email');
   const payload = JSON.parse(await infrastructure.sensitiveData.decryptText(row.message_payload_ciphertext, `email.${row.template_key}`)) as Record<string, unknown>;
-  const rendered = renderEmail(row.template_key, payload, row.legal_name ?? 'Kommunsign', services);
+  // The body is a channel too, and its rules differ from the subject's. A
+  // reader of the body has the link but not necessarily an account, so a name
+  // is disclosed only where the protection level allows it.
+  const level = normaliseProtectionLevel(row.protection_level ?? 'NONE');
+  const bodyDisclosure = decideDisclosure({
+    tenantId: job.tenantId, subjectId: row.signer_id ?? job.tenantId, level,
+    channel: 'NOTIFICATION_EMAIL_BODY', fields: ['fullName'], assessment: loaded.assessment, now: new Date(),
+  });
+  const signerName = bodyDisclosure.disclosed.includes('fullName') ? row.signer_display_name : null;
+  const rendered = renderEmail(row.template_key, payload, row.legal_name ?? 'Kommunsign', services, signerName, [recipient]);
   const message: EmailMessage = { from: services.defaultFrom, to: [{ email: recipient }], replyTo: services.defaultReplyTo, subject: rendered.subject, html: rendered.html, text: rendered.text, idempotencyKey: row.idempotency_key, tags: { tenant: job.tenantId, template: row.template_key } };
   try {
     const result = await services.email.send(message);
@@ -546,16 +562,38 @@ async function loadEvidenceFiles(database: SqlDatabase, infrastructure: Producti
   const caseInfo = await tenant(database, context.tenantId, async (tx) => {
     const caseResult = await tx.query<{readonly title:string;readonly external_reference:string|null;readonly legal_name:string|null}>(`select c.title,c.external_reference,o.legal_name from app.signature_cases c left join app.organizations o on o.tenant_id=c.tenant_id where c.tenant_id=$1 and c.id=$2`, [context.tenantId, signatureCaseId]);
     const signers = await tx.query<EvidenceSignerRow>(
-      `select s.id,si.visible_text,si.non_visible_payload,tia.collect_response_object_key,tia.signature_xml_object_key,tia.ocsp_response_object_key,tia.verification_report_object_key,tia.verified_at
+      `select s.id,s.protection_level,si.visible_text,si.non_visible_payload,tia.collect_response_object_key,tia.signature_xml_object_key,tia.ocsp_response_object_key,tia.verification_report_object_key,tia.verified_at
          from app.signers s join app.signing_intents si on si.tenant_id=s.tenant_id and si.signer_id=s.id
          join app.tic_identity_artifacts tia on tia.tenant_id=si.tenant_id and tia.signing_intent_id=si.id and tia.verification_result='PASS'
         where s.tenant_id=$1 and s.signature_case_id=$2 and ($3::uuid is null or s.id=$3) order by s.signing_order,s.id`, [context.tenantId, signatureCaseId, signerId ?? null]);
     const documents = await tx.query<EvidenceDocumentRow>(`select d.id,d.display_name,v.canonical_object_key,v.sha256 from app.documents d join app.document_versions v on v.tenant_id=d.tenant_id and v.document_id=d.id where d.tenant_id=$1 and d.signature_case_id=$2 and v.status in ('locked','partially_signed','signed','validated','archived') order by d.created_at,d.id`, [context.tenantId, signatureCaseId]);
     const reports = await tx.query<{readonly object_key:string;readonly report_type:string;readonly document_version_id:string}>(`select r.object_key,r.report_type,r.document_version_id from app.document_processor_reports r join app.document_versions v on v.tenant_id=r.tenant_id and v.id=r.document_version_id join app.documents d on d.tenant_id=v.tenant_id and d.id=v.document_id where r.tenant_id=$1 and d.signature_case_id=$2 and r.report_type='PDFA_VALIDATION' order by d.created_at,d.id`, [context.tenantId, signatureCaseId]);
     const audits = await tx.query(`select sequence,category,event_type,actor_type,actor_id,resource_type,resource_id,payload,occurred_at,previous_event_hash,event_hash,hash_version from audit.audit_events where tenant_id=$1 and (resource_id=$2 or payload->>'signatureCaseId'=$2::text) order by sequence`, [context.tenantId, signatureCaseId]);
-    return { caseRow: requireRow(caseResult.rows[0], 'SIGNATURE_CASE_NOT_FOUND'), signers: signers.rows, documents: documents.rows, reports: reports.rows, audits: audits.rows };
+    const assessments = new Map<string, ConfidentialityAssessment | null>();
+    for (const signer of signers.rows) {
+      assessments.set(signer.id, await loadActiveAssessment(tx, context.tenantId, signer.id));
+    }
+    return { caseRow: requireRow(caseResult.rows[0], 'SIGNATURE_CASE_NOT_FOUND'), signers: signers.rows, documents: documents.rows, reports: reports.rows, audits: audits.rows, assessments };
   });
   if (caseInfo.signers.length === 0) throw permanent('EVIDENCE_VERIFIED_SIGNER_MISSING');
+  // The evidence package is the one artefact whose purpose is to prove who
+  // signed, so it keeps name and personal number for the levels that allow it.
+  // Fingerade personuppgifter allow neither on any channel, and a package that
+  // resolved the former identity would defeat the point of the protection — so
+  // it is refused rather than silently stripped, because a package missing the
+  // evidence it claims to carry is worse than no package.
+  const protectedSigners: string[] = [];
+  for (const signer of caseInfo.signers) {
+    const level = normaliseProtectionLevel(signer.protection_level ?? 'NONE');
+    if (level === 'NONE') continue;
+    protectedSigners.push(signer.id);
+    const decision = decideDisclosure({
+      tenantId: context.tenantId, subjectId: signer.id, level, channel: 'EVIDENCE_PACKAGE',
+      fields: ['fullName', 'personalNumber'],
+      assessment: caseInfo.assessments.get(signer.id) ?? null, now: new Date(),
+    });
+    if (decision.disclosed.length === 0) throw permanent('EVIDENCE_PACKAGE_PROTECTED_IDENTITY_REFUSED');
+  }
   const files: EvidenceFile[] = [];
   if (!signerId) {
     let ordinal = 0;
@@ -595,7 +633,7 @@ async function loadEvidenceFiles(database: SqlDatabase, infrastructure: Producti
     files.push({ path: 'audit-events.json', bytes: UTF8.encode(canonicalJson(caseInfo.audits as unknown as CanonicalJsonValue)), mediaType: 'application/json' });
   }
   const createdAt = new Date(caseInfo.signers.map((signer) => new Date(signer.verified_at).getTime()).sort((a,b)=>b-a)[0]!).toISOString();
-  return { files, metadata: { organization: caseInfo.caseRow.legal_name ?? 'Kommunsign-tenant', caseReference: caseInfo.caseRow.external_reference ?? signatureCaseId, caseTitle: caseInfo.caseRow.title, signerCount: caseInfo.signers.length, packageType: signerId ? 'signer' : 'case' }, createdAt };
+  return { files, metadata: { organization: caseInfo.caseRow.legal_name ?? 'Kommunsign-tenant', caseReference: caseInfo.caseRow.external_reference ?? signatureCaseId, caseTitle: caseInfo.caseRow.title, signerCount: caseInfo.signers.length, protectedSignerCount: protectedSigners.length, packageType: signerId ? 'signer' : 'case' }, createdAt };
 }
 
 function createServices(configuration: Readonly<Record<string,string>>): Services {
@@ -663,7 +701,14 @@ function trustAnchors(configuration: Readonly<Record<string,string>>): readonly 
   return configured.split(',').map((entry) => entry.trim()).filter((entry) => entry.length > 0);
 }
 
-function renderEmail(templateKey: string, payload: Record<string,unknown>, organization: string, services: Services): {readonly subject:string;readonly text:string;readonly html:string} {
+function renderEmail(
+  templateKey: string,
+  payload: Record<string,unknown>,
+  organization: string,
+  services: Services,
+  signerName: string | null,
+  recipientIdentifiers: readonly string[],
+): {readonly subject:string;readonly text:string;readonly html:string} {
   const token = requiredString(payload.invitationToken, 'EMAIL_TEMPLATE_TOKEN_MISSING');
   // formatSwedishDateTime rather than toLocaleString: the latter answers with
   // whatever locale and tzdata the container happens to ship, and a base image
@@ -675,6 +720,12 @@ function renderEmail(templateKey: string, payload: Record<string,unknown>, organ
   const reminder = templateKey === 'signature_reminder';
   if (!['signature_invitation','signature_reminder'].includes(templateKey)) throw permanent('EMAIL_TEMPLATE_NOT_IMPLEMENTED');
   const subject = reminder ? `Påminnelse: handling väntar på din underskrift hos ${organization}` : `Handling väntar på din underskrift hos ${organization}`;
+  // The subject line is the one channel that is always readable without
+  // authenticating: it shows on a lock screen, in mail server logs, and in any
+  // shared mailbox the address forwards to. So it carries no identifying value
+  // for anyone, protected or not — this asserts it rather than trusting the
+  // template to stay that way.
+  assertSubjectLineIsSafe(subject, [signerName, recipientIdentifiers].flat().filter((value): value is string => Boolean(value)));
   const text = `${reminder ? 'Påminnelse: ' : ''}${organization} har skickat handlingar som ska granskas och undertecknas med BankID.\n\nÖppna signeringen: ${url}\n\nLänken gäller till ${expiresAt}. Dokument bifogas inte i e-post. Kommunsign visar de exakta PDF/A-handlingarna innan BankID startas.`;
   const html = `<p>${reminder ? '<strong>Påminnelse:</strong> ' : ''}${escapeHtml(organization)} har skickat handlingar som ska granskas och undertecknas med BankID.</p><p><a href="${escapeHtml(url)}">Öppna signeringen</a></p><p>Länken gäller till ${escapeHtml(expiresAt)}. Dokument bifogas inte i e-post. Kommunsign visar de exakta PDF/A-handlingarna innan BankID startas.</p>`;
   return { subject, text, html };
@@ -742,7 +793,7 @@ interface CanonicalizeRow { readonly id:string;readonly document_id:string;reado
 interface CollectRow { readonly id:string;readonly provider_reference:string;readonly status:string;readonly signing_intent_id:string;readonly signature_case_id:string;readonly signer_id:string; }
 interface ValidationRow { readonly id:string;readonly provider_reference:string;readonly status:string;readonly raw_evidence_object_key:string|null;readonly signing_intent_id:string;readonly signature_case_id:string;readonly signer_id:string;readonly visible_text:string;readonly non_visible_payload:string;readonly identifier_binding_mode:'STRICT_PREBOUND'|'BANKID_DISCOVERED';readonly expected_identifier_ciphertext:Uint8Array|null; }
 interface ValidationDocumentRow { readonly document_sha256:string;readonly document_version_id:string;readonly canonical_object_key:string|null; }
-interface EmailRow { readonly id:string;readonly signer_id:string|null;readonly signature_case_id:string|null;readonly template_key:string;readonly template_version:number;readonly locale:string;readonly recipient_ciphertext:Uint8Array;readonly message_payload_ciphertext:Uint8Array;readonly idempotency_key:string;readonly status:string;readonly attempt_count:number;readonly maximum_attempts:number;readonly legal_name:string|null; }
+interface EmailRow { readonly id:string;readonly signer_id:string|null;readonly signature_case_id:string|null;readonly template_key:string;readonly template_version:number;readonly locale:string;readonly recipient_ciphertext:Uint8Array;readonly message_payload_ciphertext:Uint8Array;readonly idempotency_key:string;readonly status:string;readonly attempt_count:number;readonly maximum_attempts:number;readonly legal_name:string|null;readonly signer_display_name:string|null;readonly protection_level:string|null; }
 interface ReminderRow { readonly id:string;readonly email_ciphertext:Uint8Array;readonly expires_at:string|Date|null; }
-interface EvidenceSignerRow { readonly id:string;readonly visible_text:string;readonly non_visible_payload:string;readonly collect_response_object_key:string;readonly signature_xml_object_key:string;readonly ocsp_response_object_key:string;readonly verification_report_object_key:string;readonly verified_at:string|Date; }
+interface EvidenceSignerRow { readonly id:string;readonly protection_level:string|null;readonly visible_text:string;readonly non_visible_payload:string;readonly collect_response_object_key:string;readonly signature_xml_object_key:string;readonly ocsp_response_object_key:string;readonly verification_report_object_key:string;readonly verified_at:string|Date; }
 interface EvidenceDocumentRow { readonly id:string;readonly display_name:string;readonly canonical_object_key:string|null;readonly sha256:string|null; }

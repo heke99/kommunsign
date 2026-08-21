@@ -198,6 +198,7 @@ const caseRepository: CaseRepository = {
   async signedDocument(context, id) { requireCase(context, id); throw new Error('SIGN_SERVICE_NOT_CONFIGURED'); },
   async validationReport(context, id) { requireCase(context, id); throw new Error('VALIDATION_SERVICE_NOT_CONFIGURED'); },
   async evidencePackage(context, id) { requireCase(context, id); throw new Error('EVIDENCE_PACKAGE_NOT_READY'); },
+  async recordDisclosureAssessment(context, id) { requireCase(context, id); throw new Error('PROTECTED_IDENTITY_ASSESSMENT_NOT_SUPPORTED_IN_DEVELOPMENT'); },
 };
 
 const uploadRepository: UploadRepository = {

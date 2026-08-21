@@ -57,8 +57,25 @@ export interface AddSignerInput {
   readonly personalNumberException: PersonalNumberExceptionInput | null;
   readonly required: boolean;
   readonly signingOrder: number;
+  /**
+   * Skatteverket's collective term covers three different protections, and
+   * treating them as one boolean is how a protected person's address ends up in
+   * a notification. Stated by the tenant, who is the party that holds this
+   * knowledge; Kommunsign has no population register and must not pretend to.
+   */
+  readonly protectionLevel?: 'NONE' | 'SEKRETESSMARKERING' | 'SKYDDAD_FOLKBOKFORING' | 'FINGERADE_PERSONUPPGIFTER';
   /** Set by the API boundary only after authorization; never accepted from JSON. */
   readonly exceptionPermissionGranted?: true;
+}
+export interface DisclosureAssessmentInput {
+  readonly ground: string;
+  readonly validForMinutes: number;
+}
+export interface DisclosureAssessmentView {
+  readonly id: string;
+  readonly signerId: string;
+  readonly assessedAt: string;
+  readonly expiresAt: string;
 }
 export interface SignerView {
   readonly id: string;
@@ -153,6 +170,13 @@ export interface CaseRepository {
   list(context: TenantContext, page: PageInput): Promise<Page<SignatureCaseView>>;
   addDocument(context: TenantContext, id: string, input: AddDocumentInput, idempotencyKey: string, payloadHash: string): Promise<DocumentView>;
   addSigner(context: TenantContext, id: string, input: AddSignerInput, idempotencyKey: string, payloadHash: string): Promise<SignerView>;
+  /**
+   * Records a menprövning: who decided, on what ground, and until when. The
+   * decision is what makes a disclosure lawful, and the record is what makes it
+   * reviewable afterwards — an assessment nobody can inspect is indistinguishable
+   * from no assessment at all.
+   */
+  recordDisclosureAssessment(context: TenantContext, id: string, signerId: string, input: DisclosureAssessmentInput, idempotencyKey: string, payloadHash: string): Promise<DisclosureAssessmentView>;
   updateSigner(context: TenantContext, id: string, signerId: string, input: AddSignerInput, idempotencyKey: string, payloadHash: string, expectedVersion?: number): Promise<SignerView>;
   send(context: TenantContext, id: string, idempotencyKey: string, payloadHash: string, expectedVersion?: number): Promise<SignatureCaseView>;
   cancel(context: TenantContext, id: string, idempotencyKey: string, payloadHash: string, expectedVersion?: number): Promise<SignatureCaseView>;
