@@ -306,7 +306,10 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
                from jsonb_to_recordset($3::jsonb) as d(
                  document_version_id uuid, ordinal integer, document_sha256 text,
                  display_name text, mime_type text, profile text, byte_size bigint, document_role text)`,
-            [context.tenantId, signingIntentId, JSON.stringify(snapshots.map((document) => ({
+            // Passed as a native array, not a JSON string: postgres.js encodes an
+            // object parameter as jsonb itself, so stringifying first produces a
+            // jsonb *string* and jsonb_to_recordset refuses it (22023).
+            [context.tenantId, signingIntentId, snapshots.map((document) => ({
               document_version_id: document.documentVersionId,
               ordinal: document.ordinal,
               document_sha256: document.sha256,
@@ -315,7 +318,7 @@ export function createCaseRepository(database: SqlDatabase, infrastructure: Prod
               profile: document.profile,
               byte_size: document.byteSize,
               document_role: document.role,
-            })))],
+            }))],
           );
           if (signer.signing_order === firstGroup) {
             const invitationId = crypto.randomUUID();

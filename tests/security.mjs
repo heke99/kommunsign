@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { encryptedFromJson } from '../dist/packages/document-processing/src/production.js';
-import { createOidcTransaction, verifyOidcCallback } from '../dist/packages/auth/src/index.js';
 import { contrastRatio, validateAndNormalizeBranding } from '../dist/packages/branding/src/index.js';
 import { assertDomainTransition, canonicalHostname } from '../dist/packages/custom-domains/src/index.js';
-import { createInvitationToken, verifyInvitationToken } from '../dist/packages/invitations/src/index.js';
 import { assertMagicBytesMatch, storedBytesMatchGrant, validateUploadMetadata } from '../dist/packages/uploads/src/index.js';
 import { assertResolvedWebhookAddresses, assertSafeWebhookUrl } from '../dist/packages/webhooks/src/index.js';
 
@@ -44,9 +42,12 @@ assert.throws(() => assertMagicBytesMatch('application/pdf', new TextEncoder().e
 // the SAML and OIDC handshake, including replay, lives in federation-router.ts
 // and is covered by tests/sql/federation-replay.sql.
 
-const oidc = await createOidcTransaction('https://app.example/callback', new Date('2026-08-02T10:00:00Z'));
-verifyOidcCallback(oidc, { state: oidc.state, nonce: oidc.nonce, redirectUri: oidc.redirectUri, now: new Date('2026-08-02T10:01:00Z') });
-assert.throws(() => verifyOidcCallback(oidc, { state: 'wrong', nonce: oidc.nonce, redirectUri: oidc.redirectUri, now: new Date('2026-08-02T10:01:00Z') }));
+// The OIDC handshake and the invitation token used to be proved here against
+// packages/auth and packages/invitations. Both packages had no caller anywhere
+// in the product and were removed; the handshake that actually runs lives in
+// apps/api/src/federation-router.ts and is covered by
+// tests/sql/federation-replay.sql, and invitation tokens are issued and
+// resolved through app.resolve_public_invitation.
 
 // The hash of an uploaded file is verified against what the uploader committed to. That check used
 // to run while confirming the upload and now runs in the scan, which already holds the bytes. The
@@ -84,4 +85,4 @@ for (const output of ['', 'not json', 'null', '[]', '{}', '{"encrypt":null}', '{
   assert.equal(encryptedFromJson(output), null, `unrecognised qpdf JSON must fall back, not pass: ${output}`);
 }
 
-console.log('security tests: branding applied to the portal, SSRF, domains, uploads, invitations and OIDC passed');
+console.log('security tests: branding applied to the portal, SSRF, domains, uploads and qpdf JSON passed');
